@@ -18,7 +18,7 @@ from warehouse_suit.transfer_service import record_transfer_formal_inbound
 _COUNTER = [0]
 
 
-def login(client, username="admin", password="Costar@508"):
+def login(client, username="admin", password="admin"):
     response = client.post(
         "/api/login", json={"username": username, "password": password}
     )
@@ -283,7 +283,7 @@ def test_complete_temporary_transfer_business_loop_is_atomic_and_idempotent(
         outcomes.append((username, response.status_code))
 
     workers = [
-        threading.Thread(target=claim_task, args=("admin", "Costar@508")),
+        threading.Thread(target=claim_task, args=("admin", "admin")),
         threading.Thread(target=claim_task, args=("final_buyer2", "test")),
     ]
     for worker in workers:
@@ -301,7 +301,7 @@ def test_complete_temporary_transfer_business_loop_is_atomic_and_idempotent(
     login(
         client,
         "admin" if assigned == admin_id else "final_buyer2",
-        "Costar@508" if assigned == admin_id else "test",
+        "admin" if assigned == admin_id else "test",
     )
     started = client.post(
         f"/api/temporary-inventory/transfers/{task_id}/start-acceptance",

@@ -5,7 +5,7 @@ import warehouse_suit.attachments as attachment_service
 from warehouse_suit.settings import set_setting, workflow_settings
 
 
-def _login(client, username="admin", password="Costar@508"):
+def _login(client, username="admin", password="admin"):
     resp = client.post("/api/login", json={"username": username, "password": password})
     assert resp.status_code == 200
 
@@ -96,7 +96,7 @@ def _upload_batch_attachment(client, material_id, batch_id, attachment_type, fil
 
 
 def _leader_approve_acceptance(client, form_id, warehouse_id):
-    _login(client, "admin", "Costar@508")
+    _login(client, "admin", "admin")
     response = client.post(
         f"/api/acceptance/{form_id}/leader",
         json={"decision": "同意", "warehouse_user_id": warehouse_id},

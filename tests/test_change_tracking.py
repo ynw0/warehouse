@@ -8,7 +8,7 @@ def _login_client(client):
     """Log in as admin and return the response data."""
     resp = client.post(
         "/api/login",
-        json={"username": "admin", "password": "Costar@508"},
+        json={"username": "admin", "password": "admin"},
     )
     assert resp.status_code == 200
     data = resp.get_json()

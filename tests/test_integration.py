@@ -139,7 +139,7 @@ def get_admin_id(db):
 # ── full borrow flow ──────────────────────────────────────────────────
 
 def full_borrow_flow(client, db, item_type, item_ref_id, qty=1,
-                     borrower="warehouse", leader="admin", leader_pw="Costar@508"):
+                     borrower="warehouse", leader="admin", leader_pw="admin"):
     login_as(client, borrower, "test")
     admin_id = get_admin_id(db)
     wh_id = get_user_id(db, "warehouse")
@@ -497,7 +497,7 @@ class TestAcceptanceSearchPagination:
         })
         assert resp.status_code == 200
 
-        login_as(client, "admin", "Costar@508")
+        login_as(client, "admin", "admin")
         wh_id = get_user_id(db, "warehouse")
         resp = client.post(f"/api/acceptance/{form['id']}/leader", json={
             "decision": "同意",
@@ -598,7 +598,7 @@ class TestBackwardCompatAndUntouched:
         form = resp.get_json()["form"]
         assert form["status"] == "leader_borrow"
 
-        login_as(client, "admin", "Costar@508")
+        login_as(client, "admin", "admin")
         wh_id = get_user_id(db, "warehouse")
         leader_approve_borrow(client, form["id"], warehouse_user_id=wh_id)
         login_as(client, "warehouse", "test")

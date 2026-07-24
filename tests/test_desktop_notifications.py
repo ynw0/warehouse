@@ -1,7 +1,7 @@
 from warehouse_suit.notifications import create_notification
 
 
-def _login(client, username="admin", password="Costar@508"):
+def _login(client, username="admin", password="admin"):
     resp = client.post("/api/login", json={"username": username, "password": password})
     assert resp.status_code == 200
     return resp.get_json()["user"]

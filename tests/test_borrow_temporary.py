@@ -22,7 +22,7 @@ def login(client, username="warehouse", password="test"):
 
 
 def enable_temporary(client, enabled=True):
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.post(
         "/api/system/workflow-settings",
         json={"temporary_inventory_enabled": enabled},
@@ -99,7 +99,7 @@ def approve_borrow(client, db, form_id):
     warehouse_id = db.execute(
         "SELECT id FROM users WHERE username = 'warehouse'"
     ).fetchone()[0]
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.post(
         f"/api/borrows/{form_id}/leader",
         json={"decision": "同意", "warehouse_user_id": warehouse_id},
@@ -550,7 +550,7 @@ def test_returned_borrow_reallocates_sources_before_resubmit(client, db):
         (STOCK_SOURCE_TEMPORARY, 2),
     ]
 
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     rejected = client.post(
         f"/api/borrows/{form['id']}/leader",
         json={"decision": "不同意", "remark": "请修改后重提"},
@@ -615,7 +615,7 @@ def test_completed_borrow_cannot_be_physically_deleted(client, db):
     approve_borrow(client, db, form["id"])
     assert outbound_borrow(client, form).status_code == 200
 
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.delete(f"/api/workflows/{form['id']}")
     assert response.status_code == 400
     assert "已实际借出" in response.get_json()["error"]

@@ -32,7 +32,7 @@ def test_claim_rejection_uses_applicant_revision_and_resubmits_to_leader(client,
     warehouse = _login(client, "warehouse", "test")
     material = _create_material_with_stock(client)
 
-    admin_id = _login(client, "admin", "Costar@508")["id"]
+    admin_id = _login(client, "admin", "admin")["id"]
     _login(client, "warehouse", "test")
     resp = client.post(
         "/api/claims",
@@ -45,7 +45,7 @@ def test_claim_rejection_uses_applicant_revision_and_resubmits_to_leader(client,
     form = resp.get_json()["form"]
     item_id = form["items"][0]["id"]
 
-    _login(client, "admin", "Costar@508")
+    _login(client, "admin", "admin")
     resp = client.post(
         f"/api/claims/{form['id']}/leader",
         json={"decision": "不同意", "remark": "数量请修改"},

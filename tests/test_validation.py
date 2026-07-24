@@ -5,7 +5,7 @@ from warehouse_suit.inventory_service import parse_batch_allocations
 
 
 def _login_admin(client):
-    resp = client.post("/api/login", json={"username": "admin", "password": "Costar@508"})
+    resp = client.post("/api/login", json={"username": "admin", "password": "admin"})
     assert resp.status_code == 200, resp.get_data(as_text=True)
 
 

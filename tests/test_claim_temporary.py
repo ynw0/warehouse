@@ -18,7 +18,7 @@ def login(client, username="warehouse", password="test"):
 
 
 def enable_temporary(client, enabled=True):
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.post(
         "/api/system/workflow-settings",
         json={"temporary_inventory_enabled": enabled},
@@ -93,7 +93,7 @@ def create_claim(client, db, items):
 
 def approve_claim(client, db, form_id):
     warehouse_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.post(
         f"/api/claims/{form_id}/leader",
         json={"decision": "同意", "warehouse_user_id": warehouse_id},
@@ -391,7 +391,7 @@ def test_rejected_claim_reallocates_sources_on_resubmit(client, db):
     form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 4}])
     assert source_quantities(form) == [(STOCK_SOURCE_FORMAL, 2), (STOCK_SOURCE_TEMPORARY, 2)]
 
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.post(
         f"/api/claims/{form['id']}/leader",
         json={"decision": "不同意", "remark": "请重新确认数量"},

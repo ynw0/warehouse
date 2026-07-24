@@ -12,7 +12,7 @@ from warehouse_suit.transfer_service import (
 _COUNTER = [0]
 
 
-def login(client, username="admin", password="Costar@508"):
+def login(client, username="admin", password="admin"):
     response = client.post("/api/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.get_data(as_text=True)
 
@@ -587,7 +587,7 @@ def test_concurrent_transfer_claim_allows_only_one_buyer(app, client, db):
         results.append((username, response.status_code))
 
     threads = [
-        threading.Thread(target=worker, args=("admin", "Costar@508")),
+        threading.Thread(target=worker, args=("admin", "admin")),
         threading.Thread(target=worker, args=("buyer2", "test")),
     ]
     for thread in threads:

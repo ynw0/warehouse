@@ -18,7 +18,7 @@ def login(client, username="warehouse", password="test"):
 
 
 def enable_temporary(client, enabled=True):
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     response = client.post(
         "/api/system/workflow-settings",
         json={"temporary_inventory_enabled": enabled},
@@ -557,7 +557,7 @@ def test_temporary_batch_uploads_are_returned_with_batch_details(client, db):
     assert batches[0]["attachments"][0]["id"] == attachment["id"]
     assert batches[0]["attachments"][0]["is_material_photo"] is True
 
-    login(client, "admin", "Costar@508")
+    login(client, "admin", "admin")
     settings_response = client.post(
         "/api/system/workflow-settings",
         json={

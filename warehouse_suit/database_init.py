@@ -876,7 +876,7 @@ def seed_users_and_roles(cursor):
         cursor.execute("INSERT OR IGNORE INTO roles (code, name) VALUES (?, ?)", (code, name))
 
     users = [
-        ("admin", "系统管理员", "", "Costar@508", ["admin", "warehouse", "leader", "buyer", "user"]),
+        ("admin", "系统管理员", "", "admin", ["admin", "warehouse", "leader", "buyer", "user"]),
     ]
     for username, display_name, department, password, role_codes in users:
         cursor.execute(

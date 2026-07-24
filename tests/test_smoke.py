@@ -17,7 +17,7 @@ def test_login_api(client):
     """Smoke test: the API login endpoint accepts valid credentials."""
     response = client.post(
         "/api/login",
-        json={"username": "admin", "password": "Costar@508"},
+        json={"username": "admin", "password": "admin"},
     )
     assert response.status_code == 200
     data = response.get_json()

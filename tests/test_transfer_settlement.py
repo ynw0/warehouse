@@ -16,7 +16,7 @@ _COUNTER = [0]
 
 def login(client):
     response = client.post(
-        "/api/login", json={"username": "admin", "password": "Costar@508"}
+        "/api/login", json={"username": "admin", "password": "admin"}
     )
     assert response.status_code == 200, response.get_data(as_text=True)
 
