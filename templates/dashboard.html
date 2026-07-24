@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>物料管理系统数据大屏</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css', v=static_version) }}">
+</head>
+<body class="dashboard-body" data-dashboard-page>
+  <canvas id="particleCanvas" aria-hidden="true"></canvas>
+  <div class="scan-line" aria-hidden="true"></div>
+  <div class="warehouse-scene" aria-hidden="true">
+    <div class="warehouse-floor"></div>
+    <div class="rack l1"></div>
+    <div class="rack l2"></div>
+    <div class="rack r1"></div>
+    <div class="rack r2"></div>
+    <div class="flow-route"></div>
+  </div>
+
+  <main class="dashboard-page" aria-label="物料管理系统数据大屏">
+    <header class="dashboard-header">
+      <div class="header-kicker">WAREHOUSE · LIVE OVERVIEW</div>
+      <h1>物料管理系统数据大屏</h1>
+      <time class="dashboard-clock" id="dashboardClock" aria-live="polite"></time>
+    </header>
+
+    <section class="summary-grid" aria-label="核心统计">
+      <article class="summary-card">
+        <span class="summary-name">物料品种</span>
+        <strong class="summary-value" data-field="summary.total_materials">0</strong><span class="summary-unit">种</span>
+      </article>
+      <article class="summary-card">
+        <span class="summary-name">总金额</span>
+        <strong class="summary-value money" data-field="summary.total_amount">¥0.00</strong>
+      </article>
+      <article class="summary-card">
+        <span class="summary-name">研发材料数</span>
+        <strong class="summary-value" data-field="summary.research_materials">0</strong><span class="summary-unit">件</span>
+      </article>
+      <article class="summary-card">
+        <span class="summary-name">办公用品数</span>
+        <strong class="summary-value" data-field="summary.office_materials">0</strong><span class="summary-unit">件</span>
+      </article>
+      <article class="summary-card">
+        <span class="summary-name">当日入 / 出</span>
+        <strong class="summary-value compact" data-field="summary.today_in_out">0 / 0</strong><span class="summary-unit">件</span>
+      </article>
+      <article class="summary-card">
+        <span class="summary-name">当月入 / 出</span>
+        <strong class="summary-value compact" data-field="summary.month_in_out">0 / 0</strong><span class="summary-unit">件</span>
+      </article>
+    </section>
+
+    <section class="dashboard-main">
+      <aside class="dashboard-column left-column">
+        <article class="screen-panel category-panel">
+          <h2>库存分类分布</h2>
+          <p class="panel-note">按当前库存数量统计</p>
+          <div class="category-bars" id="categoryBars" aria-live="polite"></div>
+        </article>
+        <article class="screen-panel stock-panel">
+          <h2>库存业务统计</h2>
+          <dl class="metric-list">
+            <div><dt>正式库库存</dt><dd data-field="inventory.formal_stock">0</dd></div>
+            <div><dt>正式库可用库存</dt><dd data-field="inventory.formal_available">0</dd></div>
+            <div data-temporary><dt>临时库库存</dt><dd data-field="inventory.temporary_stock">0</dd></div>
+            <div data-temporary><dt>临时库可用库存</dt><dd data-field="inventory.temporary_available">0</dd></div>
+            <div><dt>零库存物料</dt><dd data-field="inventory.zero_stock_count">0</dd></div>
+            <div><dt>低库存预警</dt><dd data-field="inventory.low_stock_count">0</dd></div>
+            <div><dt>借用未归还</dt><dd data-field="borrow.unreturned">0</dd></div>
+            <div><dt>逾期未归还</dt><dd data-field="borrow.overdue">0</dd></div>
+            <div data-temporary><dt>待转正式库物料</dt><dd data-field="inventory.pending_transfer">0</dd></div>
+          </dl>
+        </article>
+      </aside>
+
+      <section class="center-stage" aria-label="库存总量">
+        <div class="core-caption" data-temporary>正式库 / 临时库</div>
+        <div class="core-ring">
+          <div class="orbit"></div>
+          <div class="core">
+            <div class="core-total" data-field="inventory.total_stock">0</div>
+            <div class="core-label">当前库存总量</div>
+            <div class="core-split">
+              <div>
+                <span>正式库库存</span>
+                <b data-field="inventory.formal_stock">0</b>
+                <em data-field="inventory.formal_ratio">0%</em>
+              </div>
+              <div data-temporary>
+                <span>临时库库存</span>
+                <b data-field="inventory.temporary_stock">0</b>
+                <em data-field="inventory.temporary_ratio">0%</em>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="dashboard-column right-column">
+        <article class="screen-panel business-panel">
+          <h2>今日业务统计</h2>
+          <dl class="metric-list">
+            <div><dt>今日入库</dt><dd data-field="business.today_inbound">0</dd></div>
+            <div><dt>今日领用</dt><dd data-field="business.today_issue">0</dd></div>
+            <div><dt>今日借用</dt><dd data-field="business.today_borrow">0</dd></div>
+            <div><dt>今日归还</dt><dd data-field="business.today_return">0</dd></div>
+            <div><dt>今日库存调整</dt><dd data-field="business.today_adjust">0</dd></div>
+          </dl>
+        </article>
+        <article class="screen-panel workflow-panel">
+          <h2>待处理流程</h2>
+          <dl class="metric-list workflow-list">
+            <div><dt>待审批领用</dt><dd data-field="workflow.pending_issue">0</dd></div>
+            <div><dt>待审批借用</dt><dd data-field="workflow.pending_borrow">0</dd></div>
+            <div><dt>待归还确认</dt><dd data-field="workflow.pending_return">0</dd></div>
+            <div><dt>待验收</dt><dd data-field="workflow.pending_acceptance">0</dd></div>
+            <div><dt>待入库</dt><dd data-field="workflow.pending_inbound">0</dd></div>
+            <div><dt>申请人修改</dt><dd data-field="workflow.applicant_revision">0</dd></div>
+            <div data-temporary><dt>临时库待转正式库</dt><dd data-field="workflow.pending_transfer">0</dd></div>
+          </dl>
+        </article>
+      </aside>
+    </section>
+
+    <section class="dashboard-bottom">
+      <article class="screen-panel trend-panel">
+        <div class="panel-head">
+          <div>
+            <h2>近 12 个月入库与出库趋势</h2>
+            <p class="chart-legend"><span class="legend inbound"></span>入库 <span class="legend outbound"></span>出库</p>
+          </div>
+        </div>
+        <div class="trend-chart" id="trendChart" role="img" aria-label="最近十二个月入库与出库趋势图"></div>
+      </article>
+      <article class="screen-panel todo-panel">
+        <div class="panel-head">
+          <h2>待办事项</h2>
+          <a href="/?view=todo" target="_top" class="todo-link">进入待办</a>
+        </div>
+        <div class="todo-list" id="todoList" aria-live="polite"></div>
+      </article>
+      <article class="screen-panel alert-panel">
+        <section class="stocktake-reminder" aria-labelledby="stocktakeTitle">
+          <h2 id="stocktakeTitle">盘点提醒</h2>
+          <p id="stocktakeDate">下一次盘点日期：暂未设置</p>
+          <p class="stocktake-status" id="stocktakeStatus">暂未设置</p>
+        </section>
+        <section class="alert-section" aria-labelledby="alertTitle">
+          <h2 id="alertTitle">库存预警与异常</h2>
+          <div class="alert-list" id="alertList" aria-live="polite"></div>
+        </section>
+      </article>
+    </section>
+  </main>
+
+  <div class="dashboard-status" id="dashboardStatus" aria-live="polite">等待数据刷新</div>
+  <script src="{{ url_for('static', filename='js/dashboard.js', v=static_version) }}"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+[Unit]
+Description=Warehouse Material Suite
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/warehouse-suite-offline
+Environment=HOST=0.0.0.0
+Environment=PORT=5000
+Environment=MATERIAL_SYSTEM=1
+Environment=ENABLE_AI=1
+Environment=WAREHOUSE_DATA_DIR=/opt/warehouse-suite-offline/data
+Environment=WAREHOUSE_DB=/opt/warehouse-suite-offline/data/warehouse.db
+Environment=LOG_FILE=/opt/warehouse-suite-offline/data/warehouse.log
+Environment=WORKERS=2
+Environment=THREADS=32
+ExecStart=/opt/warehouse-suite-offline/.venv/bin/gunicorn --workers ${WORKERS} --threads ${THREADS} --timeout 120 --bind ${HOST}:${PORT} --access-logfile - --error-logfile - warehouse_suit.wsgi:app
+Restart=always
+RestartSec=3
+User=warehouse
+Group=warehouse
+
+[Install]
+WantedBy=multi-user.target

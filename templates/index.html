@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  {% set card_page = request.args.get('card') == '1' %}
+  {% set system_page = material_system and not card_page %}
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if system_page %}仓库物料系统{% else %}仓库料卡系统{% endif %}</title>
+  <script src="{{ url_for('static', filename='vendor/three.min.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/card-system.css', v=static_version) }}">
+  {% if system_page %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/system.css', v=static_version) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css', v=static_version) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/temporary-inventory.css', v=static_version) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/claim-source.css', v=static_version) }}">
+  {% endif %}
+</head>
+<body>
+  {% if system_page %}
+  <svg class="app-icon-sprite" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <symbol id="icon-cube" viewBox="0 0 24 24"><path fill="#35d8ff" stroke="none" d="M12 1.5 22 7 12 12.5 2 7 12 1.5Z"/><path fill="#12aee4" stroke="none" d="M2 8.5 10.7 13.3v9L2 17.5v-9Z"/><path fill="#0871bd" stroke="none" d="m13.3 13.3 8.7-4.8v9l-8.7 4.8v-9Z"/><path fill="#9cf3ff" fill-opacity=".46" stroke="none" d="m12 4.2 4.4 2.4L12 9 7.6 6.6 12 4.2Z"/></symbol>
+    <symbol id="icon-clipboard-list" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6M9 14h6M9 18h4"/></symbol>
+    <symbol id="icon-clipboard-check" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 13l2 2 4-4"/></symbol>
+    <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="icon-workflow" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="19" r="2"/><path d="M8 5h3a3 3 0 0 1 3 3v2M8 19h3a3 3 0 0 0 3-3v-2"/></symbol>
+    <symbol id="icon-file-pen" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 17l5.5-5.5 2 2L11 19l-2 .5.5-2.5Z"/></symbol>
+    <symbol id="icon-shield-check" viewBox="0 0 24 24"><path d="M12 3 20 6v5c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-3Z"/><path d="m8.5 12 2.2 2.2 4.8-4.8"/></symbol>
+    <symbol id="icon-package-open" viewBox="0 0 24 24"><path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z"/><path d="M4 7.5V17l8 4.5 8-4.5V7.5M12 12v9.5"/></symbol>
+    <symbol id="icon-hand-package" viewBox="0 0 24 24"><path d="m7 11 5-3 5 3v5l-5 3-5-3v-5Z"/><path d="M3 20v-2a3 3 0 0 1 3-3h2l2 2h5a2 2 0 0 1 0 4H9"/></symbol>
+    <symbol id="icon-boxes" viewBox="0 0 24 24"><path d="m3 7 5-3 5 3-5 3-5-3ZM11 17l5-3 5 3-5 3-5-3ZM3 17l5-3 5 3-5 3-5-3Z"/><path d="M8 10v4M16 10v4"/></symbol>
+    <symbol id="icon-search-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"/><path d="M14 2v6h6M16 17a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm2.2 4.2L21 24"/></symbol>
+    <symbol id="icon-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="icon-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M9 7l1-3h4l1 3M6 7l1 14h10l1-14"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.1 2.1-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-3v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-2.1-2.1.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H5v-3h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 2.1-2.1.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V4h3v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.1 2.1-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2v3h-.2a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+    <symbol id="icon-log-out" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-7"/></symbol>
+    <symbol id="icon-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l2 2M18 5l2 2"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4L3 10M4 5v5h5M4 13a8 8 0 0 0 14.6 4l2.4-3M20 19v-5h-5"/></symbol>
+    <symbol id="icon-file-check" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></symbol>
+    <symbol id="icon-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 3v4M8 12h.01M16 12h.01M8 16h8"/></symbol>
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  </svg>
+  {% endif %}
+
+  {% if not system_page %}
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">▦</div>
+      <div>
+        <h1>仓库料卡系统</h1>
+        <p id="dbLabel">SQLite 物料编码数据库</p>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button id="findBtn">查找物料</button>
+      <button id="materialManageBtn">物料管理</button>
+      <button id="exportBtn">导出料卡</button>
+      <button id="addShelfBtn">添加货架</button>
+      <button id="addMaterialBtn" class="primary">添加物料</button>
+    </div>
+  </header>
+  {% endif %}
+
+  <main class="home" id="home"></main>
+
+  <section class="viewer" id="viewer">
+    <div class="viewer-head">
+      <div>
+        <h2 id="viewerTitle">货架</h2>
+        <span id="viewerSub" class="hint"></span>
+      </div>
+      <div class="viewer-actions">
+        <button id="closeViewer">返回主页</button>
+      </div>
+    </div>
+    <div class="viewer-body">
+      <aside class="side-panel" id="sidePanel"></aside>
+      <div id="threeHost"></div>
+    </div>
+  </section>
+
+  <div class="modal" id="modal"></div>
+  <div class="spotlight" id="spotlight"></div>
+  <div class="toast" id="toast"></div>
+
+  <script src="{{ url_for('static', filename='js/card-system.js', v=static_version) }}"></script>
+  {% if system_page %}
+  <script src="{{ url_for('static', filename='js/system-core.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/system-state.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/shelf-location-picker.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/camera/attachment-camera.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/inventory-list-controls.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/attachment-upload.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/temporary-transfer.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/temporary-inventory.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/claim-source.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='js/extended-modules.js', v=static_version) }}"></script>
+  <script src="{{ url_for('static', filename='system.js', v=static_version) }}"></script>
+  {% endif %}
+</body>
+</html>

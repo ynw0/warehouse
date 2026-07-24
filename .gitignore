@@ -1,0 +1,75 @@
+# Python/runtime cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local secrets and environment files
+.secret_key
+.env
+.env.*
+
+# Runtime data
+data/*
+!data/.gitkeep
+warehouse.db
+warehouse_cards.db
+*.db
+*.sqlite
+*.sqlite3
+warehouse.log
+*.log
+warehouse.pid
+*.pid
+backups/
+
+# Local build/update artifacts
+*.tar.gz
+*.zip
+*.whl
+*.bak
+*.tmp
+build/
+dist/
+*.egg-info/
+update_*/
+outputs/
+wheelhouse/
+.codex_tmp/
+.agents/
+.codex/
+wuliao_skill/
+codex_work/
+
+# Generated analysis reports and editor backup copies
+reports/
+*.orig
+
+# Windows alternate data stream markers copied into WSL
+*:Zone.Identifier
+*Zone.Identifier
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+wsl.localhost/
+update_20260710_desktop_inbound_notifications/
+reports/
+dist/
+docs/
+material_system_dashboard.html
+# One-off local material data maintenance scripts
+/scripts/
+/sync_xin_to_warehouse.py

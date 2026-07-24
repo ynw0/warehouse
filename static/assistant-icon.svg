@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="物料小助手">
+  <defs>
+    <linearGradient id="shell" x1="12" y1="6" x2="53" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#e8fbff"/>
+      <stop offset=".46" stop-color="#58d7ff"/>
+      <stop offset="1" stop-color="#2764e6"/>
+    </linearGradient>
+    <linearGradient id="face" x1="18" y1="18" x2="48" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dff4ff"/>
+    </linearGradient>
+    <linearGradient id="box" x1="34" y1="37" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffd977"/>
+      <stop offset="1" stop-color="#f3a433"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#16408f" flood-opacity=".28"/>
+    </filter>
+  </defs>
+  <circle cx="32" cy="32" r="28" fill="url(#shell)"/>
+  <path d="M12 39c7 9 18 14 31 10 7-2 12-7 15-13-2 15-15 26-31 24C14 58 4 47 4 33c1 2 4 4 8 6Z" fill="#1746a2" opacity=".17"/>
+  <g filter="url(#shadow)">
+    <path d="M22 22h20c4 0 7 3 7 7v13c0 4-3 7-7 7H22c-4 0-7-3-7-7V29c0-4 3-7 7-7Z" fill="url(#face)"/>
+    <path d="M24 18h16l-2 5H26l-2-5Z" fill="#f8fdff"/>
+    <path d="M31 11h2v8h-2z" fill="#e8fbff"/>
+    <circle cx="32" cy="10" r="3" fill="#ffcf5b"/>
+    <circle cx="26" cy="34" r="4" fill="#1765ff"/>
+    <circle cx="39" cy="34" r="4" fill="#1765ff"/>
+    <path d="M27 43c3 2 8 2 11 0" fill="none" stroke="#2675d9" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <g>
+    <path d="M40 39h13v13H40z" fill="url(#box)"/>
+    <path d="M40 39l6-4 13 1-6 3H40Z" fill="#ffe39a"/>
+    <path d="M53 39l6-3v13l-6 3V39Z" fill="#d88224"/>
+    <path d="M46 35l13 1" stroke="#f6bd4f" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M45 42h5" stroke="#b4681e" stroke-width="1.7" stroke-linecap="round"/>
+  </g>
+  <path d="M18 20c6-6 17-8 27-4" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".62"/>
+</svg>

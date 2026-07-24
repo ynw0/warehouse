@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "warehouse-suit"
+version = "2026.7.27"
+description = "Warehouse material workflow management system"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "Flask==3.0.3",
+  "gunicorn==22.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+]
+
+[project.scripts]
+warehouse_suit = "warehouse_suit.cli:main"
+
+[tool.setuptools]
+py-modules = ["app"]
+packages = ["warehouse_suit"]
+include-package-data = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

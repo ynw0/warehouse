@@ -1,0 +1,37 @@
+.stock-source-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid #9db5d3;
+  border-radius: 999px;
+  background: #edf4fb;
+  color: #244f7d;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.stock-source-badge.temporary {
+  border-color: #d4a72c;
+  background: #fff8db;
+  color: #725300;
+}
+
+.claim-allocation-preview {
+  display: block;
+  min-height: 20px;
+  margin-top: 4px;
+  color: #365f86;
+  font-size: 12px;
+}
+
+.claim-allocation-preview.has-shortage {
+  color: #a2332d;
+}
+
+.claim-stock-breakdown {
+  color: #526a82;
+  font-size: 12px;
+}

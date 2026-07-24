@@ -1,0 +1,12 @@
+# Paths are relative to the deployment root unless the onsite config makes them external.
+.env
+data/
+uploads/
+attachments/
+certificates/
+logs/
+backups/
+reports/
+.upgrade.lock
+.upgrade-state.json
+local_config/

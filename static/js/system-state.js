@@ -1,0 +1,60 @@
+(() => {
+  function create() {
+  const initialView = new URLSearchParams(window.location.search).get("view") || "dashboard";
+  const system = {
+    boot: null,
+    view: initialView,
+    userId: 0,
+    selectedValidators: [],
+    selectedClaimLeaders: [],
+    aiDragging: false,
+    aiThoughtsVisible: false,
+    flowRows: [],
+    printing: false,
+    materialQueryRows: [],
+    notificationRows: [],
+    notificationReadView: false,
+    productionMaterialPool: [],
+    semifinishedPool: [],
+    semifinishedInventoryRows: [],
+    defectiveSemifinishedRows: [],
+    finishedInventoryRows: [],
+    defectiveFinishedRows: [],
+    scrappedSemifinishedRows: [],
+    scrappedFinishedRows: [],
+    currentSemiTab: "qualified",
+    currentFinishedTab: "qualified",
+    logRows: [],
+    borrowItemRows: [],
+    borrowDraftRows: [],
+    myBorrowRows: [],
+    myInspectionRows: [],
+    myStartedRows: [],
+    recycleRows: [],
+    selectedBorrowLeader: 0,
+    notificationKeys: new Set(),
+    pages: {
+      flowCenter: 1,
+      materialQuery: 1,
+      semiInventory: 1,
+      defectiveSemi: 1,
+      finishedInventory: 1,
+      defectiveFinished: 1,
+      scrappedSemi: 1,
+      scrappedFinished: 1,
+      borrowItems: 1,
+      myBorrow: 1,
+      myInspections: 1,
+      myStarted: 1,
+      recycle: 1,
+    },
+    todoKeys: new Set(),
+    workflowPoller: 0,
+    workflowStream: null,
+    notificationPoller: 0,
+  };
+    return system;
+  }
+
+  window.WarehouseSystemState = { create };
+})();

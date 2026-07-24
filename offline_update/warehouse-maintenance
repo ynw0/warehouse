@@ -1,0 +1,59 @@
+#!/usr/bin/env sh
+# Toggle the external flag consumed by warehouse_suit.maintenance.
+# Default: <warehouse-suit>/data/warehouse-maintenance.flag.
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PACKAGE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+APP_ROOT=${WAREHOUSE_APP_ROOT:-$(CDPATH= cd -- "$PACKAGE_DIR/.." && pwd)}
+DEFAULT_FLAG="$APP_ROOT/data/warehouse-maintenance.flag"
+
+usage() {
+    cat <<'EOF'
+用法：warehouse-maintenance <enable|disable|status> [--flag /绝对路径/warehouse-maintenance.flag]
+
+不指定 --flag 时，自动使用更新包上一级目录的：
+data/warehouse-maintenance.flag
+
+启用：创建维护标记，应用随后拒绝写请求并返回 HTTP 503。
+关闭：删除维护标记，应用恢复正常写入。
+EOF
+}
+
+fail() { printf '%s\n' "$*" >&2; exit 2; }
+[ "$#" -ge 1 ] || { usage >&2; exit 2; }
+case "$1" in --help|-h) usage; exit 0 ;; esac
+action=$1
+shift
+flag=${WAREHOUSE_MAINTENANCE_FLAG:-$DEFAULT_FLAG}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --flag) [ "$#" -ge 2 ] || fail "--flag 缺少路径"; flag=$2; shift 2 ;;
+        --help|-h) usage; exit 0 ;;
+        *) fail "未知参数：$1" ;;
+    esac
+done
+
+case "$flag" in /*) ;; *) fail "维护标记必须是绝对路径：$flag" ;; esac
+flag_dir=$(dirname "$flag")
+
+case "$action" in
+    enable)
+        mkdir -p "$flag_dir"
+        temporary="${flag}.tmp.$$"
+        umask 077
+        {
+            printf 'enabled_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            printf 'enabled_by=%s\n' "${SUDO_USER:-${USER:-unknown}}"
+        } > "$temporary"
+        mv -f "$temporary" "$flag"
+        printf 'enabled: %s\n' "$flag"
+        ;;
+    disable) rm -f -- "$flag"; printf 'disabled: %s\n' "$flag" ;;
+    status)
+        if [ -f "$flag" ]; then printf 'enabled: %s\n' "$flag"; exit 0; fi
+        printf 'disabled: %s\n' "$flag"; exit 1
+        ;;
+    *) usage >&2; exit 2 ;;
+esac

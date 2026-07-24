@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Linux single entry point.  The release package contains the same interface.
+set -eu
+BASE_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "${PYTHON:-python3}" "$BASE_DIR/offline_update/interactive.py" "$@"
