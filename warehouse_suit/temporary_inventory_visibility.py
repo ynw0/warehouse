@@ -31,16 +31,7 @@ def temporary_workflow_sql(form_alias="f"):
             )
         )
         OR (
-            {alias}.origin_type IN ({placeholders})
-            AND NOT (
-                {alias}.form_type = 'acceptance'
-                AND {alias}.origin_type = 'temporary_transfer'
-                AND EXISTS (
-                    SELECT 1
-                    FROM transfer_acceptance_links tal_visible
-                    WHERE tal_visible.acceptance_form_id = {alias}.id
-                )
-            )
+{alias}.origin_type IN ({placeholders})
         )
     )"""
     return sql, [STOCK_SOURCE_TEMPORARY, *origins]

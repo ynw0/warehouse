@@ -16,22 +16,17 @@ INVENTORY_STATUSES = frozenset(
 )
 
 BUSINESS_TYPE_MANUAL = "manual"
+BUSINESS_TYPE_TEMPORARY_ACCEPTANCE_INBOUND = "temporary_acceptance_inbound"
 BUSINESS_TYPE_TEMPORARY_MANUAL_INBOUND = "temporary_manual_inbound"
 BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_IN = "temporary_manual_adjust_in"
 BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_OUT = "temporary_manual_adjust_out"
 BUSINESS_TYPE_CLAIM_OUTBOUND = "claim_outbound"
 BUSINESS_TYPE_BORROW_OUTBOUND = "borrow_outbound"
 BUSINESS_TYPE_BORROW_RETURN_INBOUND = "borrow_return_inbound"
-BUSINESS_TYPE_TEMPORARY_TRANSFER_CLOSE = "temporary_transfer_close"
-
-AUTO_CLAIM_ORIGIN_TYPE = "temporary_transfer_auto_claim"
-
 TEMPORARY_WORKFLOW_ORIGIN_TYPES = frozenset(
     {
         "temporary",
         "temporary_inventory",
-        "temporary_transfer",
-        AUTO_CLAIM_ORIGIN_TYPE,
     }
 )
 

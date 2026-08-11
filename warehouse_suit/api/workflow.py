@@ -31,17 +31,19 @@ from warehouse_suit.duplicate_detection import (
     duplicate_material_values,
     duplicate_norm,
 )
-from warehouse_suit.inventory_constants import AUTO_CLAIM_ORIGIN_TYPE, STOCK_SOURCE_FORMAL
+from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL
 from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.material_repository import material_stock_total
 from warehouse_suit.material_utils import stock_snapshot_payload
 from warehouse_suit.numbering import next_form_no
-from warehouse_suit.transfer_service import mark_transfer_acceptance_failed
 from warehouse_suit.permissions import role_permissions
 from warehouse_suit.production_service import production_components_from_payload, production_item_payload
 from warehouse_suit.recycle import recycle_workflow
 from warehouse_suit.settings import parse_json, temporary_inventory_enabled
-from warehouse_suit.temporary_inventory_visibility import append_workflow_visibility
+from warehouse_suit.temporary_inventory_visibility import (
+    append_workflow_visibility,
+    temporary_workflow_sql,
+)
 from warehouse_suit.validation import price_value, quantity_value, validation_rule_enabled
 from warehouse_suit.workflow_service import (
     aggregate_acceptance_results,
@@ -103,6 +105,7 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
         form_no = request.args.get("form_no", "").strip()
         maker = request.args.get("maker", "").strip()
         project = request.args.get("project", "").strip()
+        stock_scope = request.args.get("stock_scope", "").strip()
         conn = get_db()
         cursor = conn.cursor()
         user = current_user(cursor)
@@ -114,6 +117,12 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
         except Exception:
             conn.close()
             raise
+        if stock_scope not in {"", "temporary", "formal"}:
+            conn.close()
+            return jsonify({"success": False, "error": "单据库别筛选不正确"}), 400
+        if stock_scope and not temporary_inventory_enabled(cursor):
+            conn.close()
+            return jsonify({"success": False, "error": "临时库功能未启用，不能按库别筛选"}), 400
         where = []
         params = []
         if form_type:
@@ -228,6 +237,10 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
                     """
                 )
                 params.extend([user["id"], user["id"], user["id"], user["id"]])
+        if stock_scope:
+            temporary_sql, temporary_params = temporary_workflow_sql("f")
+            where.append(temporary_sql if stock_scope == "temporary" else f"NOT {temporary_sql}")
+            params.extend(temporary_params)
         append_workflow_visibility(cursor, where, params, "f")
         sql = """
             SELECT f.*, u.display_name AS applicant_name, l.display_name AS leader_name,
@@ -326,8 +339,6 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             form = row_to_dict(cursor.fetchone())
             if not form:
                 raise ValueError("流程不存在")
-            if form.get("origin_type") == AUTO_CLAIM_ORIGIN_TYPE:
-                raise PermissionError("系统自动生成的历史领用结算流程不允许修改")
             user = current_user(cursor)
             full_edit_allowed = user_has_permission(cursor, user, workflow_edit_permission(form))
             applicant_edit_allowed = workflow_applicant_can_modify(cursor, form["id"], user)
@@ -510,46 +521,8 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             form = row_to_dict(cursor.fetchone())
             if not form:
                 raise ValueError("流程不存在")
-            if form.get("origin_type") == AUTO_CLAIM_ORIGIN_TYPE:
-                raise PermissionError("系统自动生成的历史领用结算流程不允许删除或撤回")
             user = current_user(cursor)
             require_workflow_edit_or_applicant(cursor, form, user)
-            if (
-                form.get("form_type") == "acceptance"
-                and form.get("origin_type") == "temporary_transfer"
-            ):
-                cursor.execute(
-                    """
-                    SELECT accepted_quantity
-                    FROM inventory_transfer_tasks
-                    WHERE id = ?
-                    """,
-                    (int(form.get("origin_ref_id") or 0),),
-                )
-                task_row = cursor.fetchone()
-                if task_row and float(task_row["accepted_quantity"] or 0) > 1e-9:
-                    raise ValueError("该转移验收已有正式入库事实，不能撤回或删除")
-                cursor.execute(
-                    "UPDATE workflow_tasks SET status = 'cancelled', updated_at = ? WHERE form_id = ? AND status = 'pending'",
-                    (now_text(), form_id),
-                )
-                cursor.execute(
-                    "UPDATE workflow_forms SET status = 'cancelled', current_step = 'cancelled', updated_at = ? WHERE id = ?",
-                    (now_text(), form_id),
-                )
-                mark_transfer_acceptance_failed(
-                    cursor,
-                    form_id,
-                    "关联验收已撤回",
-                    user,
-                    request.headers.get(
-                        "X-Forwarded-For", request.remote_addr or ""
-                    ),
-                )
-                conn.commit()
-                conn.close()
-                notify_todos_changed()
-                return jsonify({"success": True, "preserved": True})
             if form.get("form_type") == "claim" and claim_has_actual_outbound(cursor, form_id):
                 raise ValueError("已实际出库的领用流程不能删除，请使用后续冲销流程")
             if form.get("form_type") == "borrow" and borrow_has_actual_outbound(cursor, form_id):
@@ -639,7 +612,7 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             where_sql = f"({where_sql}) AND {' AND '.join(extra_clauses)}"
         rows = workflow_list_rows(cursor, where_sql, [user["id"], *extra_params])
         for row in rows:
-            allowed = row.get("origin_type") != AUTO_CLAIM_ORIGIN_TYPE and workflow_applicant_can_modify(cursor, row["id"], user)
+            allowed = workflow_applicant_can_modify(cursor, row["id"], user)
             row["can_withdraw"] = allowed
             row["can_edit"] = allowed
         conn.close()
@@ -659,8 +632,6 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             form = row_to_dict(cursor.fetchone())
             if not form:
                 raise ValueError("流程不存在")
-            if form.get("origin_type") == AUTO_CLAIM_ORIGIN_TYPE:
-                raise PermissionError("系统自动生成的历史领用结算流程不允许退回修改")
             if form.get("status") in {"completed", "cancelled"}:
                 raise ValueError("已结束流程不能退回")
             current_step = form.get("current_step") or form.get("status")
@@ -729,8 +700,6 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             form = row_to_dict(cursor.fetchone())
             if not form:
                 raise ValueError("流程不存在")
-            if form.get("origin_type") == AUTO_CLAIM_ORIGIN_TYPE:
-                raise PermissionError("系统自动生成的历史领用结算流程不允许重新提交")
             if form.get("current_step") != "applicant_revision" or form.get("status") != "applicant_revision":
                 raise ValueError("当前流程不在发起人修改步骤")
             task = require_task_assignee(cursor, user, form_id, "applicant_revision")

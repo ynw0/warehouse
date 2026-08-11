@@ -51,6 +51,20 @@ from warehouse_suit.workflow_service import (
 )
 
 
+def production_maker(cursor, user, maker_value, optional_active_user_id):
+    """Resolve and authorize the maker recorded on a production acceptance."""
+    maker_id = optional_active_user_id(cursor, maker_value, "制作者")
+    if not maker_id:
+        raise ValueError("请选择制作人")
+    if "admin" not in user.get("role_codes", []) and maker_id != user["id"]:
+        raise PermissionError("普通用户只能填写本人为制作人")
+    cursor.execute("SELECT display_name, username FROM users WHERE id = ?", (maker_id,))
+    maker = cursor.fetchone()
+    if not maker:
+        raise ValueError("制作者不存在或已停用")
+    return maker_id, maker["display_name"] or maker["username"] or ""
+
+
 def register_production_routes(app, *, get_db, current_user_provider, optional_active_user_id_provider):
     current_user = current_user_provider
     optional_active_user_id = optional_active_user_id_provider
@@ -94,6 +108,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             user = require_permission(cursor, "start_acceptance")
             payload = production_item_payload(kind, data)
             acceptance_quantity = payload["acceptance_quantity"]
+            maker_id, maker_name = production_maker(cursor, user, data.get("maker_id"), optional_active_user_id)
             material_components, semifinished_components, material_prepared, semifinished_prepared, total_cost = production_components_from_payload(cursor, kind, data, acceptance_quantity)
             prefix = "BY" if kind == "semifinished" else "CY"
             form_no = next_form_no(cursor, prefix)
@@ -108,7 +123,8 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                 "validator_ids": validator_ids,
                 "production_type": kind,
                 "acceptance_date": payload["acceptance_date"],
-                "maker": payload.get("maker") or user.get("display_name") or user.get("username") or "",
+                "maker_id": maker_id,
+                "maker": maker_name,
             }
             cursor.execute(
                 """
@@ -133,7 +149,8 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             item_data = {
                 "production_type": kind,
                 "acceptance_date": payload["acceptance_date"],
-                "maker": payload.get("maker") or user.get("display_name") or user.get("username") or "",
+                "maker_id": maker_id,
+                "maker": maker_name,
                 "material_components": material_components,
                 "semifinished_components": semifinished_components,
                 "estimated_material_components": material_prepared,
@@ -393,14 +410,17 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                 conflict_serials.extend(item["serial_no"] for item in unqualified_serials)
             ensure_production_serials_available(cursor, kind, conflict_serials)
             if kind == "semifinished":
+                maker_id = optional_active_user_id(cursor, item_data.get("maker_id"), "制作者")
+                if not maker_id:
+                    raise ValueError("该流程缺少制作人，无法入库")
                 cursor.execute(
                     """
                     INSERT INTO semifinished_acceptances
                         (acceptance_no, name, spec, acceptance_quantity, unit, acceptance_date,
                          qualified_quantity, unqualified_quantity, appearance_ok_quantity,
                          function_ok_quantity, performance_ok_quantity, cost_price, components_json,
-                         serials_json, applicant_id, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         serials_json, applicant_id, maker_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         form["form_no"],
@@ -418,6 +438,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                         json.dumps(material_prepared, ensure_ascii=False),
                         json.dumps(serial_items, ensure_ascii=False),
                         form["applicant_id"],
+                        maker_id,
                         now_text(),
                         now_text(),
                     ),
@@ -477,6 +498,9 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                     }
                 )
             else:
+                maker_id = optional_active_user_id(cursor, item_data.get("maker_id"), "制作者")
+                if not maker_id:
+                    raise ValueError("该流程缺少制作人，无法入库")
                 defects = [
                     {
                         "serial_no": serial_item["serial_no"],
@@ -491,8 +515,8 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                          qualified_quantity, unqualified_quantity, appearance_ok_quantity,
                          function_ok_quantity, performance_ok_quantity, cost_price,
                           material_components_json, semifinished_components_json, serials_json, applicant_id,
-                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                          maker_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         form["form_no"],
@@ -511,6 +535,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                         json.dumps(semifinished_prepared, ensure_ascii=False),
                         json.dumps(serial_items, ensure_ascii=False),
                         form["applicant_id"],
+                        maker_id,
                         now_text(),
                         now_text(),
                     ),
@@ -831,7 +856,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             ensure_production_serials_available(cursor, "semifinished", [item["serial_no"] for item in serial_items])
             acceptance_no = next_table_no(cursor, "semifinished_acceptances", "acceptance_no", "BY")
             project_code = validate_project_code(data.get("project_code"))
-            maker_id = optional_active_user_id(cursor, data.get("maker_id"), "制作者")
+            maker_id, _ = production_maker(cursor, user, data.get("maker_id"), optional_active_user_id)
             cursor.execute(
                 """
                 INSERT INTO semifinished_acceptances
@@ -1272,7 +1297,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             ]
             acceptance_no = next_table_no(cursor, "finished_acceptances", "acceptance_no", "CY")
             project_code = validate_project_code(data.get("project_code"))
-            maker_id = optional_active_user_id(cursor, data.get("maker_id"), "制作者")
+            maker_id, _ = production_maker(cursor, user, data.get("maker_id"), optional_active_user_id)
             cursor.execute(
                 """
                 INSERT INTO finished_acceptances

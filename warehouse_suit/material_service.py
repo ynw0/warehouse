@@ -5,7 +5,6 @@ from warehouse_suit.db import now_text, row_to_dict, today_text
 from warehouse_suit.inventory_constants import INVENTORY_STATUS_AVAILABLE, STOCK_SOURCE_FORMAL
 from warehouse_suit.inventory_service import update_inventory_total
 from warehouse_suit.material_repository import fetch_material
-from warehouse_suit.reservation_service import batch_reserved_quantity
 from warehouse_suit.material_utils import (
     clean_material_name,
     default_edit_batch_no,
@@ -14,8 +13,8 @@ from warehouse_suit.material_utils import (
 )
 from warehouse_suit.validation import (
     payload_int_or_none,
-    price_value,
     quantity_value,
+    unit_price_from_total_amount,
     validate_batch_no,
     validate_material_code_value,
 )
@@ -265,11 +264,14 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
             raise ValueError("batch item must be an object")
         batch_id = payload_int_or_none(item.get("id"))
         current = existing.get(batch_id) if batch_id else None
-        has_payload = any(str(item.get(key) or "").strip() for key in ("batch_no", "quantity", "unit_price", "received_date", "shelf_id", "layer_number", "zone_name"))
+        has_payload = any(str(item.get(key) or "").strip() for key in ("batch_no", "quantity", "total_amount", "received_date", "shelf_id", "layer_number", "zone_name"))
         if not current and not has_payload:
             continue
         quantity = quantity_value(item.get("quantity"), "批次数量", current.get("quantity") if current else 0)
-        unit_price = price_value(item.get("unit_price"), "批次单价", current.get("unit_price") if current else 0)
+        total_amount = item.get("total_amount")
+        if total_amount in (None, ""):
+            raise ValueError("批次总金额不能为空")
+        unit_price = unit_price_from_total_amount(total_amount, quantity, "批次总金额", "批次数量")
         received_date = str(item.get("received_date") or (current or {}).get("received_date") or today_text()).strip()
         batch_no = str(item.get("batch_no") or (current or {}).get("batch_no") or "").strip()
         if old_material_code and material_code != old_material_code and batch_no.endswith(old_material_code):
@@ -289,9 +291,6 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
         source_form_no = str(item.get("source_form_no") if item.get("source_form_no") is not None else (current or {}).get("source_form_no") or "MANUAL").strip()
 
         if current:
-            reserved = batch_reserved_quantity(cursor, batch_id)
-            if quantity + 1e-9 < reserved:
-                raise ValueError("批次数量不能低于已预留数量")
             cursor.execute(
                 """
                 UPDATE material_batches
@@ -299,18 +298,6 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                     shelf_id = ?, layer_number = ?, zone_name = ?, source_form_no = ?,
                     received_date = ?, version = version + 1, updated_at = ?
                 WHERE id = ? AND material_id = ? AND stock_source = ? AND inventory_status = ?
-                  AND ? >= COALESCE(
-                      (
-                          SELECT SUM(
-                              reserved_quantity - consumed_quantity - released_quantity
-                          )
-                          FROM inventory_reservations
-                          WHERE formal_batch_id = material_batches.id
-                            AND status = 'active'
-                            AND reserved_quantity - consumed_quantity - released_quantity > 0
-                      ),
-                      0
-                  )
                 """,
                 (
                     batch_no,
@@ -327,7 +314,6 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                     material_id,
                     STOCK_SOURCE_FORMAL,
                     INVENTORY_STATUS_AVAILABLE,
-                    quantity,
                 ),
             )
             if cursor.rowcount != 1:
@@ -362,8 +348,6 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
             touched_ids.add(cursor.lastrowid)
 
     for batch_id in set(existing) - touched_ids:
-        if batch_reserved_quantity(cursor, batch_id) > 1e-9:
-            raise ValueError("已有有效预留的批次不能删除")
         cursor.execute("SELECT COUNT(*) FROM material_attachments WHERE material_batch_id = ?", (batch_id,))
         if int(cursor.fetchone()[0] or 0) > 0:
             raise ValueError("已有附件的批次需要永久留存，不能删除")
@@ -373,15 +357,9 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
             """
             DELETE FROM material_batches
             WHERE id = ? AND material_id = ? AND stock_source = ?
-              AND NOT EXISTS (
-                  SELECT 1 FROM inventory_reservations
-                  WHERE formal_batch_id = material_batches.id
-                    AND status = 'active'
-                    AND reserved_quantity - consumed_quantity - released_quantity > 0
-              )
             """,
             (batch_id, material_id, STOCK_SOURCE_FORMAL),
         )
         if cursor.rowcount != 1:
-            raise ValueError("批次预留状态已变化，不能删除")
+            raise ValueError("批次状态已变化，不能删除")
     update_inventory_total(cursor, material_id)

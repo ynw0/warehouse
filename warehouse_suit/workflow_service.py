@@ -669,26 +669,4 @@ def serialize_form(cursor, form_id):
         if task.get("step_code") in {"leader_acceptance", "leader_claim"} and task.get("signature")
     ]
     form["leader_signatures"] = "、".join(dict.fromkeys(leader_signatures))
-    if (
-        form.get("origin_type") == "temporary_transfer"
-        and form.get("origin_ref_id")
-    ):
-        cursor.execute(
-            """
-            SELECT id, transfer_no, status, temporary_quantity_snapshot,
-                   obligation_quantity_snapshot, target_acceptance_quantity,
-                   accepted_quantity, assigned_buyer_id, created_at, updated_at
-            FROM inventory_transfer_tasks
-            WHERE id = ?
-            """,
-            (int(form["origin_ref_id"]),),
-        )
-        transfer_task = cursor.fetchone()
-        form["transfer_task"] = dict(transfer_task) if transfer_task else None
-        if form["transfer_task"]:
-            form["transfer_task"]["remaining_quantity"] = max(
-                0.0,
-                float(form["transfer_task"]["target_acceptance_quantity"] or 0)
-                - float(form["transfer_task"]["accepted_quantity"] or 0),
-            )
     return form

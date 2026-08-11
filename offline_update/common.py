@@ -41,13 +41,6 @@ COUNT_TABLES = (
     "borrow_records",
     "notifications",
     "temporary_issue_obligations",
-    "inventory_transfer_tasks",
-    "inventory_transfer_items",
-    "inventory_transfer_obligations",
-    "transfer_acceptance_links",
-    "inventory_reservations",
-    "transfer_auto_claims",
-    "transfer_auto_claim_obligations",
     "audit_logs",
 )
 
@@ -238,14 +231,12 @@ def database_metrics(path):
                 metrics["batch_count.temporary"] = 0
                 metrics["batch_quantity.temporary"] = 0.0
             if column_exists(conn, "material_batches", "inventory_status"):
-                for status in ("available", "transfer_locked", "transferred"):
+                for status in ("available",):
                     metrics[f"batch_status_count.{status}"] = int(
                         scalar(conn, "SELECT COUNT(*) FROM material_batches WHERE inventory_status = ?", (status,))
                     )
             else:
                 metrics["batch_status_count.available"] = int(scalar(conn, "SELECT COUNT(*) FROM material_batches"))
-                metrics["batch_status_count.transfer_locked"] = 0
-                metrics["batch_status_count.transferred"] = 0
         if table_exists(conn, "inventory"):
             metrics["inventory.quantity"] = float(scalar(conn, "SELECT COALESCE(SUM(quantity), 0) FROM inventory"))
         if table_exists(conn, "temporary_issue_obligations"):
@@ -258,11 +249,7 @@ def database_metrics(path):
 
 def assert_business_metrics_unchanged(before, after):
     ignored_prefixes = (
-        "count.inventory_transfer_",
-        "count.transfer_acceptance_links",
-        "count.transfer_auto_claim",
         "count.temporary_issue_obligations",
-        "count.inventory_reservations",
     )
     differences = {}
     for key, value in before.items():

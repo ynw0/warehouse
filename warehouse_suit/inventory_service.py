@@ -202,7 +202,6 @@ def add_inventory_batch(
     stock_source=STOCK_SOURCE_FORMAL,
     business_type=BUSINESS_TYPE_MANUAL,
     operation_key=None,
-    transfer_task_id=None,
     operator_id=None,
 ):
     stock_source = validate_stock_source(stock_source)
@@ -269,8 +268,8 @@ def add_inventory_batch(
         INSERT INTO stock_records
             (material_id, operation_type, quantity, balance_after, operation_date, remark,
              batch_id, form_no, unit_price, amount, stock_source, business_type, operation_key,
-             transfer_task_id, operator_id, created_at)
-        VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             operator_id, created_at)
+        VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             material_id,
@@ -285,7 +284,6 @@ def add_inventory_batch(
             stock_source,
             business_type,
             operation_key,
-            transfer_task_id,
             operator_id,
             now_text(),
         ),
@@ -304,7 +302,6 @@ def consume_inventory_fifo(
     stock_source=STOCK_SOURCE_FORMAL,
     business_type=BUSINESS_TYPE_MANUAL,
     operation_key=None,
-    transfer_task_id=None,
     operator_id=None,
     workflow_item_id=None,
 ):
@@ -368,21 +365,6 @@ def consume_inventory_fifo(
               AND stock_source = ?
               AND inventory_status = ?
               AND quantity >= ?
-              AND (
-                  ? <> ?
-                  OR quantity - COALESCE(
-                      (
-                          SELECT SUM(
-                              reserved_quantity - consumed_quantity - released_quantity
-                          )
-                          FROM inventory_reservations
-                          WHERE formal_batch_id = material_batches.id
-                            AND status = 'active'
-                            AND reserved_quantity - consumed_quantity - released_quantity > 0
-                      ),
-                      0
-                  ) >= ?
-              )
             """,
             (
                 take,
@@ -390,9 +372,6 @@ def consume_inventory_fifo(
                 batch["id"],
                 stock_source,
                 INVENTORY_STATUS_AVAILABLE,
-                take,
-                stock_source,
-                STOCK_SOURCE_FORMAL,
                 take,
             ),
         )
@@ -406,8 +385,8 @@ def consume_inventory_fifo(
             INSERT INTO stock_records
                 (material_id, operation_type, quantity, balance_after, operation_date, remark,
                  batch_id, form_no, unit_price, amount, stock_source, business_type, operation_key,
-                 transfer_task_id, operator_id, workflow_item_id, created_at)
-            VALUES (?, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 operator_id, workflow_item_id, created_at)
+            VALUES (?, 'out', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 material_id,
@@ -422,7 +401,6 @@ def consume_inventory_fifo(
                 stock_source,
                 business_type,
                 record_key,
-                transfer_task_id,
                 operator_id,
                 workflow_item_id,
                 now_text(),
@@ -496,21 +474,6 @@ def adjust_inventory_batch(
           AND stock_source = ?
           AND inventory_status = ?
           AND quantity + ? >= 0
-          AND (
-              ? <> ?
-              OR quantity + ? - COALESCE(
-                  (
-                      SELECT SUM(
-                          reserved_quantity - consumed_quantity - released_quantity
-                      )
-                      FROM inventory_reservations
-                      WHERE formal_batch_id = material_batches.id
-                        AND status = 'active'
-                        AND reserved_quantity - consumed_quantity - released_quantity > 0
-                  ),
-                  0
-              ) >= 0
-          )
         """,
         (
             adjustment,
@@ -518,9 +481,6 @@ def adjust_inventory_batch(
             int(batch_id),
             stock_source,
             INVENTORY_STATUS_AVAILABLE,
-            adjustment,
-            stock_source,
-            STOCK_SOURCE_FORMAL,
             adjustment,
         ),
     )
@@ -536,8 +496,8 @@ def adjust_inventory_batch(
         INSERT INTO stock_records
             (material_id, operation_type, quantity, balance_after, operation_date, remark,
              batch_id, form_no, unit_price, amount, stock_source, business_type, operation_key,
-             transfer_task_id, operator_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, NULL, ?, ?)
+             operator_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             int(batch["material_id"]),
@@ -577,21 +537,12 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
     rows = []
     cursor.execute(
         """
-        WITH active_reservations AS (
-            SELECT formal_batch_id,
-                   SUM(reserved_quantity - consumed_quantity - released_quantity)
-                       AS reserved_quantity
-            FROM inventory_reservations
-            WHERE status = 'active'
-              AND reserved_quantity - consumed_quantity - released_quantity > 0
-            GROUP BY formal_batch_id
-        ),
-        source_stock AS (
+        WITH source_stock AS (
             SELECT
                 b.material_id,
                 SUM(
                     CASE WHEN b.stock_source = ? AND b.inventory_status = ?
-                         THEN MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0)
+                         THEN b.quantity
                          ELSE 0 END
                 ) AS formal_quantity,
                 SUM(
@@ -601,7 +552,6 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 SUM(CASE WHEN b.stock_source = ? THEN 1 ELSE 0 END)
                     AS formal_batch_count
             FROM material_batches b
-            LEFT JOIN active_reservations r ON r.formal_batch_id = b.id
             GROUP BY b.material_id
         ),
         borrow_materials AS (

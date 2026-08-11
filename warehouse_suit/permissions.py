@@ -36,7 +36,6 @@ PERMISSION_KEYS = [
     "view_temporary_inventory",
     "manage_temporary_inventory",
     "transfer_temporary_inventory",
-    "process_temporary_transfer",
     "view_defective_inventory",
     "manage_defective_inventory",
     "start_common_material",
@@ -118,7 +117,6 @@ def role_permissions(cursor):
             "view_my_started": True,
             "read_semifinished_inventory": True,
             "read_finished_inventory": True,
-            "process_temporary_transfer": True,
             "view_defective_inventory": True,
         },
         "leader": {

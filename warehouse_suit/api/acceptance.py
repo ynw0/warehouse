@@ -9,18 +9,15 @@ from warehouse_suit.acceptance_service import create_acceptance_workflow
 from warehouse_suit.attachments import bind_material_attachments, bind_workflow_item_attachments_to_batch
 from warehouse_suit.db import now_text, today_text
 from warehouse_suit.inventory_service import add_inventory_batch, begin_inventory_transaction, ensure_material_from_payload
+from warehouse_suit.inventory_constants import (
+    BUSINESS_TYPE_TEMPORARY_ACCEPTANCE_INBOUND,
+    STOCK_SOURCE_FORMAL,
+    STOCK_SOURCE_TEMPORARY,
+)
 from warehouse_suit.material_repository import material_snapshot
 from warehouse_suit.notifications import notify_material_inbound
 from warehouse_suit.numbering import next_form_no
 from warehouse_suit.settings import parse_json, workflow_settings
-from warehouse_suit.transfer_settlement_service import (
-    mark_auto_claim_exception,
-    process_auto_claims,
-)
-from warehouse_suit.transfer_service import (
-    mark_transfer_acceptance_failed,
-    record_transfer_formal_inbound,
-)
 from warehouse_suit.validation import price_value, quantity_value, validation_rule_enabled
 from warehouse_suit.workflow_service import (
     aggregate_acceptance_results,
@@ -45,11 +42,21 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_acceptance")
+            temporary_enabled = bool(workflow_settings(cursor).get("temporary_inventory_enabled"))
+            has_purchase_order = data.get("has_purchase_order")
+            if temporary_enabled:
+                if has_purchase_order not in {True, False}:
+                    raise ValueError("请选择是否有采购订单")
+            else:
+                has_purchase_order = True
+            stock_source = STOCK_SOURCE_FORMAL if has_purchase_order else STOCK_SOURCE_TEMPORARY
             created = create_acceptance_workflow(
                 cursor,
                 user,
                 data.get("items") or [],
                 validator_ids=data.get("validator_ids") or [],
+                form_data={"has_purchase_order": has_purchase_order},
+                stock_source=stock_source,
             )
             form_id = created["form_id"]
             conn.commit()
@@ -208,14 +215,6 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                 form_row = cursor.fetchone()
                 warehouse_user_id = int(data.get("warehouse_user_id") or (form_row["warehouse_user_id"] if form_row else 0) or user["id"])
                 create_workflow_tasks(cursor, form_id, "acceptance", "inbound", [warehouse_user_id])
-            else:
-                mark_transfer_acceptance_failed(
-                    cursor,
-                    form_id,
-                    data.get("remark") or "领导审批未通过",
-                    user,
-                    request.headers.get("X-Forwarded-For", request.remote_addr or ""),
-                )
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:
@@ -272,6 +271,12 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                     item["unit_price"],
                     location,
                     inbound_no,
+                    stock_source=item["stock_source"] or STOCK_SOURCE_FORMAL,
+                    business_type=(
+                        BUSINESS_TYPE_TEMPORARY_ACCEPTANCE_INBOUND
+                        if item["stock_source"] == STOCK_SOURCE_TEMPORARY
+                        else "manual"
+                    ),
                     operation_key=f"acceptance:{form_id}:{item['id']}:inbound",
                 )
                 bind_workflow_item_attachments_to_batch(
@@ -281,17 +286,7 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                     material_id=item["material_id"],
                     material_batch_id=batch_id,
                 )
-                record_transfer_formal_inbound(
-                    cursor,
-                    form_id,
-                    item["id"],
-                    batch_id,
-                    approved_qty,
-                    user,
-                    request.headers.get(
-                        "X-Forwarded-For", request.remote_addr or ""
-                    ),
-                )
+
                 cursor.execute("SELECT batch_no FROM material_batches WHERE id = ?", (batch_id,))
                 batch_row = cursor.fetchone()
                 inbound_batches = item_data.get("inbound_batches") or []
@@ -340,47 +335,10 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
             else:
                 cursor.execute("UPDATE workflow_forms SET warehouse_user_id = ?, updated_at = ? WHERE id = ?", (user["id"], now_text(), form_id))
             conn.commit()
-            settlement_error = ""
-            if form["origin_type"] == "temporary_transfer":
-                transfer_task_id = int(form["origin_ref_id"] or 0)
-                transfer_row = cursor.execute(
-                    "SELECT status FROM inventory_transfer_tasks WHERE id = ?",
-                    (transfer_task_id,),
-                ).fetchone()
-                if transfer_row and transfer_row["status"] == "formal_inbound_complete":
-                    try:
-                        process_auto_claims(
-                            cursor,
-                            transfer_task_id,
-                            user,
-                            request.headers.get(
-                                "X-Forwarded-For", request.remote_addr or ""
-                            ),
-                        )
-                        conn.commit()
-                    except Exception as settlement_exc:
-                        conn.rollback()
-                        settlement_error = str(settlement_exc)
-                        try:
-                            mark_auto_claim_exception(
-                                cursor,
-                                transfer_task_id,
-                                "auto_claim_process_failed",
-                                settlement_error,
-                                user,
-                                request.headers.get(
-                                    "X-Forwarded-For", request.remote_addr or ""
-                                ),
-                            )
-                            conn.commit()
-                        except Exception:
-                            conn.rollback()
             form_data = serialize_form(cursor, form_id)
             form_data["inbound_no"] = inbound_no
             form_data["partial_inbound"] = bool(remaining)
             form_data["processed_item_ids"] = sorted(processed_ids)
-            if settlement_error:
-                form_data["settlement_error"] = settlement_error
         except Exception as exc:
             conn.rollback()
             conn.close()

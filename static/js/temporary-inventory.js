@@ -1,5 +1,5 @@
 (() => {
-  function create({ system, api, formatQty, onTransfer }) {
+  function create({ system, api, formatQty }) {
     const state = {
       page: 1,
       pageSize: 100,
@@ -44,7 +44,7 @@
           <div class="work-body">
             <div class="temporary-filters">
               <label>关键词<input id="temporaryKeyword" placeholder="物料编号 / 名称 / 规格"></label>
-              <label>仓库类型<select id="temporaryWarehouse"><option value="">全部</option><option value="office">办公库</option><option value="rd">研发库</option></select></label>
+              <label>物料库房<select id="temporaryWarehouseCode"><option value="">全部</option><option value="10">办公用品库</option><option value="20">研发材料库</option></select></label>
               <label class="compact-check"><input id="temporaryIncludeZero" type="checkbox"> 显示零库存</label>
               <div class="inventory-query-actions">
                 <button id="temporarySearch" class="primary query-search-button">查询</button>
@@ -84,7 +84,7 @@
           q: document.getElementById("temporaryKeyword")?.value.trim() || "",
           page: String(state.page),
           page_size: String(state.pageSize),
-          warehouse_type: document.getElementById("temporaryWarehouse")?.value || "",
+          material_warehouse_code: document.getElementById("temporaryWarehouseCode")?.value || "",
           inventory_status: "available",
           include_zero: (!state.listControlState.filters.hideZero || document.getElementById("temporaryIncludeZero")?.checked) ? "1" : "0",
         });
@@ -121,7 +121,7 @@
               <td class="mini-actions">
                 <button data-temporary-batches="${Number(row.material_id)}">批次详情</button>
                 ${canManage() ? `<button data-temporary-edit="${Number(row.material_id)}">编辑物料</button><button class="primary" data-temporary-adjust="${Number(row.material_id)}">调整库存</button><button class="danger" data-temporary-delete="${Number(row.material_id)}">删除物料</button>` : ""}
-                ${canTransfer() ? `<button data-temporary-transfer="${Number(row.material_id)}">转移到正式库</button>` : ""}
+                ${canTransfer() ? `<button data-temporary-promote="${Number(row.material_id)}">转移到正式库</button>` : ""}
               </td>
             </tr>
           `).join("") || '<tr><td colspan="9">暂无临时库存</td></tr>'}</tbody>
@@ -145,8 +145,8 @@
       host.querySelectorAll("[data-temporary-delete]").forEach(button => {
         button.addEventListener("click", () => deleteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryDelete))));
       });
-      host.querySelectorAll("[data-temporary-transfer]").forEach(button => {
-        button.addEventListener("click", () => onTransfer?.(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryTransfer))));
+      host.querySelectorAll("[data-temporary-promote]").forEach(button => {
+        button.addEventListener("click", () => promoteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryTransfer))));
       });
       document.getElementById("temporaryPrev")?.addEventListener("click", () => {
         state.page = Math.max(1, state.page - 1);
@@ -246,8 +246,22 @@
       });
     }
 
+    function promoteTemporaryMaterial(row) {
+      if (!row) return;
+      window.openModal({
+        title: "转移到正式库",
+        body: `<div class="transfer-confirm"><div><span>物料</span><strong>${escape(row.material_code)} · ${escape(row.material_name)}</strong></div><div><span>临时现存数量</span><strong>${formatQty(row.temporary_quantity)} ${escape(row.unit || "")}</strong></div><p class="transfer-warning">确认后将直接把该物料关联的临时库验收、入库、借用、领用单据转换为正式库单据，并把相关日期统一改为今天。此操作不可撤销。</p></div>`,
+        okText: "确认转正式库",
+        onOk: async () => {
+          const result = await api(`/api/temporary-inventory/materials/${Number(row.material_id)}/promote`, { method: "POST", body: "{}" });
+          window.toast(`已转为正式库：${Number(result.converted_forms || 0)} 张流程单据、${Number(result.converted_batches || 0)} 个批次`);
+          await loadRows();
+        },
+      });
+    }
+
     async function deleteTemporaryMaterial(row) {
-      if (!row || !confirm(`确认删除临时库物料“${row.material_name}”？仅允许删除没有正式库记录和转移任务的物料。`)) return;
+      if (!row || !confirm(`确认删除临时库物料“${row.material_name}”？仅允许删除没有正式库记录的物料。`)) return;
       try { await api(`/api/temporary-inventory/materials/${Number(row.material_id)}`, { method: "DELETE" }); window.toast("临时物料已删除"); await loadRows(); }
       catch (error) { window.toast(error.message || "删除临时物料失败"); }
     }
@@ -276,7 +290,8 @@
         <label>类别名称<input id="temporaryNewCategory"></label>`;
       const commonFields = () => `
         <label>数量<input id="temporaryQuantity" type="number" min="0.000001" step="any"></label>
-        <label>单价<input id="temporaryUnitPrice" type="number" min="0" step="0.0001" value="0"></label>
+        <label>总金额<input id="temporaryTotalAmount" type="number" min="0" step="0.01" value="0" required></label>
+        <label>单价<input id="temporaryUnitPrice" type="number" step="0.0001" value="0" readonly></label>
         <label>入库日期<input id="temporaryReceivedDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
         <div class="wide form-grid" id="temporaryShelfLocation"></div>
         <label class="wide">备注<input id="temporaryRemark" value="临时库手工入库"></label>`;
@@ -331,7 +346,7 @@
         const location = window.WarehouseShelfLocation.value("temporary", document, locationShelves);
         return {
           quantity: document.getElementById("temporaryQuantity").value,
-          unit_price: document.getElementById("temporaryUnitPrice").value,
+          total_amount: document.getElementById("temporaryTotalAmount").value,
           received_date: document.getElementById("temporaryReceivedDate").value,
           shelf_id: location.shelf_id,
           layer_number: location.layer_number,
@@ -359,6 +374,11 @@
             renderSource();
           });
           renderSource();
+          window.WarehouseAmountInput?.bind({
+            quantityInput: document.getElementById("temporaryQuantity"),
+            totalAmountInput: document.getElementById("temporaryTotalAmount"),
+            unitPriceInput: document.getElementById("temporaryUnitPrice"),
+          });
           window.WarehouseAttachmentUpload?.bindFilePickLabels(document.querySelector(".modal") || document);
           locationReady = api("/api/shelves").then(shelves => {
             locationShelves = shelves || [];

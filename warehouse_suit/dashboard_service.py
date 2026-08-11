@@ -24,13 +24,6 @@ from warehouse_suit.extended_service import formal_available_quantity
 
 LOGGER = logging.getLogger(__name__)
 
-_TRANSFER_PENDING_STATUSES = (
-    "awaiting_purchase",
-    "acceptance_in_progress",
-    "acceptance_failed",
-    "formal_inbound_partial",
-    "exception",
-)
 _ACCEPTANCE_FORM_TYPES = ("acceptance", "semifinished", "finished")
 
 
@@ -56,7 +49,6 @@ def empty_dashboard_overview():
             "low_stock_count": 0,
             "low_stock_items": [],
             "zero_stock_count": 0,
-            "pending_transfer": 0,
         },
         "business": {
             "today_inbound": 0,
@@ -78,7 +70,6 @@ def empty_dashboard_overview():
             "pending_acceptance": 0,
             "pending_inbound": 0,
             "applicant_revision": 0,
-            "pending_transfer": 0,
         },
         "trend": _empty_trend(),
         "categories": [],
@@ -147,13 +138,6 @@ def _inventory_metrics(cursor, temporary_enabled):
     source_marks = _placeholders(sources)
     cursor.execute(
         f"""
-        WITH active_reservations AS (
-            SELECT formal_batch_id,
-                   SUM(MAX(reserved_quantity - consumed_quantity - released_quantity, 0)) AS reserved_quantity
-            FROM inventory_reservations
-            WHERE status = 'active'
-            GROUP BY formal_batch_id
-        )
         SELECT
             COUNT(*) AS batch_count,
             COALESCE(SUM(CASE WHEN b.stock_source = ?
@@ -164,7 +148,7 @@ def _inventory_metrics(cursor, temporary_enabled):
                               THEN b.quantity ELSE 0 END), 0) AS temporary_stock,
             COALESCE(SUM(CASE WHEN b.stock_source = ?
                                 AND b.inventory_status = ?
-                              THEN MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0) ELSE 0 END), 0) AS formal_available,
+                              THEN b.quantity ELSE 0 END), 0) AS formal_available,
             COALESCE(SUM(CASE WHEN b.stock_source = ?
                                 AND b.inventory_status = ?
                               THEN b.quantity ELSE 0 END), 0) AS temporary_available,
@@ -178,7 +162,6 @@ def _inventory_metrics(cursor, temporary_enabled):
                                 AND b.inventory_status = ? AND b.warehouse_type = 'office'
                               THEN b.quantity ELSE 0 END), 0) AS office_materials
         FROM material_batches b
-        LEFT JOIN active_reservations r ON r.formal_batch_id = b.id
         WHERE b.stock_source IN ({source_marks})
         """,
         [
@@ -382,17 +365,6 @@ def _workflow_metrics(cursor, temporary_enabled):
     return {key: int(value or 0) for key, value in row.items()}
 
 
-def _pending_transfer_count(cursor):
-    cursor.execute(
-        f"""
-        SELECT COUNT(DISTINCT material_id)
-        FROM inventory_transfer_tasks
-        WHERE status IN ({_placeholders(_TRANSFER_PENDING_STATUSES)})
-        """,
-        _TRANSFER_PENDING_STATUSES,
-    )
-    return int(cursor.fetchone()[0] or 0)
-
 
 def _trend(cursor, today):
     rows = _empty_trend(today)
@@ -479,8 +451,6 @@ def _alerts(inventory, borrow, workflow, inventory_check):
         alerts.append({"level": "critical", "text": f"盘点已逾期 {days} 天", "date": inventory_check.get("next_date") or ""})
     if int(inventory.get("low_stock_count") or 0):
         alerts.append({"level": "critical", "text": f"{int(inventory['low_stock_count'])} 项物料低于库存下限", "date": today_text(), "action": "common_low_stock"})
-    if int(workflow.get("pending_transfer") or 0):
-        alerts.append({"level": "warning", "text": f"{int(workflow['pending_transfer'])} 项临时库物料待转正式库", "date": today_text()})
     if int(inventory.get("zero_stock_count") or 0):
         alerts.append({"level": "warning", "text": f"{int(inventory['zero_stock_count'])} 种物料当前零库存", "date": today_text()})
     return alerts[:6]
@@ -503,8 +473,6 @@ def build_dashboard_overview(cursor, user):
     low_stock_items = _safe('common low stock', [], lambda: _common_low_stock(cursor))
     inventory['low_stock_count'] = len(low_stock_items)
     inventory['low_stock_items'] = low_stock_items[:20]
-    pending_transfer = _safe("pending transfer", 0, lambda: _pending_transfer_count(cursor)) if temporary_enabled else 0
-    inventory["pending_transfer"] = pending_transfer
     payload["inventory"].update(inventory)
 
     records = _safe("stock records", {}, lambda: _stock_record_metrics(cursor, today, temporary_enabled))
@@ -537,7 +505,6 @@ def build_dashboard_overview(cursor, user):
     payload["business"]["today_borrow"] = _number(borrow.get("today_borrow"))
 
     workflow = _safe("workflow", payload["workflow"].copy(), lambda: _workflow_metrics(cursor, temporary_enabled))
-    workflow["pending_transfer"] = pending_transfer
     payload["workflow"].update(workflow)
     payload["trend"] = _safe("trend", _empty_trend(today), lambda: _trend(cursor, today))
     payload["categories"] = _safe("categories", [], lambda: _categories(cursor, temporary_enabled))

@@ -65,36 +65,27 @@ def material_query(where="", params=(), stock_source=STOCK_SOURCE_FORMAL):
                 COUNT(*) AS batch_count,
                 SUM(
                     CASE WHEN b.inventory_status = ?
-                         THEN MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0)
+                         THEN b.quantity
                          ELSE 0 END
                 ) AS quantity,
                 SUM(
                     CASE WHEN b.inventory_status = ?
-                         THEN MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0)
+                         THEN b.quantity
                               * b.unit_price
                          ELSE 0 END
                 ) AS amount,
                 GROUP_CONCAT(
                     CASE
                         WHEN b.inventory_status = ?
-                             AND b.quantity - COALESCE(r.reserved_quantity, 0) > 0
+                             AND b.quantity > 0
                         THEN b.batch_no || ':' || printf(
                             '%g',
-                            b.quantity - COALESCE(r.reserved_quantity, 0)
+                            b.quantity
                         )
                     END,
                     '；'
                 ) AS batch_summary
             FROM material_batches b
-            LEFT JOIN (
-                SELECT formal_batch_id,
-                       SUM(reserved_quantity - consumed_quantity - released_quantity)
-                           AS reserved_quantity
-                FROM inventory_reservations
-                WHERE status = 'active'
-                  AND reserved_quantity - consumed_quantity - released_quantity > 0
-                GROUP BY formal_batch_id
-            ) r ON r.formal_batch_id = b.id
             WHERE b.stock_source = ?
             GROUP BY b.material_id
         ) fs ON fs.material_id = m.id
@@ -190,25 +181,16 @@ def material_batch_rows(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
     cursor.execute(
         """
         SELECT b.*, b.quantity AS physical_quantity,
-               COALESCE(r.reserved_quantity, 0) AS reserved_quantity,
-               MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0) AS quantity,
+               0 AS reserved_quantity,
+               b.quantity AS quantity,
                s.name AS shelf_name,
                CAST(julianday('now') - julianday(b.received_date) AS INTEGER) AS age_days
         FROM material_batches b
         LEFT JOIN shelves s ON s.id = b.shelf_id
-        LEFT JOIN (
-            SELECT formal_batch_id,
-                   SUM(reserved_quantity - consumed_quantity - released_quantity)
-                       AS reserved_quantity
-            FROM inventory_reservations
-            WHERE status = 'active'
-              AND reserved_quantity - consumed_quantity - released_quantity > 0
-            GROUP BY formal_batch_id
-        ) r ON r.formal_batch_id = b.id
         WHERE b.material_id = ?
           AND b.stock_source = ?
           AND b.inventory_status = ?
-          AND b.quantity - COALESCE(r.reserved_quantity, 0) > 0
+          AND b.quantity > 0
         ORDER BY b.received_date ASC, b.id ASC
         """,
         (material_id, stock_source, INVENTORY_STATUS_AVAILABLE),
@@ -224,19 +206,10 @@ def material_stock_total(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
             COUNT(*),
             COALESCE(SUM(
                 CASE WHEN b.inventory_status = ?
-                     THEN MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0)
+                     THEN b.quantity
                      ELSE 0 END
             ), 0)
         FROM material_batches b
-        LEFT JOIN (
-            SELECT formal_batch_id,
-                   SUM(reserved_quantity - consumed_quantity - released_quantity)
-                       AS reserved_quantity
-            FROM inventory_reservations
-            WHERE status = 'active'
-              AND reserved_quantity - consumed_quantity - released_quantity > 0
-            GROUP BY formal_batch_id
-        ) r ON r.formal_batch_id = b.id
         WHERE b.material_id = ? AND b.stock_source = ?
         """,
         (INVENTORY_STATUS_AVAILABLE, material_id, stock_source),

@@ -25,21 +25,12 @@ def claim_material_rows(cursor, keyword="", include_temporary=False, limit=100):
     limit = max(1, min(int(limit or 100), 200))
     cursor.execute(
         """
-        WITH active_reservations AS (
-            SELECT formal_batch_id,
-                   SUM(reserved_quantity - consumed_quantity - released_quantity)
-                       AS reserved_quantity
-            FROM inventory_reservations
-            WHERE status = 'active'
-              AND reserved_quantity - consumed_quantity - released_quantity > 0
-            GROUP BY formal_batch_id
-        ),
-        source_stock AS (
+        WITH source_stock AS (
             SELECT
                 b.material_id,
                 SUM(
                     CASE WHEN b.stock_source = ? AND b.inventory_status = ?
-                         THEN MAX(b.quantity - COALESCE(r.reserved_quantity, 0), 0)
+                         THEN b.quantity
                          ELSE 0 END
                 ) AS formal_quantity,
                 SUM(
@@ -49,7 +40,6 @@ def claim_material_rows(cursor, keyword="", include_temporary=False, limit=100):
                 SUM(CASE WHEN b.stock_source = ? THEN 1 ELSE 0 END)
                     AS formal_batch_count
             FROM material_batches b
-            LEFT JOIN active_reservations r ON r.formal_batch_id = b.id
             GROUP BY b.material_id
         )
         SELECT

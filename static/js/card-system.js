@@ -1253,17 +1253,28 @@
           </div>
           <div class="form-grid">
             <label>数量<input id="stockQty" type="number" min="0.01" step="0.01"></label>
+            ${operation === "in" ? '<label>总金额<input id="stockTotalAmount" type="number" min="0" step="0.01" required></label><label>单价<input id="stockUnitPrice" type="number" step="0.0001" readonly></label>' : ""}
             <label>日期<input id="stockDate" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
             <label class="wide">备注<textarea id="stockRemark"></textarea></label>
           </div>
         `,
         okText: operation === "in" ? "确认入库" : "确认出库",
+        onReady: () => {
+          if (operation === "in") {
+            window.WarehouseAmountInput?.bind({
+              quantityInput: document.getElementById("stockQty"),
+              totalAmountInput: document.getElementById("stockTotalAmount"),
+              unitPriceInput: document.getElementById("stockUnitPrice"),
+            });
+          }
+        },
         onOk: async () => {
           await api(`/api/stock/${operation}`, {
             method: "POST",
             body: JSON.stringify({
               material_id: material.id,
               quantity: Number(document.getElementById("stockQty").value || 0),
+              ...(operation === "in" ? { total_amount: document.getElementById("stockTotalAmount").value } : {}),
               operation_date: document.getElementById("stockDate").value,
               remark: document.getElementById("stockRemark").value.trim()
             })

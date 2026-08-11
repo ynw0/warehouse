@@ -7,10 +7,6 @@ from flask import g, has_request_context, jsonify, request
 
 from warehouse_suit.permissions import role_permissions
 from warehouse_suit.temporary_inventory_service import write_audit_log
-from warehouse_suit.transfer_service import (
-    pause_active_transfer_tasks,
-    resume_paused_transfer_tasks,
-)
 from warehouse_suit.settings import (
     bool_setting,
     data_validation_settings,
@@ -90,10 +86,6 @@ def register_system_settings_routes(app, *, get_db, require_admin, permission_ke
                 ip_address = request.headers.get(
                     "X-Forwarded-For", request.remote_addr or ""
                 )
-                if settings["temporary_inventory_enabled"]:
-                    resume_paused_transfer_tasks(cursor, user, ip_address)
-                else:
-                    pause_active_transfer_tasks(cursor, user, ip_address)
                 write_audit_log(
                     cursor,
                     user,

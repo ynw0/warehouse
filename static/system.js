@@ -18,23 +18,16 @@
   const VIEW_META = {
     dashboard: { title: "数据大屏", icon: "chart" }, todo: { title: "待办流程", icon: "clipboard-list" }, notifications: { title: "通知", icon: "bell" },
     myInspections: { title: "我的验收", icon: "clipboard-check" }, myStarted: { title: "我的发起", icon: "file-pen" },
-    acceptance: { title: "物料验收", icon: "shield-check" }, temporaryTransfers: { title: "转正式库任务", icon: "workflow" }, semifinished: { title: "半成品验收", icon: "shield-check" }, finished: { title: "成品验收", icon: "shield-check" },
+    acceptance: { title: "物料验收", icon: "shield-check" }, semifinished: { title: "半成品验收", icon: "shield-check" }, finished: { title: "成品验收", icon: "shield-check" },
     claim: { title: "物料申领", icon: "hand-package" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" },
     query: { title: "物料查询", icon: "search-file" }, temporaryInventory: { title: "临时库", icon: "boxes" }, temporaryLedger: { title: "临时库存流水", icon: "history" }, semifinishedInventory: { title: "半成品库", icon: "boxes" }, finishedInventory: { title: "成品库", icon: "boxes" },
     flow: { title: "流程中心", icon: "workflow" }, stats: { title: "统计", icon: "chart" }, stocktake: { title: "盘点", icon: "scan" }, logs: { title: "日志中心", icon: "history" }, recycle: { title: "回收站", icon: "trash" }, admin: { title: "系统设置", icon: "settings" },
     defectiveInventory: { title: "不良品物料", icon: "shield-check" }, commonMaterials: { title: "常用物料", icon: "bell" }, supplies: { title: "供货管理", icon: "package-open" },
   };
-  const temporaryTransfers = window.WarehouseTemporaryTransfer.create({
-    system,
-    api: systemApi,
-    formatQty: formatInputQty,
-    onInventoryChanged: () => temporaryInventory?.reload(),
-  });
   temporaryInventory = window.WarehouseTemporaryInventory.create({
     system,
     api: systemApi,
     formatQty: formatInputQty,
-    onTransfer: row => temporaryTransfers.openCreate(row),
   });
 
   window.renderSystemDashboard = function renderSystemDashboard(home) {
@@ -75,7 +68,6 @@
             ])}
             ${navGroup("验收中心", "shield-check", [
               ["acceptance", "物料验收", canView("acceptance")],
-              ["temporaryTransfers", "转正式库任务", canView("temporaryTransfers")],
               ["semifinished", "半成品验收", canView("semifinished")],
               ["finished", "成品验收", canView("finished")],
             ])}
@@ -148,8 +140,7 @@
     system.todoKeys = new Set((system.boot.todos || []).map(todoKey));
     if (!system.boot.workflow_settings?.temporary_inventory_enabled) {
       temporaryInventory.clear();
-      temporaryTransfers.clear();
-      if (["temporaryInventory", "temporaryTransfers", "temporaryLedger"].includes(system.view)) system.view = "query";
+      if (["temporaryInventory", "temporaryLedger"].includes(system.view)) system.view = "query";
     }
   }
 
@@ -227,7 +218,6 @@
       query: renderQuery,
       temporaryInventory: temporaryInventory.render,
       temporaryLedger: temporaryInventory.renderLedger,
-      temporaryTransfers: temporaryTransfers.render,
       stats: renderStats,
       stocktake: renderStocktake,
       logs: renderLogs,
@@ -270,12 +260,6 @@
       return Boolean(
         system.boot?.workflow_settings?.temporary_inventory_enabled
         && hasPerm("view_temporary_inventory")
-      );
-    }
-    if (view === "temporaryTransfers") {
-      return Boolean(
-        system.boot?.workflow_settings?.temporary_inventory_enabled
-        && (hasPerm("process_temporary_transfer") || hasPerm("transfer_temporary_inventory"))
       );
     }
     if (view === "temporaryLedger") {
@@ -630,8 +614,9 @@
       if (purchase) purchase.value = item.purchase_quantity || item.quantity || "";
       const arrival = row.querySelector("[data-arrival]");
       if (arrival) arrival.value = item.arrival_quantity || item.quantity || "";
-      const price = row.querySelector("[data-price]");
-      if (price) price.value = item.unit_price || "";
+      const totalAmount = row.querySelector("[data-total-amount]");
+      if (totalAmount) totalAmount.value = Number(item.unit_price || 0) * Number(item.arrival_quantity || item.quantity || 0);
+      row._syncAmountInput?.();
       const qty = row.querySelector("[data-qty]");
       if (qty) qty.value = item.request_quantity || item.quantity || "";
     });
@@ -930,7 +915,7 @@
   }
 
   function renderFlowCenter(main) {
-    main.innerHTML = moduleShell("\u6d41\u7a0b\u4e2d\u5fc3", `<div class="work-panel"><div class="work-head"><h2>\u5168\u90e8\u6d41\u7a0b</h2></div><div class="work-body"><div class="form-grid"><label>\u5206\u7c7b<select id="flowType"><option value="">\u5168\u90e8</option><option value="acceptance">\u7269\u6599\u9a8c\u6536</option><option value="semifinished">\u534a\u6210\u54c1\u9a8c\u6536</option><option value="finished">\u6210\u54c1\u9a8c\u6536</option><option value="claim">\u7533\u9886/\u51fa\u5e93</option><option value="borrow">借用申请</option><option value="borrow_return">借用归还</option></select></label><label>\u72b6\u6001<select id="flowStatus"><option value="">\u5168\u90e8</option><option value="acceptance">\u9a8c\u6536\u4e2d</option><option value="leader_acceptance">\u9a8c\u6536\u9886\u5bfc\u5ba1\u6279</option><option value="inbound">\u5f85\u5165\u5e93</option><option value="leader_claim">\u7533\u9886\u5ba1\u6279</option><option value="applicant_revision">\u53d1\u8d77\u4eba\u4fee\u6539</option><option value="outbound">\u5f85\u51fa\u5e93</option><option value="leader_borrow">借用审批</option><option value="borrow_outbound">借用待出库</option><option value="return_inbound">归还待入库</option><option value="completed">\u5df2\u529e\u7ed3</option></select></label></div><div class="form-grid" style="margin-top:8px"><label>名称<input id="flowMaterialName" placeholder="物料/成品/半成品名称模糊搜索"></label><label>编号<input id="flowMaterialCode" placeholder="物料/成品/半成品编号模糊搜索"></label><label>\u54c1\u724c\u578b\u53f7<input id="flowBrandModel" placeholder="\u54c1\u724c\u578b\u53f7\u6a21\u7cca\u641c\u7d22"></label><label>\u6280\u672f\u89c4\u683c<input id="flowSpec" placeholder="技术规格/成品半成品规格参数模糊搜索"></label><label>申请人<input id="flowApplicant" placeholder="申请人姓名/账号/部门"></label><label>\u9a8c\u6536\u4eba<input id="flowInspector" placeholder="\u9a8c\u6536\u4eba\u59d3\u540d\u6a21\u7cca\u641c\u7d22"></label><label>\u6d41\u7a0b\u5355\u53f7<input id="flowFormNo" placeholder="\u6d41\u7a0b\u5355\u53f7\u6a21\u7cca\u641c\u7d22"></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="runFlowFilter" class="primary">\u7b5b\u9009</button><button id="clearFlowFilter">\u6e05\u7a7a</button></div><div class="flow-tools"><button id="exportFlowFiltered">\u5bfc\u51fa\u5f53\u524d\u7b5b\u9009</button><button id="exportFlowChecked">\u5bfc\u51fa\u52fe\u9009</button><button id="printFlowFiltered">\u6253\u5370\u5f53\u524d\u7b5b\u9009</button><button id="printFlowChecked">\u6253\u5370\u52fe\u9009</button><button id="deleteFlowChecked" class="danger">\u5220\u9664\u52fe\u9009</button></div><div id="flowCenterList"></div></div></div>`);
+    main.innerHTML = moduleShell("\u6d41\u7a0b\u4e2d\u5fc3", `<div class="work-panel"><div class="work-head"><h2>\u5168\u90e8\u6d41\u7a0b</h2></div><div class="work-body"><div class="form-grid"><label>\u5206\u7c7b<select id="flowType"><option value="">\u5168\u90e8</option><option value="acceptance">\u7269\u6599\u9a8c\u6536</option><option value="semifinished">\u534a\u6210\u54c1\u9a8c\u6536</option><option value="finished">\u6210\u54c1\u9a8c\u6536</option><option value="claim">\u7533\u9886/\u51fa\u5e93</option><option value="borrow">借用申请</option><option value="borrow_return">借用归还</option></select></label><label>\u72b6\u6001<select id="flowStatus"><option value="">\u5168\u90e8</option><option value="acceptance">\u9a8c\u6536\u4e2d</option><option value="leader_acceptance">\u9a8c\u6536\u9886\u5bfc\u5ba1\u6279</option><option value="inbound">\u5f85\u5165\u5e93</option><option value="leader_claim">\u7533\u9886\u5ba1\u6279</option><option value="applicant_revision">\u53d1\u8d77\u4eba\u4fee\u6539</option><option value="outbound">\u5f85\u51fa\u5e93</option><option value="leader_borrow">借用审批</option><option value="borrow_outbound">借用待出库</option><option value="return_inbound">归还待入库</option><option value="completed">\u5df2\u529e\u7ed3</option></select></label>${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<label>单据库别<select id="flowStockScope"><option value="">全部</option><option value="temporary">临时库单据</option><option value="formal">正式库单据</option></select></label>` : ""}</div><div class="form-grid" style="margin-top:8px"><label>名称<input id="flowMaterialName" placeholder="物料/成品/半成品名称模糊搜索"></label><label>编号<input id="flowMaterialCode" placeholder="物料/成品/半成品编号模糊搜索"></label><label>\u54c1\u724c\u578b\u53f7<input id="flowBrandModel" placeholder="\u54c1\u724c\u578b\u53f7\u6a21\u7cca\u641c\u7d22"></label><label>\u6280\u672f\u89c4\u683c<input id="flowSpec" placeholder="技术规格/成品半成品规格参数模糊搜索"></label><label>申请人<input id="flowApplicant" placeholder="申请人姓名/账号/部门"></label><label>\u9a8c\u6536\u4eba<input id="flowInspector" placeholder="\u9a8c\u6536\u4eba\u59d3\u540d\u6a21\u7cca\u641c\u7d22"></label><label>\u6d41\u7a0b\u5355\u53f7<input id="flowFormNo" placeholder="\u6d41\u7a0b\u5355\u53f7\u6a21\u7cca\u641c\u7d22"></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="runFlowFilter" class="primary">\u7b5b\u9009</button><button id="clearFlowFilter">\u6e05\u7a7a</button></div><div class="flow-tools"><button id="exportFlowFiltered">\u5bfc\u51fa\u5f53\u524d\u7b5b\u9009</button><button id="exportFlowChecked">\u5bfc\u51fa\u52fe\u9009</button><button id="printFlowFiltered">\u6253\u5370\u5f53\u524d\u7b5b\u9009</button><button id="printFlowChecked">\u6253\u5370\u52fe\u9009</button><button id="deleteFlowChecked" class="danger">\u5220\u9664\u52fe\u9009</button></div><div id="flowCenterList"></div></div></div>`);
     document.getElementById("runFlowFilter").addEventListener("click", () => {
       system.pages.flowCenter = 1;
       loadFlowCenter();
@@ -940,6 +925,8 @@
       fields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
       document.getElementById("flowType").value = "";
       document.getElementById("flowStatus").value = "";
+      const flowStockScope = document.getElementById("flowStockScope");
+      if (flowStockScope) flowStockScope.value = "";
       system.pages.flowCenter = 1;
       loadFlowCenter();
     });
@@ -957,7 +944,7 @@
       <div class="work-panel"><div class="work-head"><h2>发起验收</h2><button id="addAcceptanceRow">添加行</button></div>
         <div class="work-body">
           <div class="form-grid">
-            <label class="wide">验收标题<input id="accTitle" placeholder="例如：研发物料到货验收"></label>
+            <label class="wide">验收标题<input id="accTitle" placeholder="例如：研发物料到货验收"></label>            ${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<div class="wide acceptance-purchase-order"><span class="acceptance-purchase-order-label">是否有采购订单</span><div class="acceptance-purchase-order-options"><label><input type="radio" name="acceptancePurchaseOrder" value="yes" checked> 是</label><label><input type="radio" name="acceptancePurchaseOrder" value="no"> 否（按临时库物料验收）</label></div></div>` : ""}
             <div class="wide" id="accRows"></div>
             <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitAcceptance">提交验收流程</button></div>
           </div>
@@ -1238,23 +1225,7 @@
     document.getElementById("refreshSemiFlows").addEventListener("click", loadSemifinishedFlowList);
     document.getElementById("semiTitle").value = "";
     // Load users for maker dropdown
-    systemApi("/api/system/users").then(data => {
-      const select = document.getElementById("semiMakerId");
-      if (select && data.users) {
-        select.innerHTML = '<option value="">请选择制作人</option>';
-        data.users.forEach(user => {
-          const option = document.createElement("option");
-          option.value = user.id;
-          option.textContent = user.display_name || user.username;
-          select.appendChild(option);
-        });
-        // Select current user by default
-        const currentUserId = currentUser()?.id;
-        if (currentUserId) {
-          select.value = currentUserId;
-        }
-      }
-    }).catch(() => {});
+    populateProductionMakerSelect("semiMakerId");
     bindDatePickers(main);
     fillNextFormNo("semiTitle", "BY");
     loadProductionMaterialPool()
@@ -1301,22 +1272,7 @@
     document.getElementById("submitFin").addEventListener("click", startFinishedSubmit);
     document.getElementById("refreshFinFlows").addEventListener("click", loadFinishedFlowList);
     document.getElementById("finTitle").value = "";
-    systemApi("/api/system/users").then(data => {
-      const select = document.getElementById("finMakerId");
-      if (select && data.users) {
-        select.innerHTML = '<option value="">请选择制作人</option>';
-        data.users.forEach(user => {
-          const option = document.createElement("option");
-          option.value = user.id;
-          option.textContent = user.display_name || user.username;
-          select.appendChild(option);
-        });
-        const currentUserId = currentUser()?.id;
-        if (currentUserId) {
-          select.value = currentUserId;
-        }
-      }
-    }).catch(() => {});
+    populateProductionMakerSelect("finMakerId");
     bindDatePickers(main);
     fillNextFormNo("finTitle", "CY");
     loadProductionMaterialPool()
@@ -1569,6 +1525,23 @@
 
   function currentUser() {
     return (system.boot?.users || []).find(user => user.id === system.userId) || system.boot?.user;
+  }
+
+  function populateProductionMakerSelect(selectId) {
+    const select = document.getElementById(selectId);
+    const user = currentUser();
+    if (!select || !user) return;
+    const users = hasRole("admin")
+      ? (system.boot?.users || []).filter(item => item.is_active)
+      : [user];
+    select.innerHTML = '<option value="">请选择制作人</option>';
+    users.forEach(item => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.display_name || item.username;
+      select.appendChild(option);
+    });
+    select.value = user.id;
   }
 
   function openChangePasswordModal() {
@@ -2120,7 +2093,7 @@
     row.className = `inline-row ${type === "claim" ? "claim" : ""}`;
     row.innerHTML = type === "claim"
       ? `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格/采购申请人"><div data-result-list class="material-results"></div><small data-stock-info class="hint"></small></label><label>编号<input data-code readonly></label><label>品牌型号<input data-brand readonly></label><label>技术规格<input data-spec readonly></label><label>领用数量<input data-qty type="number" step="1" min="0"><small data-allocation-info class="claim-allocation-preview"></small></label><button data-remove>删除</button><input type="hidden" data-material-id><input type="hidden" data-stock-quantity>`
-      : `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div></label><label>编号<input data-code></label><label>品牌型号<input data-brand></label><label>技术规格<input data-spec></label><label>采购申请人<input data-purchase-applicant></label><label>采购数量<input data-purchase type="number" step="1"></label><label>到货数量<input data-arrival type="number" step="1"></label><label>单价<input data-price type="number" step="0.01"></label><button data-remove>删除</button><input type="hidden" data-material-id>`;
+      : `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div></label><label>编号<input data-code></label><label>品牌型号<input data-brand></label><label>技术规格<input data-spec></label><label>采购申请人<input data-purchase-applicant></label><label>采购数量<input data-purchase type="number" step="1"></label><label>到货数量<input data-arrival type="number" step="1"></label><label>总金额<input data-total-amount type="number" min="0" step="0.01" required></label><label>单价<input data-price type="number" step="0.0001" readonly></label><button data-remove>删除</button><input type="hidden" data-material-id>`;
     row.querySelector("[data-remove]").addEventListener("click", () => row.remove());
     const search = row.querySelector("[data-search]");
     let timer = 0;
@@ -2140,6 +2113,13 @@
       if (!row.contains(event.target)) hideMaterialResults(row);
     });
     host.appendChild(row);
+    if (type !== "claim") {
+      row._syncAmountInput = window.WarehouseAmountInput?.bind({
+        quantityInput: row.querySelector("[data-arrival]"),
+        totalAmountInput: row.querySelector("[data-total-amount]"),
+        unitPriceInput: row.querySelector("[data-price]"),
+      });
+    }
   }
 
   async function resolveMaterial(row, positiveOnly) {
@@ -2253,7 +2233,6 @@
       borrow: ["借用申请", "type-borrow"], borrow_return: ["借用归还", "type-return"],
       common_material: ["常用物料申请", "type-common"], supply: ["供货申请", "type-supply"],
       supply_return: ["供货回寄", "type-return"], supply_extension: ["供货延期", "type-supply"],
-      temporary_transfer: ["临时库转正式库", "type-transfer"],
     };
     const item = labels[raw];
     return { label: item ? item[0] : (raw || "-"), className: item ? item[1] : "type-default" };
@@ -2291,11 +2270,6 @@
     host.querySelectorAll("[data-detail]").forEach(btn => btn.addEventListener("click", () => {
       const formId = Number(btn.dataset.detail);
       const todo = (system.boot.todos || []).find(item => Number(item.form_id) === formId);
-      if (todo?.form_type === "temporary_transfer") {
-        system.view = "temporaryTransfers";
-        renderSystemMain();
-        return temporaryTransfers.openDetail(formId);
-      }
       return openFlowDetail(formId);
     }));
     host.querySelectorAll("[data-supervise-stocktake]").forEach(btn => btn.addEventListener("click", () => superviseStocktake(Number(btn.dataset.superviseStocktake))));
@@ -2312,7 +2286,7 @@
       purchase_applicant: row.querySelector("[data-purchase-applicant]")?.value || "",
       purchase_quantity: row.querySelector("[data-purchase]").value,
       arrival_quantity: row.querySelector("[data-arrival]").value,
-      unit_price: row.querySelector("[data-price]").value,
+      total_amount: row.querySelector("[data-total-amount]").value,
     }));
     return { rows, items };
   }
@@ -2417,7 +2391,9 @@
     if (submitButton) submitButton.disabled = true;
     try {
       const { items } = acceptanceItemsWithRows();
-      await systemApi("/api/acceptance", { method: "POST", body: JSON.stringify({ title: document.getElementById("accTitle").value, validator_ids: system.selectedValidators, items }) });
+      const purchaseOrderChoice = document.querySelector("input[name='acceptancePurchaseOrder']:checked");
+      const hasPurchaseOrder = purchaseOrderChoice ? purchaseOrderChoice.value === "yes" : true;
+      await systemApi("/api/acceptance", { method: "POST", body: JSON.stringify({ title: document.getElementById("accTitle").value, validator_ids: system.selectedValidators, has_purchase_order: hasPurchaseOrder, items }) });
       toast("\u9a8c\u6536\u6d41\u7a0b\u5df2\u63d0\u4ea4");
       system.boot = null;
       await loadSystemBoot();
@@ -2876,8 +2852,10 @@
     const params = new URLSearchParams();
     const type = document.getElementById("flowType")?.value || "";
     const status = document.getElementById("flowStatus")?.value || "";
+    const stockScope = document.getElementById("flowStockScope")?.value || "";
     if (type) params.set("type", type);
     if (status) params.set("status", status);
+    if (stockScope) params.set("stock_scope", stockScope);
     const materialName = document.getElementById("flowMaterialName")?.value || "";
     const materialCode = document.getElementById("flowMaterialCode")?.value || "";
     const brandModel = document.getElementById("flowBrandModel")?.value || "";
@@ -2992,7 +2970,6 @@
       borrow_outbound: "借用出库",
       return_inbound: "归还验收入库",
       applicant_revision: "发起人修改",
-      temporary_transfer: "转正式库办理",
       stocktake_supervisor: "监盘签字",
       supervisor: "监盘签字",
       completed: "已办结",
@@ -3305,7 +3282,6 @@
           <div class="fact"><span>验收签字</span><span>${escapeHtml(form.data?.acceptance_signatures || "")}</span></div>
           <div class="fact"><span>领导签字</span><span>${escapeHtml(leaderSignatures || "")}</span></div>
         </div>
-        ${form.transfer_task ? `<div class="facts transfer-origin-facts"><div class="fact"><span>来源</span><strong>临时库转正式库</strong></div><div class="fact"><span>转移任务</span><strong>${escapeHtml(form.transfer_task.transfer_no)}</strong></div><div class="fact"><span>临时库存快照</span><strong>${formatInputQty(form.transfer_task.temporary_quantity_snapshot)}</strong></div><div class="fact"><span>历史待结算量</span><strong>${formatInputQty(form.transfer_task.obligation_quantity_snapshot)}</strong></div><div class="fact"><span>目标验收数量</span><strong>${formatInputQty(form.transfer_task.target_acceptance_quantity)}</strong></div><div class="fact"><span>已正式入库</span><strong>${formatInputQty(form.transfer_task.accepted_quantity)}</strong></div></div>` : ""}
         ${flowItemsTable(form)}
         <h3>审批/办理记录</h3>${flowTaskTable(form)}
         <div class="mini-actions">${taskButtons}</div>
@@ -4394,7 +4370,8 @@
       <td><input data-batch-no value="${escapeAttr(batch.batch_no || "")}"></td>
       <td><input data-batch-date type="date" value="${escapeAttr(batch.received_date || "")}"></td>
       <td><input data-batch-qty type="number" step="1" value="${Number(batch.quantity || 0)}"></td>
-      <td><input data-batch-price type="number" step="0.01" value="${Number(batch.unit_price || 0)}"></td>
+      <td><input data-batch-total-amount type="number" min="0" step="0.01" value="${Number(batch.quantity || 0) * Number(batch.unit_price || 0)}"></td>
+      <td><input data-batch-price type="number" step="0.0001" value="${Number(batch.unit_price || 0)}" readonly></td>
       <td><select data-batch-shelf>${shelfSelectHtml(batch.shelf_id)}</select></td>
       <td><input data-batch-layer type="number" value="${escapeAttr(batch.layer_number || "")}"></td>
       <td><input data-batch-zone value="${escapeAttr(batch.zone_name || "")}"></td>
@@ -4422,7 +4399,17 @@
         updateMaterialBatchTotal();
       };
     });
-    document.querySelectorAll("[data-batch-qty]").forEach(input => { input.oninput = updateMaterialBatchTotal; });
+    document.querySelectorAll("[data-material-batch-row]").forEach(row => {
+      row._syncAmountInput = window.WarehouseAmountInput?.bind({
+        quantityInput: row.querySelector("[data-batch-qty]"),
+        totalAmountInput: row.querySelector("[data-batch-total-amount]"),
+        unitPriceInput: row.querySelector("[data-batch-price]"),
+      });
+      row.querySelector("[data-batch-qty]").oninput = () => {
+        row._syncAmountInput?.();
+        updateMaterialBatchTotal();
+      };
+    });
   }
 
   function materialBatchPayloadFromEditor(defaultLocation) {
@@ -4431,7 +4418,7 @@
       batch_no: row.querySelector("[data-batch-no]").value.trim(),
       received_date: row.querySelector("[data-batch-date]").value,
       quantity: row.querySelector("[data-batch-qty]").value,
-      unit_price: row.querySelector("[data-batch-price]").value,
+      total_amount: row.querySelector("[data-batch-total-amount]").value,
       shelf_id: row.querySelector("[data-batch-shelf]").value || defaultLocation.shelf_id,
       layer_number: row.querySelector("[data-batch-layer]").value || defaultLocation.layer_number,
       zone_name: row.querySelector("[data-batch-zone]").value || defaultLocation.zone_name,
@@ -4516,7 +4503,7 @@
         <label>默认格位<input id="editMatSlot" type="number" value="${escapeAttr(material.slot_index || 0)}"></label>
         <div class="wide" style="overflow:auto;">
           <div class="flow-tools"><button type="button" id="addMaterialBatch">新增批次</button></div>
-          <table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>数量</th><th>单价</th><th>货架</th><th>层</th><th>分区</th><th>来源</th><th>操作</th></tr></thead><tbody id="editMaterialBatchRows">${batches.map(materialBatchRowHtml).join("")}</tbody></table>
+          <table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>数量</th><th>总金额</th><th>单价</th><th>货架</th><th>层</th><th>分区</th><th>来源</th><th>操作</th></tr></thead><tbody id="editMaterialBatchRows">${batches.map(materialBatchRowHtml).join("")}</tbody></table>
         </div>
       </div>`,
       okText: "保存修改",
@@ -5184,10 +5171,9 @@
       }) });
       system.boot = null;
       await loadSystemBoot();
-      if (!system.boot.workflow_settings?.temporary_inventory_enabled && ["temporaryInventory", "temporaryTransfers"].includes(system.view)) {
+      if (!system.boot.workflow_settings?.temporary_inventory_enabled && system.view === "temporaryInventory") {
         system.view = "query";
         temporaryInventory.clear();
-        temporaryTransfers.clear();
       }
       toast("流程设置已保存");
       const home = document.getElementById("home");

@@ -93,22 +93,18 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026071401",
         "2026071402",
         "2026071403",
-        "2026071404",
-        "2026071501",
+        "2026072401",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 6
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 5
     assert {"stock_source", "inventory_status", "version"} <= _column_names(conn, "material_batches")
     assert {
         "stock_source",
         "business_type",
         "operation_key",
-        "transfer_task_id",
         "operator_id",
         "workflow_item_id",
-        "transfer_auto_claim_id",
-        "inventory_reservation_id",
     } <= _column_names(conn, "stock_records")
     assert {
         "applicant_id",
@@ -150,21 +146,7 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "idx_temp_issue_obligations_batch_status",
         "idx_temp_issue_obligations_claim",
         "idx_stock_records_workflow_item",
-        "idx_stock_records_transfer_auto_claim",
-        "idx_stock_records_inventory_reservation",
     } <= first_indexes
-    assert {
-        "inventory_transfer_tasks",
-        "inventory_transfer_items",
-        "inventory_transfer_obligations",
-        "transfer_acceptance_links",
-        "inventory_reservations",
-        "transfer_auto_claims",
-        "transfer_auto_claim_obligations",
-    } <= {
-        row["name"]
-        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
     conn.close()
 
 
@@ -176,21 +158,8 @@ def test_new_database_is_created_at_latest_schema(db):
         "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026071402'"
     ).fetchone()[0] == 1
     assert db.execute(
-        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026071404'"
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026072401'"
     ).fetchone()[0] == 1
-    assert db.execute(
-        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026071501'"
-    ).fetchone()[0] == 1
-    assert {
-        "inventory_reservations",
-        "transfer_auto_claims",
-        "transfer_auto_claim_obligations",
-    } <= {
-        row["name"]
-        for row in db.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'"
-        )
-    }
     assert {"stock_source", "inventory_status", "version"} <= _column_names(db, "material_batches")
     assert {"origin_type", "origin_ref_id"} <= _column_names(db, "workflow_forms")
     assert {"workflow_item_id"} <= _column_names(db, "stock_records")

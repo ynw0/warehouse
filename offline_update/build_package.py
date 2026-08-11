@@ -200,7 +200,7 @@ def main(argv=None):
     for path in sorted(stage.rglob("*")):
         if path.is_file() and path.name != "checksums.sha256" and "reports" not in path.relative_to(stage).parts:
             checksum_lines.append(f"{sha256(path)}  {str(path.relative_to(stage)).replace(os.sep, '/')}")
-    (stage / "checksums.sha256").write_text("\n".join(checksum_lines) + "\n", encoding="utf-8")
+    (stage / "checksums.sha256").write_bytes(("\n".join(checksum_lines) + "\n").encode("utf-8"))
     scan_package(stage)
 
     zip_path = dist / f"{package_name}.zip"

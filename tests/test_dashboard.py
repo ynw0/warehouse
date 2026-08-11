@@ -133,7 +133,6 @@ def test_dashboard_overview_uses_batches_and_hides_temporary_when_disabled(clien
     assert hidden_payload["settings"]["temporary_warehouse_enabled"] is False
     assert hidden_payload["inventory"]["temporary_stock"] == 0
     assert hidden_payload["inventory"]["total_stock"] == 10
-    assert hidden_payload["workflow"]["pending_transfer"] == 0
     assert hidden_payload["categories"] == [{"name": "测试分类", "stock_quantity": 10}]
 
 

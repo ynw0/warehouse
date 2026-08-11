@@ -12,6 +12,7 @@ from warehouse_suit.inventory_constants import (
     BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_OUT,
     BUSINESS_TYPE_TEMPORARY_MANUAL_INBOUND,
     INVENTORY_STATUS_AVAILABLE,
+    STOCK_SOURCE_FORMAL,
     STOCK_SOURCE_TEMPORARY,
     validate_inventory_status,
 )
@@ -19,11 +20,12 @@ from warehouse_suit.inventory_service import (
     add_inventory_batch,
     adjust_inventory_batch,
     begin_inventory_transaction,
+    update_inventory_total,
 )
 from warehouse_suit.material_service import update_material_master_by_id, upsert_material_master
 from warehouse_suit.recycle import recycle_material
 from warehouse_suit.settings import temporary_inventory_enabled
-from warehouse_suit.validation import positive_int_value, price_value, quantity_value, validated_number
+from warehouse_suit.validation import positive_int_value, quantity_value, unit_price_from_total_amount, validated_number
 
 
 class TemporaryInventoryDisabled(RuntimeError):
@@ -92,7 +94,7 @@ def temporary_inventory_rows(
     page=1,
     page_size=20,
     category="",
-    warehouse_type="",
+    material_warehouse_code="",
     inventory_status=INVENTORY_STATUS_AVAILABLE,
     include_zero=False,
 ):
@@ -100,12 +102,14 @@ def temporary_inventory_rows(
     page, page_size = _page_values(page, page_size)
     batch_where = ["b.stock_source = ?", "b.inventory_status = ?"]
     batch_params = [STOCK_SOURCE_TEMPORARY, inventory_status]
-    if warehouse_type:
-        warehouse_type, _ = _validate_warehouse_location(cursor, warehouse_type)
-        batch_where.append("b.warehouse_type = ?")
-        batch_params.append(warehouse_type)
     outer_where = []
     outer_params = []
+    material_warehouse_code = str(material_warehouse_code or "").strip()
+    if material_warehouse_code:
+        if material_warehouse_code not in {"10", "20"}:
+            raise ValueError("物料库房编码必须为 10 或 20")
+        outer_where.append("substr(m.material_code, 3, 2) = ?")
+        outer_params.append(material_warehouse_code)
     keyword = str(q or "").strip()
     if keyword:
         like = f"%{keyword}%"
@@ -127,6 +131,7 @@ def temporary_inventory_rows(
                 b.material_id,
                 COALESCE(SUM(b.quantity), 0) AS temporary_quantity,
                 COALESCE(SUM(CASE WHEN b.inventory_status = ? THEN b.quantity ELSE 0 END), 0) AS available_quantity,
+                COALESCE(SUM(CASE WHEN b.inventory_status = ? THEN b.quantity * b.unit_price ELSE 0 END), 0) AS amount,
                 COUNT(*) AS batch_count,
                 GROUP_CONCAT(DISTINCT b.warehouse_type) AS warehouse_types,
                 GROUP_CONCAT(DISTINCT COALESCE(s.name, '')) AS shelf_names,
@@ -154,6 +159,7 @@ def temporary_inventory_rows(
             m.small_code,
             ts.temporary_quantity,
             ts.available_quantity,
+            ts.amount,
             ts.batch_count,
             ts.warehouse_types AS warehouse_type,
             ? AS inventory_status,
@@ -163,7 +169,7 @@ def temporary_inventory_rows(
         FROM temporary_stock ts
         JOIN materials m ON m.id = ts.material_id
     """
-    all_params = [inventory_status, *batch_params, inventory_status, STOCK_SOURCE_TEMPORARY, *outer_params]
+    all_params = [inventory_status, inventory_status, *batch_params, inventory_status, STOCK_SOURCE_TEMPORARY, *outer_params]
     where_sql = (" WHERE " + " AND ".join(outer_where)) if outer_where else ""
     count_sql = cte + "SELECT COUNT(*) FROM (" + select + where_sql + ") counted"
     cursor.execute(count_sql, all_params)
@@ -262,19 +268,6 @@ def _existing_operation(cursor, operation_key):
     return dict(row) if row else None
 
 
-def _ensure_material_not_transferring(cursor, material_id):
-    cursor.execute(
-        """
-        SELECT id
-        FROM inventory_transfer_tasks
-        WHERE material_id = ? AND active_key IS NOT NULL
-        LIMIT 1
-        """,
-        (int(material_id),),
-    )
-    if cursor.fetchone():
-        raise ValueError("该物料正在转移到正式库，暂不能新增或调整临时库存")
-
 
 def create_temporary_batch(cursor, data, user, ip_address=""):
     operation_key = str(data.get("operation_key") or "").strip()
@@ -282,7 +275,9 @@ def create_temporary_batch(cursor, data, user, ip_address=""):
         raise ValueError("operation_key 不能为空")
     material_id = positive_int_value(data.get("material_id"), "物料")
     quantity = quantity_value(data.get("quantity"), "入库数量", positive=True)
-    unit_price = price_value(data.get("unit_price") or 0, "入库单价")
+    unit_price = unit_price_from_total_amount(
+        data.get("total_amount"), quantity, "临时库入库总金额", "入库数量"
+    )
     warehouse_type, shelf_id = _validate_warehouse_location(
         cursor, data.get("warehouse_type"), data.get("shelf_id")
     )
@@ -301,7 +296,6 @@ def create_temporary_batch(cursor, data, user, ip_address=""):
         ):
             raise ValueError("库存操作幂等键已被其他业务使用")
         return {"batch_id": int(existing.get("batch_id") or 0), "idempotent": True}
-    _ensure_material_not_transferring(cursor, material_id)
 
     location = {
         "warehouse_type": warehouse_type,
@@ -470,9 +464,6 @@ def delete_temporary_material(cursor, material_id, user, ip_address=""):
     material = cursor.fetchone()
     if not material:
         raise ValueError("物料不存在")
-    cursor.execute("SELECT 1 FROM inventory_transfer_tasks WHERE material_id = ? AND active_key IS NOT NULL LIMIT 1", (material_id,))
-    if cursor.fetchone():
-        raise ValueError("该物料正在转正式库，不能删除")
     cursor.execute("SELECT COUNT(*) FROM material_batches WHERE material_id = ? AND stock_source <> ?", (material_id, STOCK_SOURCE_TEMPORARY))
     if int(cursor.fetchone()[0] or 0):
         raise ValueError("该物料含正式库批次，请从物料管理中维护")
@@ -489,3 +480,184 @@ def delete_temporary_material(cursor, material_id, user, ip_address=""):
     cursor.execute("DELETE FROM materials WHERE id = ?", (material_id,))
     write_audit_log(cursor, user, "temporary_inventory.material_deleted", "material", material_id,
                     "删除临时库物料", {"material_code": material["material_code"], "name": material["name"]}, ip_address)
+
+
+def _promote_source_data(value):
+    if isinstance(value, dict):
+        updated = {}
+        for key, item in value.items():
+            if key in {"stock_source", "outbound_stock_source"} and item == STOCK_SOURCE_TEMPORARY:
+                updated[key] = STOCK_SOURCE_FORMAL
+            else:
+                updated[key] = _promote_source_data(item)
+        return updated
+    if isinstance(value, list):
+        return [_promote_source_data(item) for item in value]
+    return value
+
+
+def promote_temporary_material(cursor, material_id, user, ip_address=""):
+    """Convert one material's temporary inventory and source-linked documents to formal."""
+    material_id = int(material_id or 0)
+    if not material_id:
+        raise ValueError("物料不存在")
+    require_temporary_inventory_enabled(cursor)
+    begin_inventory_transaction(cursor.connection)
+    cursor.execute("SELECT id, material_code, name FROM materials WHERE id = ?", (material_id,))
+    material = cursor.fetchone()
+    if not material:
+        raise ValueError("物料不存在")
+    material = dict(material)
+
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM material_batches WHERE material_id = ? AND stock_source = ?",
+        (material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    temporary_batch_count = int(cursor.fetchone()[0] or 0)
+    if temporary_batch_count <= 0:
+        raise ValueError("该物料没有可转移的临时库批次")
+
+    cursor.execute(
+        """
+        SELECT DISTINCT form_id
+        FROM workflow_items
+        WHERE material_id = ? AND stock_source = ?
+        ORDER BY form_id
+        """,
+        (material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    form_ids = [int(row[0]) for row in cursor.fetchall()]
+    timestamp = now_text()
+    date_value = today_text()
+
+    cursor.execute(
+        """
+        SELECT id, data_json
+        FROM workflow_items
+        WHERE material_id = ? AND stock_source = ?
+        """,
+        (material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    item_rows = [dict(row) for row in cursor.fetchall()]
+    for item in item_rows:
+        item_data = _promote_source_data(json.loads(item.get("data_json") or "{}"))
+        cursor.execute(
+            "UPDATE workflow_items SET stock_source = ?, data_json = ? WHERE id = ?",
+            (STOCK_SOURCE_FORMAL, json.dumps(item_data, ensure_ascii=False), int(item["id"])),
+        )
+
+    for form_id in form_ids:
+        cursor.execute("SELECT data_json, origin_type FROM workflow_forms WHERE id = ?", (form_id,))
+        form = cursor.fetchone()
+        if not form:
+            continue
+        form_data = _promote_source_data(json.loads(form["data_json"] or "{}"))
+        form_data["converted_from_temporary"] = True
+        form_data["converted_at"] = timestamp
+        origin_type = "manual" if form["origin_type"] in {"temporary", "temporary_inventory"} else form["origin_type"]
+        cursor.execute(
+            """
+            UPDATE workflow_forms
+            SET origin_type = ?, data_json = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (origin_type, json.dumps(form_data, ensure_ascii=False), timestamp, timestamp, form_id),
+        )
+        cursor.execute(
+            """
+            UPDATE workflow_tasks
+            SET signed_at = CASE WHEN COALESCE(signed_at, '') <> '' THEN ? ELSE '' END,
+                created_at = ?, updated_at = ?
+            WHERE form_id = ?
+            """,
+            (date_value, timestamp, timestamp, form_id),
+        )
+
+    cursor.execute(
+        """
+        SELECT id, data_json
+        FROM borrow_records
+        WHERE material_id = ? AND stock_source = ?
+        """,
+        (material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    borrow_rows = [dict(row) for row in cursor.fetchall()]
+    for record in borrow_rows:
+        record_data = _promote_source_data(json.loads(record.get("data_json") or "{}"))
+        cursor.execute(
+            """
+            UPDATE borrow_records
+            SET stock_source = ?, outbound_date = ?,
+                return_date = CASE WHEN COALESCE(return_date, '') <> '' THEN ? ELSE '' END,
+                data_json = ?, created_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (STOCK_SOURCE_FORMAL, date_value, date_value, json.dumps(record_data, ensure_ascii=False), timestamp, timestamp, int(record["id"])),
+        )
+
+    cursor.execute(
+        """
+        UPDATE temporary_issue_obligations
+        SET settled_quantity = issued_quantity, status = 'settled', settled_at = ?,
+            updated_at = ?, error_message = ''
+        WHERE material_id = ? AND status IN ('pending', 'reserved', 'processing', 'exception')
+        """,
+        (timestamp, timestamp, material_id),
+    )
+    settled_obligations = int(cursor.rowcount or 0)
+
+    cursor.execute(
+        """
+        UPDATE material_batches
+        SET stock_source = ?, received_date = ?, version = version + 1, updated_at = ?
+        WHERE material_id = ? AND stock_source = ?
+        """,
+        (STOCK_SOURCE_FORMAL, date_value, timestamp, material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    converted_batches = int(cursor.rowcount or 0)
+    cursor.execute(
+        """
+        UPDATE stock_records
+        SET stock_source = ?, operation_date = ?, created_at = ?,
+            business_type = CASE
+                WHEN business_type IN ('temporary_acceptance_inbound', 'temporary_manual_inbound',
+                                       'temporary_manual_adjust_in', 'temporary_manual_adjust_out')
+                THEN 'manual'
+                ELSE business_type
+            END
+        WHERE material_id = ? AND stock_source = ?
+        """,
+        (STOCK_SOURCE_FORMAL, date_value, timestamp, material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    converted_records = int(cursor.rowcount or 0)
+    formal_quantity, _ = update_inventory_total(cursor, material_id, STOCK_SOURCE_FORMAL)
+    write_audit_log(
+        cursor,
+        user,
+        "temporary_inventory.promoted",
+        "material",
+        material_id,
+        "临时库物料转正式库",
+        {
+            "material_code": material["material_code"],
+            "material_name": material["name"],
+            "converted_batches": converted_batches,
+            "converted_stock_records": converted_records,
+            "converted_forms": len(form_ids),
+            "converted_borrow_records": len(borrow_rows),
+            "settled_obligations": settled_obligations,
+            "converted_date": date_value,
+        },
+        ip_address,
+    )
+    return {
+        "material_id": material_id,
+        "converted_batches": converted_batches,
+        "converted_stock_records": converted_records,
+        "converted_forms": len(form_ids),
+        "converted_borrow_records": len(borrow_rows),
+        "settled_obligations": settled_obligations,
+        "formal_quantity": formal_quantity,
+        "converted_date": date_value,
+    }

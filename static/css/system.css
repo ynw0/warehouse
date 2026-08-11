@@ -1635,3 +1635,35 @@ button.danger:hover,
 .status-badge.status-transfer-processing { color: #125f93; background: #eaf5ff; border-color: #9dcae9; }
 .status-badge.status-transfer-warning { color: #9a5c16; background: #fff1df; border-color: #e8b574; }
 .status-badge.status-transfer-exception { color: #a22d2d; background: #fff0f0; border-color: #e6a5a5; }
+
+.acceptance-purchase-order {
+  display: grid;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--text, #18324f);
+  font-weight: 600;
+}
+
+.acceptance-purchase-order-options {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 22px;
+}
+
+.acceptance-purchase-order label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.acceptance-purchase-order input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+  flex: 0 0 16px;
+}

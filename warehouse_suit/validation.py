@@ -81,6 +81,21 @@ def price_value(value, label="单价", default=0):
     )
 
 
+
+def unit_price_from_total_amount(total_amount, quantity, amount_label="总金额", quantity_label="数量"):
+    """Validate a required total amount and derive a persistable unit price."""
+    if total_amount is None or str(total_amount).strip() == "":
+        raise ValueError(f"{amount_label}不能为空")
+    amount = price_value(total_amount, amount_label)
+    qty = quantity_value(quantity, quantity_label)
+    if qty <= 0:
+        if amount > 0:
+            raise ValueError(f"{quantity_label}为 0 时{amount_label}必须为 0")
+        return 0.0
+    decimals = int(data_validation_rule("price").get("max_decimals", MAX_PRICE_DECIMALS))
+    return round(amount / qty, decimals)
+
+
 def positive_int_value(value, label, default=None):
     number = validated_number(value, label, default=default, required=default is None, min_value=1, integer=True)
     return int(number) if number is not None else None

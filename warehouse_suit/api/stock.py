@@ -11,7 +11,7 @@ from warehouse_suit.material_repository import fetch_material, material_batch_ro
 from warehouse_suit.numbering import next_stocktake_no
 from warehouse_suit.recycle import recycle_stocktake
 from warehouse_suit.settings import get_setting, set_setting, workflow_settings
-from warehouse_suit.validation import positive_int_value, price_value, quantity_value
+from warehouse_suit.validation import positive_int_value, quantity_value, unit_price_from_total_amount
 from warehouse_suit.workflow_service import require_any_permission, require_permission
 
 
@@ -360,7 +360,10 @@ def register_stock_routes(app, *, get_db, current_user_provider):
         try:
             material_id = positive_int_value(data.get("material_id"), "物料")
             quantity = quantity_value(data.get("quantity"), "数量", positive=True)
-            unit_price = price_value(data.get("unit_price"), "入库单价") if operation == "in" else 0
+            unit_price = (
+                unit_price_from_total_amount(data.get("total_amount"), quantity, "入库总金额", "入库数量")
+                if operation == "in" else 0
+            )
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
 

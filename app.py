@@ -31,7 +31,6 @@ from warehouse_suit.api import (
     register_system_settings_routes,
     register_system_user_routes,
     register_temporary_inventory_routes,
-    register_temporary_transfer_routes,
     register_workflow_routes,
 )
 from warehouse_suit.auth_service import configure_auth_service
@@ -438,7 +437,6 @@ register_system_settings_routes(app, get_db=get_db, require_admin=require_any_ro
 register_system_log_routes(app, get_db=get_db, require_admin=require_any_role, base_dir=BASE_DIR, default_log_path=DEFAULT_LOG_PATH, coding_rules_provider=coding_rules_html)
 register_system_user_routes(app, get_db=get_db, require_admin=require_any_role)
 register_temporary_inventory_routes(app, get_db=get_db, current_user_provider=current_user)
-register_temporary_transfer_routes(app, get_db=get_db, current_user_provider=current_user)
 register_workflow_routes(app, get_db=get_db, current_user_provider=current_user, notify_todos_changed=notify_todos_changed)
 register_acceptance_routes(app, get_db=get_db, current_user_provider=current_user)
 register_claim_routes(app, get_db=get_db, current_user_provider=current_user)

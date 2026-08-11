@@ -8,8 +8,6 @@ from .v2026071301_inventory_source_foundation import MIGRATION as INVENTORY_SOUR
 from .v2026071401_temporary_inventory_management import MIGRATION as TEMPORARY_INVENTORY_MANAGEMENT
 from .v2026071402_temporary_issue_obligations import MIGRATION as TEMPORARY_ISSUE_OBLIGATIONS
 from .v2026071403_borrow_source_foundation import MIGRATION as BORROW_SOURCE_FOUNDATION
-from .v2026071404_temporary_transfer_foundation import MIGRATION as TEMPORARY_TRANSFER_FOUNDATION
-from .v2026071501_transfer_settlement_foundation import MIGRATION as TRANSFER_SETTLEMENT_FOUNDATION
 from .v2026072401_defective_common_supply import MIGRATION as DEFECTIVE_COMMON_SUPPLY_FOUNDATION
 
 
@@ -22,8 +20,6 @@ def available_migrations():
         TEMPORARY_INVENTORY_MANAGEMENT,
         TEMPORARY_ISSUE_OBLIGATIONS,
         BORROW_SOURCE_FOUNDATION,
-        TEMPORARY_TRANSFER_FOUNDATION,
-        TRANSFER_SETTLEMENT_FOUNDATION,
         DEFECTIVE_COMMON_SUPPLY_FOUNDATION,
     ]
 

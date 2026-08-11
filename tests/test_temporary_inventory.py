@@ -483,7 +483,7 @@ def test_origin_type_and_structured_notification_are_filtered(client, db):
             (form_no, form_type, title, status, current_step, applicant_id,
              origin_type, created_at, updated_at)
         VALUES ('TEMP-ORIGIN', 'acceptance', '临时来源', 'pending', 'acceptance', ?,
-                'temporary_transfer', ?, ?)
+                'temporary_inventory', ?, ?)
         """,
         (warehouse_id, app_module.now_text(), app_module.now_text()),
     )

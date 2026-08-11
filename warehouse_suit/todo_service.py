@@ -84,38 +84,6 @@ def latest_workflow_event_id():
         return 0
 
 
-def _temporary_transfer_todos(cursor, user, limit):
-    if not temporary_inventory_enabled(cursor) or not user_has_permission(
-        cursor, user, "process_temporary_transfer"
-    ):
-        return []
-    where = [
-        "t.status IN ('awaiting_purchase', 'acceptance_failed', "
-        "'formal_inbound_partial', 'exception')"
-    ]
-    params = []
-    if "admin" not in user.get("role_codes", []):
-        where.append("(t.assigned_buyer_id IS NULL OR t.assigned_buyer_id = ?)")
-        params.append(int(user["id"]))
-    cursor.execute(
-        f"""
-        SELECT t.id AS task_id, 'temporary_transfer' AS step_code,
-               t.id AS form_id, t.transfer_no AS form_no,
-               'temporary_transfer' AS form_type,
-               ('临时物料转正式库：' || m.name) AS title,
-               t.status, t.updated_at,
-               requester.display_name AS applicant_name
-        FROM inventory_transfer_tasks t
-        JOIN materials m ON m.id = t.material_id
-        LEFT JOIN users requester ON requester.id = t.requested_by
-        WHERE {' AND '.join(where)}
-        ORDER BY t.updated_at DESC, t.id DESC
-        LIMIT ?
-        """,
-        [*params, int(limit)],
-    )
-    return [dict(row) for row in cursor.fetchall()]
-
 
 def pending_tasks_for_user(cursor, user, limit=50):
     if not user:
@@ -158,7 +126,6 @@ def pending_tasks_for_user(cursor, user, limit=50):
         stock_params + [limit],
     )
     todos.extend(dict(row) for row in cursor.fetchall())
-    todos.extend(_temporary_transfer_todos(cursor, user, limit))
     return sorted(todos, key=lambda item: item.get("updated_at") or "", reverse=True)[:limit]
 
 

@@ -37,7 +37,6 @@ def upgrade(conn):
     )
     _ensure_column(conn, "stock_records", "business_type", "TEXT NOT NULL DEFAULT 'manual'")
     _ensure_column(conn, "stock_records", "operation_key", "TEXT")
-    _ensure_column(conn, "stock_records", "transfer_task_id", "INTEGER")
     _ensure_column(
         conn,
         "workflow_items",

@@ -18,7 +18,6 @@
     leader_borrow: "借用审批",
     borrow_outbound: "借用待出库",
     return_inbound: "归还确认",
-    temporary_transfer: "临时库转正式库",
     awaiting_purchase: "等待采购处理",
     acceptance_in_progress: "验收处理中",
     acceptance_failed: "验收失败",

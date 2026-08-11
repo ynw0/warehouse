@@ -29,8 +29,6 @@ def upgrade(conn):
                 CHECK (settled_quantity >= 0 AND settled_quantity <= issued_quantity),
             status TEXT NOT NULL DEFAULT 'pending'
                 CHECK (status IN ('pending', 'cancelled', 'exception', 'reserved', 'processing', 'settled')),
-            transfer_task_id INTEGER,
-            auto_claim_form_id INTEGER,
             operation_key TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

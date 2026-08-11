@@ -489,7 +489,7 @@ def test_partial_temporary_returns_keep_block_until_fully_returned(client, db):
     assert obligation_count(db) == 0
 
 
-def test_formal_active_borrow_does_not_block_temporary_transfer_check(client, db):
+def test_formal_active_borrow_does_not_create_temporary_borrow_obligation_check(client, db):
     material_id, _, _ = seed_material(db, formal_batches=(4,))
     form, _ = create_borrow(
         client,

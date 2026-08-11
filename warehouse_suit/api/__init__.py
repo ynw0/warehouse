@@ -20,7 +20,6 @@ from warehouse_suit.api.system_settings import register_system_settings_routes
 from warehouse_suit.api.system_users import register_system_user_routes
 from warehouse_suit.api.temporary_inventory import register_temporary_inventory_routes
 from warehouse_suit.api.extended import register_extended_routes
-from warehouse_suit.api.temporary_transfers import register_temporary_transfer_routes
 from warehouse_suit.api.workflow import register_workflow_routes
 
 __all__ = [
@@ -44,6 +43,5 @@ __all__ = [
     "register_system_user_routes",
     "register_temporary_inventory_routes",
     "register_extended_routes",
-    "register_temporary_transfer_routes",
     "register_workflow_routes",
 ]

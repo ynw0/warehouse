@@ -6,11 +6,11 @@ import json
 
 from warehouse_suit.attachments import bind_material_attachments
 from warehouse_suit.db import now_text
-from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL
+from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL, validate_stock_source
 from warehouse_suit.inventory_service import ensure_material_from_payload
 from warehouse_suit.material_repository import material_snapshot
 from warehouse_suit.numbering import next_form_no
-from warehouse_suit.validation import price_value, quantity_value
+from warehouse_suit.validation import quantity_value, unit_price_from_total_amount
 from warehouse_suit.workflow_service import (
     create_workflow_tasks,
     validate_validator_users,
@@ -27,9 +27,11 @@ def create_acceptance_workflow(
     origin_type="manual",
     origin_ref_id=None,
     form_data=None,
+    stock_source=STOCK_SOURCE_FORMAL,
 ):
     """Create an acceptance workflow without committing the caller's transaction."""
     rows = list(items or [])
+    stock_source = validate_stock_source(stock_source)
     if not rows:
         raise ValueError("验收单至少需要一行物料")
     validators = [int(value) for value in (validator_ids or []) if int(value)]
@@ -79,7 +81,9 @@ def create_acceptance_workflow(
             positive=True,
         )
         arrival_quantity = quantity_value(item.get("arrival_quantity"), "到货数量")
-        unit_price = price_value(item.get("unit_price"), "验收单价")
+        unit_price = unit_price_from_total_amount(
+            item.get("total_amount"), arrival_quantity, "验收总金额", "到货数量"
+        )
         total += arrival_quantity * unit_price
         item_data = dict(item.get("data") or {})
         cursor.execute(
@@ -102,7 +106,7 @@ def create_acceptance_workflow(
                 arrival_quantity,
                 unit_price,
                 purchase_applicant or snapshot.get("purchase_applicant") or "",
-                STOCK_SOURCE_FORMAL,
+                stock_source,
                 json.dumps(item_data, ensure_ascii=False),
             ),
         )
