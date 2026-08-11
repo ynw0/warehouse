@@ -1531,9 +1531,7 @@
     const select = document.getElementById(selectId);
     const user = currentUser();
     if (!select || !user) return;
-    const users = hasRole("admin")
-      ? (system.boot?.users || []).filter(item => item.is_active)
-      : [user];
+    const users = (system.boot?.users || []).filter(item => item.is_active);
     select.innerHTML = '<option value="">请选择制作人</option>';
     users.forEach(item => {
       const option = document.createElement("option");

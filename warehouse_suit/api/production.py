@@ -52,12 +52,10 @@ from warehouse_suit.workflow_service import (
 
 
 def production_maker(cursor, user, maker_value, optional_active_user_id):
-    """Resolve and authorize the maker recorded on a production acceptance."""
+    """Resolve the active maker recorded on a production acceptance."""
     maker_id = optional_active_user_id(cursor, maker_value, "制作者")
     if not maker_id:
         raise ValueError("请选择制作人")
-    if "admin" not in user.get("role_codes", []) and maker_id != user["id"]:
-        raise PermissionError("普通用户只能填写本人为制作人")
     cursor.execute("SELECT display_name, username FROM users WHERE id = ?", (maker_id,))
     maker = cursor.fetchone()
     if not maker:
