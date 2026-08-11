@@ -409,10 +409,11 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             else:
                 conflict_serials.extend(item["serial_no"] for item in unqualified_serials)
             ensure_production_serials_available(cursor, kind, conflict_serials)
+            form_data = parse_json(form["data_json"], {})
+            maker_id = optional_active_user_id(cursor, form_data.get("maker_id"), "制作者")
+            if not maker_id:
+                raise ValueError("该流程缺少制作人，无法入库")
             if kind == "semifinished":
-                maker_id = optional_active_user_id(cursor, item_data.get("maker_id"), "制作者")
-                if not maker_id:
-                    raise ValueError("该流程缺少制作人，无法入库")
                 cursor.execute(
                     """
                     INSERT INTO semifinished_acceptances
@@ -498,9 +499,6 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                     }
                 )
             else:
-                maker_id = optional_active_user_id(cursor, item_data.get("maker_id"), "制作者")
-                if not maker_id:
-                    raise ValueError("该流程缺少制作人，无法入库")
                 defects = [
                     {
                         "serial_no": serial_item["serial_no"],

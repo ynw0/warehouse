@@ -373,6 +373,27 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
                 form_params.append(form_id)
                 cursor.execute(f"UPDATE workflow_forms SET {', '.join(form_fields)} WHERE id = ?", form_params)
 
+            if is_production_form_type(form.get("form_type")) and "maker_id" in data:
+                if "admin" not in user.get("role_codes", []):
+                    raise PermissionError("只有系统管理员可以修改制作人")
+                maker_id = int(data.get("maker_id") or 0)
+                if not maker_id:
+                    raise ValueError("请选择制作人")
+                cursor.execute(
+                    "SELECT display_name, username FROM users WHERE id = ? AND is_active = 1",
+                    (maker_id,),
+                )
+                maker = cursor.fetchone()
+                if not maker:
+                    raise ValueError("制作人不存在或已停用")
+                form_data = parse_json(form.get("data_json"), {})
+                form_data["maker_id"] = maker_id
+                form_data["maker"] = maker["display_name"] or maker["username"] or ""
+                cursor.execute(
+                    "UPDATE workflow_forms SET data_json = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(form_data, ensure_ascii=False), now_text(), form_id),
+                )
+
             if applicant_limited_edit:
                 if form.get("form_type") in {"claim", "borrow", "borrow_return"}:
                     item_fields = ["request_quantity"]

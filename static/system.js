@@ -2266,12 +2266,22 @@
     return `<div class="table-wrapper"><table class="todo-table flow-table"><thead><tr><th>流程单号</th><th>类型</th><th>当前环节</th><th>状态</th><th>操作</th></tr></thead><tbody>${tableRows || '<tr><td colspan="5" class="todo-empty">暂无待办流程</td></tr>'}</tbody></table></div>`;
   }
 
-  function bindTodoButtons(host) {
-    host.querySelectorAll("[data-detail]").forEach(btn => btn.addEventListener("click", () => {
-      const formId = Number(btn.dataset.detail);
-      const todo = (system.boot.todos || []).find(item => Number(item.form_id) === formId);
-      return openFlowDetail(formId);
+  function bindFlowDetailButtons(host, readonly = false) {
+    host.querySelectorAll("[data-detail]").forEach(button => button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await openFlowDetail(Number(button.dataset.detail), readonly);
+      } catch (error) {
+        console.error("流程详情加载失败", error);
+        toast(`流程详情加载失败：${error.message || "未知错误"}`);
+      } finally {
+        button.disabled = false;
+      }
     }));
+  }
+
+  function bindTodoButtons(host) {
+    bindFlowDetailButtons(host);
     host.querySelectorAll("[data-supervise-stocktake]").forEach(btn => btn.addEventListener("click", () => superviseStocktake(Number(btn.dataset.superviseStocktake))));
   }
 
@@ -2654,7 +2664,7 @@
         : "";
       return `<tr><td>${escapeHtml(form.form_no || "")}</td><td>${escapeHtml(form.title || "")}</td><td>${flowTypeLabel(form.form_type)}</td><td>${escapeHtml(workflowStatusLabel(form.status))}</td><td>${escapeHtml(form.applicant_name || "")}</td><td>${escapeHtml(form.created_at || "")}</td><td class="mini-actions"><button data-detail="${form.id}">查看</button>${applicantActions}</td></tr>`;
     }).join("") || `<tr><td colspan="7">暂无流程</td></tr>`}</tbody></table>${paginationHtml(pageKey, rows, 20)}`;
-    host.querySelectorAll("[data-detail]").forEach(btn => btn.addEventListener("click", () => openFlowDetail(Number(btn.dataset.detail), true)));
+    bindFlowDetailButtons(host, true);
     host.querySelectorAll("[data-edit-flow]").forEach(btn => btn.addEventListener("click", () => editWorkflow(Number(btn.dataset.editFlow))));
     host.querySelectorAll("[data-withdraw-flow]").forEach(btn => btn.addEventListener("click", () => withdrawWorkflow(Number(btn.dataset.withdrawFlow))));
     bindPagination(host, pageKey, () => renderPersonalFlowList(hostId, rows, pageKey, allowApplicantActions));
@@ -2894,7 +2904,7 @@
     document.getElementById("checkAllFlows")?.addEventListener("change", event => {
       host.querySelectorAll("[data-flow-check]").forEach(input => { input.checked = event.target.checked; });
     });
-    host.querySelectorAll("[data-detail]").forEach(btn => btn.addEventListener("click", () => openFlowDetail(Number(btn.dataset.detail))));
+    bindFlowDetailButtons(host);
     host.querySelectorAll("[data-edit-flow]").forEach(btn => btn.addEventListener("click", () => editWorkflow(Number(btn.dataset.editFlow))));
     host.querySelectorAll("[data-delete-flow]").forEach(btn => btn.addEventListener("click", () => deleteWorkflow(Number(btn.dataset.deleteFlow))));
     if (pageKey) bindPagination(host, pageKey, () => renderFlowList(hostId, rows));
@@ -3008,11 +3018,14 @@
       <label>当前步骤<input id="editFlowStep" value="${escapeAttr(detail.current_step || "")}"></label>
       <label>领导<select id="editFlowLeader"><option value="">未指定</option>${userOptionsFrom(system.boot.users || [], Number(detail.leader_id || 0))}</select></label>
       <label>库管/出入库人<select id="editFlowWarehouse"><option value="">未指定</option>${userOptionsFrom(system.boot.users || [], Number(detail.warehouse_user_id || 0))}</select></label>
+      ${isProductionFlow(detail) ? `<label>制作人<select id="editFlowMaker"><option value="">请选择制作人</option>${userOptionsFrom((system.boot.users || []).filter(user => user.is_active), Number(detail.data?.maker_id || 0))}</select></label>` : ""}
       <div class="wide">${editWorkflowItemsHtml(detail)}</div>
       <div class="wide">${editWorkflowTasksHtml(detail)}</div>
     </div>`, okText: "保存修改", onReady: () => {
       document.getElementById("editFlowLeader").value = detail.leader_id || "";
       document.getElementById("editFlowWarehouse").value = detail.warehouse_user_id || "";
+      const makerSelect = document.getElementById("editFlowMaker");
+      if (makerSelect) makerSelect.value = detail.data?.maker_id || "";
       document.querySelectorAll("[data-delete-edit-item]").forEach(btn => {
         btn.addEventListener("click", function () {
           const itemId = this.dataset.deleteEditItem;
@@ -3030,6 +3043,7 @@
         current_step: document.getElementById("editFlowStep").value,
         leader_id: document.getElementById("editFlowLeader").value,
         warehouse_user_id: document.getElementById("editFlowWarehouse").value,
+        maker_id: document.getElementById("editFlowMaker")?.value,
         items: collectEditWorkflowItems(),
         tasks: collectEditWorkflowTasks(),
         delete_item_ids: collectEditWorkflowDeletedItems(),
@@ -3279,6 +3293,7 @@
         <div class="facts">
           <div class="fact"><span>状态</span><strong>${escapeHtml(workflowStatusLabel(form.status))}</strong></div>
           <div class="fact"><span>申请人</span><span>${escapeHtml(form.applicant_name || "")}</span></div>
+          ${isProductionFlow(form) ? `<div class="fact"><span>制作人</span><span>${escapeHtml(form.data?.maker || "未填写")}</span></div>` : ""}
           <div class="fact"><span>验收签字</span><span>${escapeHtml(form.data?.acceptance_signatures || "")}</span></div>
           <div class="fact"><span>领导签字</span><span>${escapeHtml(leaderSignatures || "")}</span></div>
         </div>
@@ -5634,9 +5649,11 @@
           0,
         );
       }
-      // Before the warehouse action there is no actual batch price. Keep the
-      // legacy item price as a compatibility fallback without inventing a cost.
-      return sum + (Number(item.outbound_quantity || 0) * Number(item.unit_price || 0));
+      return sum + (item.suggested_batches || []).reduce(
+        (batchTotal, batch) => batchTotal
+          + (Number(batch.quantity || 0) * Number(batch.unit_price || 0)),
+        0,
+      );
     }, 0);
     return `<p style="text-align:right;margin-top:8px;font-weight:bold;color:#1e40af">合计金额：${money(total)}</p>`;
   }

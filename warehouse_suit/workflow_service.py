@@ -640,6 +640,8 @@ def serialize_form(cursor, form_id):
                     "batch_no": batch["batch_no"],
                     "quantity": batch.get("suggested_quantity") or 0,
                     "available_quantity": batch.get("quantity") or 0,
+                    "unit_price": batch.get("unit_price") or 0,
+                    "amount": (batch.get("suggested_quantity") or 0) * (batch.get("unit_price") or 0),
                     "received_date": batch.get("received_date") or "",
                     "age_days": batch.get("age_days") or 0,
                 }

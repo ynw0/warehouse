@@ -376,7 +376,6 @@ def adjust_temporary_batch(cursor, batch_id, data, user, ip_address=""):
         raise ValueError("临时批次不存在")
     if batch["inventory_status"] != INVENTORY_STATUS_AVAILABLE:
         raise ValueError("该临时批次已进入转移锁定状态，不能调整")
-    _ensure_material_not_transferring(cursor, int(batch["material_id"]))
 
     result = adjust_inventory_batch(
         cursor,
@@ -437,8 +436,10 @@ def create_temporary_material(cursor, data, user, ip_address=""):
     if cursor.fetchone():
         raise ValueError("物料编号已存在，请使用“新增临时批次”")
     begin_inventory_transaction(cursor.connection)
-    material = upsert_material_master(cursor, data)
     batch_data = dict(data)
+    material_data = dict(data)
+    material_data.pop("quantity", None)
+    material = upsert_material_master(cursor, material_data)
     batch_data["material_id"] = material["id"]
     result = create_temporary_batch(cursor, batch_data, user, ip_address)
     write_audit_log(cursor, user, "temporary_inventory.material_created", "material", material["id"],
