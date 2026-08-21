@@ -1356,8 +1356,8 @@ def get_item_change_history(cursor, item_type, item_ref_id, page=1, limit=20):
     # Get borrow records (without joining change records to avoid duplication)
     cursor.execute(
         """
-        SELECT br.id, br.borrow_no, br.quantity, br.returned_quantity, br.status,
-               br.outbound_date, br.return_date, br.created_at,
+        SELECT br.id, br.borrow_no, br.quantity, br.returned_quantity, br.status, br.data_json,
+               br.outbound_date, br.return_date, br.created_at, br.updated_at,
                u.display_name AS borrower_name
         FROM borrow_records br
         LEFT JOIN users u ON u.id = br.borrower_id
@@ -1383,6 +1383,19 @@ def get_item_change_history(cursor, item_type, item_ref_id, page=1, limit=20):
             "borrow_no": br.get("borrow_no"),
             "quantity": br.get("quantity"),
         })
+
+        if br.get("status") == "claimed":
+            claim_data = parse_json(br.get("data_json"), {})
+            history.append({
+                "date": claim_data.get("claimed_at") or br.get("updated_at") or "",
+                "event_type": "领用",
+                "operator": br.get("borrower_name") or "",
+                "change_type": "",
+                "change_detail": "",
+                "version_after": "",
+                "normal_use": "",
+                "summary": f'借用转领用数量: {claim_data.get("claimed_quantity") or 0}',
+            })
 
         cursor.execute(
             """

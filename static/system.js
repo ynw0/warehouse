@@ -20,7 +20,7 @@
     myInspections: { title: "我的验收", icon: "clipboard-check" }, myStarted: { title: "我的发起", icon: "file-pen" },
     acceptance: { title: "物料验收", icon: "shield-check" }, semifinished: { title: "半成品验收", icon: "shield-check" }, finished: { title: "成品验收", icon: "shield-check" },
     claim: { title: "物料申领", icon: "hand-package" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" },
-    query: { title: "物料查询", icon: "search-file" }, temporaryInventory: { title: "临时库", icon: "boxes" }, temporaryLedger: { title: "临时库存流水", icon: "history" }, semifinishedInventory: { title: "半成品库", icon: "boxes" }, finishedInventory: { title: "成品库", icon: "boxes" },
+    query: { title: "物料查询", icon: "search-file" }, temporaryInventory: { title: "临时库查询", icon: "boxes" }, temporaryLedger: { title: "临时库存流水", icon: "history" }, semifinishedInventory: { title: "半成品库", icon: "boxes" }, finishedInventory: { title: "成品库", icon: "boxes" },
     flow: { title: "流程中心", icon: "workflow" }, stats: { title: "统计", icon: "chart" }, stocktake: { title: "盘点", icon: "scan" }, logs: { title: "日志中心", icon: "history" }, recycle: { title: "回收站", icon: "trash" }, admin: { title: "系统设置", icon: "settings" },
     defectiveInventory: { title: "不良品物料", icon: "shield-check" }, commonMaterials: { title: "常用物料", icon: "bell" }, supplies: { title: "供货管理", icon: "package-open" },
   };
@@ -80,7 +80,7 @@
             ])}
             ${navGroup("库存中心", "boxes", [
               ["query", "物料查询", canView("query")],
-              ["temporaryInventory", "临时库", canView("temporaryInventory")],
+              ["temporaryInventory", "临时库查询", canView("temporaryInventory")],
               ["semifinishedInventory", "半成品库", canView("semifinishedInventory")],
               ["finishedInventory", "成品库", canView("finishedInventory")],
               ["defectiveInventory", "不良品物料", canView("defectiveInventory")],
@@ -2088,24 +2088,27 @@
 
   function addItemRow(host, type) {
     const row = document.createElement("div");
-    row.className = `inline-row ${type === "claim" ? "claim" : ""}`;
+    row.className = `inline-row ${type === "claim" ? "claim" : "acceptance"}`;
     row.innerHTML = type === "claim"
       ? `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格/采购申请人"><div data-result-list class="material-results"></div><small data-stock-info class="hint"></small></label><label>编号<input data-code readonly></label><label>品牌型号<input data-brand readonly></label><label>技术规格<input data-spec readonly></label><label>领用数量<input data-qty type="number" step="1" min="0"><small data-allocation-info class="claim-allocation-preview"></small></label><button data-remove>删除</button><input type="hidden" data-material-id><input type="hidden" data-stock-quantity>`
-      : `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div></label><label>编号<input data-code></label><label>品牌型号<input data-brand></label><label>技术规格<input data-spec></label><label>采购申请人<input data-purchase-applicant></label><label>采购数量<input data-purchase type="number" step="1"></label><label>到货数量<input data-arrival type="number" step="1"></label><label>总金额<input data-total-amount type="number" min="0" step="0.01" required></label><label>单价<input data-price type="number" step="0.0001" readonly></label><button data-remove>删除</button><input type="hidden" data-material-id>`;
+      : `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div></label><label class="material-search">编号<input data-code placeholder="输入编号近似搜索"><div data-result-list class="material-results"></div></label><label>品牌型号<input data-brand></label><label>技术规格<input data-spec></label><label>采购申请人<input data-purchase-applicant></label><label>采购数量<input data-purchase type="number" step="1"></label><label>到货数量<input data-arrival type="number" step="1"></label><label>总金额<input data-total-amount type="number" min="0" step="0.01" required></label><label>单价<input data-price type="number" step="0.0001" readonly></label><button data-remove>删除</button><input type="hidden" data-material-id>`;
     row.querySelector("[data-remove]").addEventListener("click", () => row.remove());
-    const search = row.querySelector("[data-search]");
-    let timer = 0;
-    search.addEventListener("input", () => {
-      window.clearTimeout(timer);
-      row.querySelector("[data-material-id]").value = "";
-      timer = window.setTimeout(() => resolveMaterial(row, type === "claim"), 220);
-    });
-    search.addEventListener("focus", () => {
-      resolveMaterial(row, type === "claim");
-    });
-    search.addEventListener("keydown", event => {
-      if (event.key === "Escape") hideMaterialResults(row);
-    });
+    const bindSearch = input => {
+      if (!input) return;
+      const list = input.parentElement.querySelector("[data-result-list]");
+      let timer = 0;
+      input.addEventListener("input", () => {
+        window.clearTimeout(timer);
+        row.querySelector("[data-material-id]").value = "";
+        timer = window.setTimeout(() => resolveMaterial(row, type === "claim", input, list), 220);
+      });
+      input.addEventListener("focus", () => resolveMaterial(row, type === "claim", input, list));
+      input.addEventListener("keydown", event => {
+        if (event.key === "Escape") hideMaterialResults(row);
+      });
+    };
+    bindSearch(row.querySelector("[data-search]"));
+    if (type !== "claim") bindSearch(row.querySelector("[data-code]"));
     row.querySelector("[data-qty]")?.addEventListener("input", () => updateClaimAllocationPreview(row));
     document.addEventListener("click", event => {
       if (!row.contains(event.target)) hideMaterialResults(row);
@@ -2120,8 +2123,8 @@
     }
   }
 
-  async function resolveMaterial(row, positiveOnly) {
-    const keyword = row.querySelector("[data-search]").value.trim();
+  async function resolveMaterial(row, positiveOnly, input = row.querySelector("[data-search]"), list = input?.parentElement.querySelector("[data-result-list]")) {
+    const keyword = input?.value.trim() || "";
     const results = positiveOnly
       ? await api(`/api/claims/materials${keyword ? `?keyword=${encodeURIComponent(keyword)}` : ""}`)
       : (keyword
@@ -2130,12 +2133,12 @@
     const filtered = positiveOnly
       ? results.filter(item => Number(item.total_available_quantity ?? item.quantity ?? 0) > 0)
       : results;
-    const list = row.querySelector("[data-result-list]");
     if (!filtered.length) {
       hideMaterialResults(row);
       row.querySelector("[data-material-id]").value = "";
       return;
     }
+    hideMaterialResults(row);
     row._materialResults = filtered;
     const temporaryEnabled = Boolean(system.boot?.workflow_settings?.temporary_inventory_enabled);
     list.innerHTML = filtered.map((material, index) => `
@@ -2144,7 +2147,7 @@
         <small>${escapeHtml(material.brand_model || "")} ${escapeHtml(material.spec || "")} · 采购申请人 ${escapeHtml(material.purchase_applicant || "-")} · ${positiveOnly ? escapeHtml(ClaimSourceUI.availabilityText(material, temporaryEnabled, formatQty)) : `总余量 ${formatQty(material.quantity || 0)}`} ${escapeHtml(material.unit || "")}${!positiveOnly && material.batch_summary ? ` · 批次 ${escapeHtml(material.batch_summary)}` : ""}</small>
       </button>
     `).join("");
-    positionMaterialResults(row, list, filtered.length);
+    positionMaterialResults(row, list, filtered.length, input);
     resizeMaterialResults(list, filtered.length);
     list.style.display = "block";
     list.querySelectorAll("[data-material-index]").forEach(button => {
@@ -2198,12 +2201,12 @@
     return typeof state !== "undefined" && Array.isArray(state.materials) ? state.materials : refreshMaterialsCache();
   }
 
-  function hideMaterialResults(row) {
-    const list = row.querySelector("[data-result-list]");
-    if (list) {
+  function hideMaterialResults(row, targetList = null) {
+    const lists = targetList ? [targetList] : [...row.querySelectorAll("[data-result-list]")];
+    lists.forEach(list => {
       list.style.display = "none";
       list.innerHTML = "";
-    }
+    });
   }
 
   function resizeMaterialResults(list, count) {
@@ -2213,8 +2216,8 @@
     list.style.maxHeight = `${Math.min(ideal, viewportRoom, Math.max(window.innerHeight * 0.72, 260))}px`;
   }
 
-  function positionMaterialResults(row, list, count) {
-    const input = row.querySelector("[data-search]") || row.querySelector("[data-prod-material-search]") || row.querySelector("[data-prod-semi-search]");
+  function positionMaterialResults(row, list, count, sourceInput = null) {
+    const input = sourceInput || row.querySelector("[data-search]") || row.querySelector("[data-prod-material-search]") || row.querySelector("[data-prod-semi-search]");
     const rect = input.getBoundingClientRect();
     const maxWidth = Math.min(Math.max(rect.width, 420), window.innerWidth - 24);
     list.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - maxWidth - 12))}px`;
@@ -2613,15 +2616,26 @@
       } else if (isTransferring) {
         actions = `<span class="transferring-label">转借中...</span>`;
       } else {
-        actions = `<button type="button" data-return-borrow="${item.id}">我要归还</button><button type="button" class="btn-transfer" data-transfer-borrow="${item.id}">我要转借</button>`;
+        actions = `<button type="button" data-return-borrow="${item.id}">我要归还</button><button type="button" class="btn-transfer" data-transfer-borrow="${item.id}">我要转借</button>${item.item_type === "material" ? `<button type="button" class="btn-claim-borrow" data-claim-borrow="${item.id}">我要领用</button>` : ""}`;
       }
       return `<tr><td>${escapeHtml(item.borrow_no || "")}</td><td>${borrowItemTypeLabel(item.item_type)}</td><td>${ClaimSourceUI.sourceBadge(item.stock_source)}</td><td>${escapeHtml(item.item_code || "")}</td><td>${escapeHtml(item.item_name || "")}</td><td>${escapeHtml(item.brand_model || "无")}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity || 0)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.returned_quantity || 0)}</td><td>${formatQty(item.remaining_quantity || 0)}</td><td>${item.is_overdue ? `<span class="status-badge status-transfer-warning">${escapeHtml(item.expected_return_date || "")}</span>` : escapeHtml(item.expected_return_date || "-")}</td><td>${escapeHtml(item.outbound_date || "")}</td><td>${actions}</td></tr>`;
     }).join("") || `<tr><td colspan="13">${system.myBorrowOverdueOnly ? "暂无逾期借用物料" : "暂无借用中的物料"}</td></tr>`}</tbody></table>${paginationHtml("myBorrow", rows, 20)}`;
     host.querySelectorAll("[data-return-borrow]").forEach(button => button.addEventListener("click", () => openBorrowReturn(Number(button.dataset.returnBorrow))));
     host.querySelectorAll("[data-transfer-borrow]").forEach(button => button.addEventListener("click", () => initiateTransfer(Number(button.dataset.transferBorrow))));
+    host.querySelectorAll("[data-claim-borrow]").forEach(button => button.addEventListener("click", () => claimBorrow(Number(button.dataset.claimBorrow))));
     host.querySelectorAll("[data-accept-transfer]").forEach(button => button.addEventListener("click", () => acceptTransfer(Number(button.dataset.acceptTransfer))));
     host.querySelectorAll("[data-reject-transfer]").forEach(button => button.addEventListener("click", () => rejectTransfer(Number(button.dataset.rejectTransfer))));
     bindPagination(host, "myBorrow", renderMyBorrowList);
+  }
+
+  async function claimBorrow(recordId) {
+    const item = (system.myBorrowRows || []).find(row => Number(row.id) === Number(recordId));
+    if (!item) return;
+    const quantity = formatQty(item.remaining_quantity || 0);
+    if (!confirm(`确认将“${item.item_name || "该物料"}”剩余 ${quantity} ${item.unit || ""} 转为已领用？转换后无需归还，且不可撤销。`)) return;
+    await systemApi(`/api/borrows/${recordId}/claim`, { method: "POST", body: "{}" });
+    toast("借用物料已转为已领用");
+    await loadMyBorrow();
   }
 
   async function loadMyInspections() {
@@ -5490,6 +5504,13 @@
       write_finished_inventory: "\u4fee\u6539\u6210\u54c1\u5e93",
       view_temporary_inventory: "查看临时库",
       manage_temporary_inventory: "管理临时库",
+      transfer_temporary_inventory: "临时库转正式库",
+      view_defective_inventory: "查看不良品物料",
+      manage_defective_inventory: "管理不良品物料",
+      start_common_material: "发起常用物料申请",
+      view_supply: "查看供货管理",
+      start_supply: "发起供货申请",
+      edit_supply: "修改供货单",
     };
     const exclusiveGroup = key => key.includes("_semifinished_inventory") ? "semifinished" : (key.includes("_finished_inventory") ? "finished" : "");
     const groups = [

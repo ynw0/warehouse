@@ -38,7 +38,7 @@
         return;
       }
       main.innerHTML = `
-        <div class="module-title"><div><h1>临时库</h1><p>库存来源：临时库</p></div></div>
+        <div class="module-title"><div><h1>临时库查询</h1><p>库存来源：临时库</p></div></div>
         <div class="work-panel temporary-panel">
           <div class="work-head"><h2>临时库存</h2>${canManage() ? '<button id="temporaryAddBatch" class="primary">新增临时批次</button>' : ""}</div>
           <div class="work-body">

@@ -21,6 +21,7 @@ from warehouse_suit.inventory_service import (
 from warehouse_suit.notifications import create_notification
 from warehouse_suit.numbering import next_form_no
 from warehouse_suit.settings import parse_json, temporary_inventory_enabled
+from warehouse_suit.temporary_inventory_service import write_audit_log
 from warehouse_suit.validation import quantity_value, validation_rule_enabled
 from warehouse_suit.workflow_service import (
     create_workflow_tasks,
@@ -349,7 +350,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             SELECT br.*, f.data_json AS borrow_form_data_json
             FROM borrow_records br
             LEFT JOIN workflow_forms f ON f.id = br.borrow_form_id
-            WHERE br.borrower_id = ? AND br.status != 'returned'
+            WHERE br.borrower_id = ? AND br.status IN ('borrowed', 'transferring', 'partially_returned')
             ORDER BY id DESC
             """,
             (user["id"],),
@@ -416,6 +417,8 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 raise ValueError("借用记录不存在")
             if "admin" not in user.get("role_codes", []) and int(record.get("borrower_id") or 0) != int(user["id"]):
                 raise PermissionError("只能归还自己的借用物料")
+            if record.get("status") != "borrowed":
+                raise ValueError("只能归还借用中的物料")
             remaining = float(record["quantity"] or 0) - float(record["returned_quantity"] or 0)
             qty = quantity_value(data.get("return_quantity") if data.get("return_quantity") is not None else remaining, "归还数量", positive=True)
             if qty <= 0 or (validation_rule_enabled("workflow_bounds") and qty > remaining + 1e-9):
@@ -768,6 +771,93 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             return jsonify({"success": False, "error": str(exc)}), 400
         conn.close()
         return jsonify({"success": True, "form": form_result, "idempotent": False})
+
+
+    @app.post("/api/borrows/<int:record_id>/claim")
+    def claim_borrow(record_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            user = current_user(cursor)
+            if not user:
+                raise PermissionError("请先登录")
+            cursor.execute(
+                "SELECT * FROM borrow_records WHERE id = ? AND borrower_id = ?",
+                (record_id, user["id"]),
+            )
+            record = row_to_dict(cursor.fetchone())
+            if not record:
+                raise ValueError("借用记录不存在")
+            if record.get("item_type") != "material":
+                raise ValueError("只有物料借用记录可以转为已领用")
+            if record.get("status") != "borrowed":
+                raise ValueError("只能将借用中的物料转为已领用")
+            remaining = float(record.get("quantity") or 0) - float(
+                record.get("returned_quantity") or 0
+            )
+            if remaining <= 1e-9:
+                raise ValueError("该借用记录没有未归还数量")
+            cursor.execute(
+                """
+                SELECT 1
+                FROM workflow_forms
+                WHERE form_type = 'borrow_return'
+                  AND status NOT IN ('completed', 'rejected')
+                  AND json_valid(COALESCE(data_json, '{}'))
+                  AND CAST(json_extract(data_json, '$.borrow_record_id') AS INTEGER) = ?
+                LIMIT 1
+                """,
+                (record_id,),
+            )
+            if cursor.fetchone():
+                raise ValueError("该物料存在待办理的归还流程，不能转为已领用")
+            claimed_at = now_text()
+            record_data = parse_json(record.get("data_json"), {})
+            record_data.update(
+                {
+                    "claimed_quantity": remaining,
+                    "claimed_at": claimed_at,
+                    "claimed_by": user["id"],
+                }
+            )
+            cursor.execute(
+                """
+                UPDATE borrow_records
+                SET status = 'claimed', data_json = ?, updated_at = ?
+                WHERE id = ? AND borrower_id = ? AND status = 'borrowed'
+                """,
+                (
+                    json.dumps(record_data, ensure_ascii=False),
+                    claimed_at,
+                    record_id,
+                    user["id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("借用状态已变化，请刷新后重试")
+            write_audit_log(
+                cursor,
+                user,
+                "borrow.claimed",
+                "borrow_record",
+                record_id,
+                "借用物料转为已领用",
+                {
+                    "borrow_no": record.get("borrow_no") or "",
+                    "material_id": record.get("material_id"),
+                    "material_code": record.get("item_code") or "",
+                    "material_name": record.get("item_name") or "",
+                    "claimed_quantity": remaining,
+                },
+                request.remote_addr or "",
+            )
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            conn.close()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        conn.close()
+        return jsonify({"success": True, "status": "claimed"})
 
 
     @app.post("/api/borrows/<int:record_id>/transfer")
