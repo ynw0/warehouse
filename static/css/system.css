@@ -858,16 +858,6 @@ button.danger:hover,
   border-radius: 8px;
 }
 
-.temporary-query-options {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-}
-
-.temporary-query-options > label:first-child {
-  width: min(320px, 100%);
-}
 
 .borrow-claim-confirm {
   display: grid;

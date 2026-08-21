@@ -43,10 +43,6 @@
           <div class="work-body">
             <div class="form-grid">
               <label class="wide">关键词<input id="temporaryKeyword" placeholder="物料编号 / 名称 / 品牌型号 / 技术规格 / 采购申请人"></label>
-              <div class="wide temporary-query-options">
-                <label>物料库房<select id="temporaryWarehouseCode"><option value="">全部</option><option value="10">办公用品库</option><option value="20">研发材料库</option></select></label>
-                <label class="compact-check"><input id="temporaryIncludeZero" type="checkbox"> 显示零库存</label>
-              </div>
               <div class="wide inventory-query-actions">
                 <button id="temporarySearch" class="primary query-search-button">查询</button>
                 ${window.WarehouseInventoryListControls?.toolbarHtml("temporaryInventory") || ""}
@@ -68,10 +64,9 @@
       });
       document.getElementById("temporaryAddBatch")?.addEventListener("click", openAddBatch);
       loadRows();
-      window.WarehouseInventoryListControls?.bind(main, "temporaryInventory", state.listControlState, () => state.rawRows, rows => {
-        state.rows = rows;
-        state.totalPages = 1;
-        renderRows({ ...(state.lastData || {}), items: rows, total: rows.length, pages: 1 });
+      window.WarehouseInventoryListControls?.bind(main, "temporaryInventory", state.listControlState, () => state.rawRows, () => {
+        state.page = 1;
+        loadRows();
       }, { quantityKey: "temporary_quantity" });
     }
 
@@ -85,9 +80,9 @@
           q: document.getElementById("temporaryKeyword")?.value.trim() || "",
           page: String(state.page),
           page_size: String(state.pageSize),
-          material_warehouse_code: document.getElementById("temporaryWarehouseCode")?.value || "",
+          material_warehouse_code: state.listControlState.filters.warehouse || "",
           inventory_status: "available",
-          include_zero: (!state.listControlState.filters.hideZero || document.getElementById("temporaryIncludeZero")?.checked) ? "1" : "0",
+          include_zero: state.listControlState.filters.hideZero ? "0" : "1",
         });
         const data = await api(`/api/temporary-inventory?${query}`);
         state.rawRows = data.items || [];
