@@ -28,6 +28,7 @@
     system,
     api: systemApi,
     formatQty: formatInputQty,
+    moduleShell,
   });
 
   window.renderSystemDashboard = function renderSystemDashboard(home) {
@@ -2628,14 +2629,28 @@
     bindPagination(host, "myBorrow", renderMyBorrowList);
   }
 
-  async function claimBorrow(recordId) {
+  function claimBorrow(recordId) {
     const item = (system.myBorrowRows || []).find(row => Number(row.id) === Number(recordId));
     if (!item) return;
     const quantity = formatQty(item.remaining_quantity || 0);
-    if (!confirm(`确认将“${item.item_name || "该物料"}”剩余 ${quantity} ${item.unit || ""} 转为已领用？转换后无需归还，且不可撤销。`)) return;
-    await systemApi(`/api/borrows/${recordId}/claim`, { method: "POST", body: "{}" });
-    toast("借用物料已转为已领用");
-    await loadMyBorrow();
+    openModal({
+      title: "确认转为领用",
+      placement: "top-center",
+      body: `<div class="borrow-claim-confirm">
+        <p>请确认是否将以下借用物料转为已领用：</p>
+        <div class="borrow-claim-summary">
+          <strong>${escapeHtml(item.item_code || "")} · ${escapeHtml(item.item_name || "该物料")}</strong>
+          <span>领用数量：${escapeHtml(quantity)} ${escapeHtml(item.unit || "")}</span>
+        </div>
+        <p class="borrow-claim-warning">转换后该数量无需归还，且此操作不可撤销。</p>
+      </div>`,
+      okText: "确认领用",
+      onOk: async () => {
+        await systemApi(`/api/borrows/${recordId}/claim`, { method: "POST", body: "{}" });
+        toast("借用物料已转为已领用");
+        await loadMyBorrow();
+      },
+    });
   }
 
   async function loadMyInspections() {

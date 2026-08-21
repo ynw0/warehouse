@@ -1473,8 +1473,9 @@
       });
     }
 
-    function openModal({ title, body, okText = "确定", hideOk = false, onOk, onReady }) {
+    function openModal({ title, body, okText = "确定", hideOk = false, placement = "center", onOk, onReady }) {
       const modal = document.getElementById("modal");
+      modal.classList.toggle("modal-top-center", placement === "top-center");
       modal.innerHTML = `
         <div class="dialog">
           <div class="dialog-head">
@@ -1505,7 +1506,7 @@
     }
 
     function closeModal() {
-      document.getElementById("modal").classList.remove("open");
+      document.getElementById("modal").classList.remove("open", "modal-top-center");
     }
 
     function toast(message, duration = 2600) {

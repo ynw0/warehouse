@@ -1,5 +1,5 @@
 (() => {
-  function create({ system, api, formatQty }) {
+  function create({ system, api, formatQty, moduleShell }) {
     const state = {
       page: 1,
       pageSize: 100,
@@ -37,16 +37,17 @@
         main.innerHTML = '<div class="work-panel"><div class="work-body"><div class="empty-state">临时库功能已关闭或当前账号无查看权限</div></div></div>';
         return;
       }
-      main.innerHTML = `
-        <div class="module-title"><div><h1>临时库查询</h1><p>库存来源：临时库</p></div></div>
-        <div class="work-panel temporary-panel">
-          <div class="work-head"><h2>临时库存</h2>${canManage() ? '<button id="temporaryAddBatch" class="primary">新增临时批次</button>' : ""}</div>
+      main.innerHTML = moduleShell("临时库查询", `
+        <div class="work-panel">
+          <div class="work-head"><h2>查询临时物料和批次</h2>${canManage() ? '<button id="temporaryAddBatch" class="primary">新增临时批次</button>' : ""}</div>
           <div class="work-body">
-            <div class="temporary-filters">
-              <label>关键词<input id="temporaryKeyword" placeholder="物料编号 / 名称 / 规格"></label>
-              <label>物料库房<select id="temporaryWarehouseCode"><option value="">全部</option><option value="10">办公用品库</option><option value="20">研发材料库</option></select></label>
-              <label class="compact-check"><input id="temporaryIncludeZero" type="checkbox"> 显示零库存</label>
-              <div class="inventory-query-actions">
+            <div class="form-grid">
+              <label class="wide">关键词<input id="temporaryKeyword" placeholder="物料编号 / 名称 / 品牌型号 / 技术规格 / 采购申请人"></label>
+              <div class="wide temporary-query-options">
+                <label>物料库房<select id="temporaryWarehouseCode"><option value="">全部</option><option value="10">办公用品库</option><option value="20">研发材料库</option></select></label>
+                <label class="compact-check"><input id="temporaryIncludeZero" type="checkbox"> 显示零库存</label>
+              </div>
+              <div class="wide inventory-query-actions">
                 <button id="temporarySearch" class="primary query-search-button">查询</button>
                 ${window.WarehouseInventoryListControls?.toolbarHtml("temporaryInventory") || ""}
               </div>
@@ -54,7 +55,7 @@
             <div id="temporaryInventoryResult"></div>
           </div>
         </div>
-      `;
+      `);
       document.getElementById("temporarySearch").addEventListener("click", () => {
         state.page = 1;
         loadRows();
