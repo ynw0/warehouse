@@ -291,26 +291,48 @@ def require_form_status(cursor, form_id, form_type, *statuses):
     return form
 
 
+def workflow_view_scope(cursor, user, table_alias="f"):
+    """Return the SQL scope shared by workflow list and detail authorization."""
+    if not user:
+        return "0 = 1", []
+    if "admin" in user.get("role_codes", []):
+        return "1 = 1", []
+
+    participant_sql = f"""
+        (
+            {table_alias}.applicant_id = ?
+            OR {table_alias}.leader_id = ?
+            OR {table_alias}.warehouse_user_id = ?
+            OR EXISTS (
+                SELECT 1
+                FROM workflow_tasks t
+                WHERE t.form_id = {table_alias}.id AND t.assignee_id = ?
+            )
+        )
+    """
+    clauses = [participant_sql]
+    params = [user["id"], user["id"], user["id"], user["id"]]
+    if user_has_permission(cursor, user, "view_flow"):
+        clauses.append(f"{table_alias}.form_type != 'claim'")
+    if user_has_permission(cursor, user, "view_outbound"):
+        clauses.append(f"{table_alias}.form_type = 'claim'")
+    return f"({' OR '.join(clauses)})", params
+
+
 def user_can_view_form(cursor, user, form_id):
     if not user:
         return False
     if not temporary_inventory_enabled(cursor) and workflow_is_temporary(cursor, form_id):
         return False
-    if "admin" in user.get("role_codes", []):
-        return True
+    scope_sql, scope_params = workflow_view_scope(cursor, user)
     cursor.execute(
-        """
+        f"""
         SELECT 1
         FROM workflow_forms f
         WHERE f.id = ?
-          AND (
-            f.applicant_id = ?
-            OR f.leader_id = ?
-            OR f.warehouse_user_id = ?
-            OR EXISTS (SELECT 1 FROM workflow_tasks t WHERE t.form_id = f.id AND t.assignee_id = ?)
-          )
+          AND {scope_sql}
         """,
-        (form_id, user["id"], user["id"], user["id"], user["id"]),
+        [form_id, *scope_params],
     )
     return bool(cursor.fetchone())
 

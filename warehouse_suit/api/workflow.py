@@ -36,7 +36,6 @@ from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.material_repository import material_stock_total
 from warehouse_suit.material_utils import stock_snapshot_payload
 from warehouse_suit.numbering import next_form_no
-from warehouse_suit.permissions import role_permissions
 from warehouse_suit.production_service import production_components_from_payload, production_item_payload
 from warehouse_suit.recycle import recycle_workflow
 from warehouse_suit.settings import parse_json, temporary_inventory_enabled
@@ -61,6 +60,7 @@ from warehouse_suit.workflow_service import (
     workflow_list_rows,
     workflow_return_assignees,
     workflow_step_codes,
+    workflow_view_scope,
 )
 
 
@@ -204,39 +204,10 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
                 """
             )
             params.append(user["id"])
-        elif user and "admin" not in user.get("role_codes", []):
-            perms = role_permissions(cursor)
-            has_view_flow = any(perms.get(role, {}).get("view_flow") for role in user.get("role_codes", []))
-            has_view_outbound = any(perms.get(role, {}).get("view_outbound") for role in user.get("role_codes", []))
-            if has_view_flow and has_view_outbound:
-                pass
-            elif has_view_flow:
-                where.append(
-                    """
-                    (
-                        f.form_type != 'claim'
-                        OR f.applicant_id = ?
-                        OR f.leader_id = ?
-                        OR f.warehouse_user_id = ?
-                        OR EXISTS (SELECT 1 FROM workflow_tasks t WHERE t.form_id = f.id AND t.assignee_id = ?)
-                    )
-                    """
-                )
-                params.extend([user["id"], user["id"], user["id"], user["id"]])
-            elif has_view_outbound:
-                where.append("f.form_type = 'claim'")
-            else:
-                where.append(
-                    """
-                    (
-                        f.applicant_id = ?
-                        OR f.leader_id = ?
-                        OR f.warehouse_user_id = ?
-                        OR EXISTS (SELECT 1 FROM workflow_tasks t WHERE t.form_id = f.id AND t.assignee_id = ?)
-                    )
-                    """
-                )
-                params.extend([user["id"], user["id"], user["id"], user["id"]])
+        elif not user or "admin" not in user.get("role_codes", []):
+            scope_sql, scope_params = workflow_view_scope(cursor, user)
+            where.append(scope_sql)
+            params.extend(scope_params)
         if stock_scope:
             temporary_sql, temporary_params = temporary_workflow_sql("f")
             where.append(temporary_sql if stock_scope == "temporary" else f"NOT {temporary_sql}")
