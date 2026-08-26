@@ -3343,7 +3343,7 @@
     if (form.form_type === "acceptance" && form.status === "leader_acceptance") buttons.push(`<button data-flow-action="leaderAcceptance" class="primary">领导审批</button>`);
     if (form.form_type === "acceptance" && form.status === "inbound") buttons.push(`<button data-flow-action="inbound" class="good">办理入库</button>`);
     if (form.form_type === "claim" && form.status === "leader_claim") buttons.push(`<button data-flow-action="leaderClaim" class="primary">领导审批</button>`);
-    if (form.form_type === "claim" && form.status === "outbound") buttons.push(`<button data-flow-action="outbound" class="warn">办理出库</button>`);
+    if (form.form_type === "claim" && form.status === "outbound" && currentPendingTask(form)) buttons.push(`<button data-flow-action="outbound" class="warn">办理出库</button>`);
     if (form.form_type === "borrow" && form.status === "leader_borrow") buttons.push(`<button data-flow-action="leaderBorrow" class="primary">领导审批</button>`);
     if (form.form_type === "borrow" && form.status === "borrow_outbound") buttons.push(`<button data-flow-action="borrowOutbound" class="warn">办理出库</button>`);
     if (form.form_type === "borrow_return" && form.status === "return_inbound") buttons.push(`<button data-flow-action="borrowReturnInbound" class="good">验收入库</button>`);
