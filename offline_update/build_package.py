@@ -173,6 +173,20 @@ def main(argv=None):
     for path in sorted(stage.rglob("*")):
         if path.is_file() and path.name not in {"package_manifest.json", "checksums.sha256"}:
             payload_files[str(path.relative_to(stage)).replace(os.sep, "/")] = {"sha256": sha256(path), "size": path.stat().st_size}
+    source_git = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    source_dirty = bool(subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip())
     manifest = {
         "package_version": target_version,
         "target_application_version": target_version,
@@ -189,8 +203,8 @@ def main(argv=None):
         "cpu_architectures": ["x86_64"],
         "dependency_versions": (app_dir / "requirements-runtime.txt").read_text(encoding="utf-8").splitlines(),
         "created_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
-        "source_git": subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, capture_output=True).stdout.strip(),
-        "source_dirty": True,
+        "source_git": source_git,
+        "source_dirty": source_dirty,
         "file_count": len(payload_files) + 2,
         "files": payload_files,
     }
