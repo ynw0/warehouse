@@ -19,6 +19,7 @@ def test_outbound_view_permission_allows_detail_but_not_unassigned_handling(clie
         "/api/claims",
         json={
             "leader_id": admin_id,
+            "purpose": "办公",
             "items": [{"material_id": material["id"], "request_quantity": 3}],
         },
     )
