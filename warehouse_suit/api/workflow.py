@@ -535,13 +535,15 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
     @app.get("/api/workflows/<int:form_id>")
     def get_workflow(form_id):
         conn = get_db()
-        cursor = conn.cursor()
-        require_form_view(cursor, form_id)
-        form = serialize_form(cursor, form_id)
-        conn.close()
-        if not form:
-            return jsonify({"error": "流程不存在"}), 404
-        return jsonify(form)
+        try:
+            cursor = conn.cursor()
+            require_form_view(cursor, form_id)
+            form = serialize_form(cursor, form_id)
+            if not form:
+                return jsonify({"error": "流程不存在"}), 404
+            return jsonify(form)
+        finally:
+            conn.close()
 
 
     def personal_flow_filter_clause():
