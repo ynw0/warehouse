@@ -19,6 +19,7 @@ from warehouse_suit.inventory_service import begin_inventory_transaction, consum
 from warehouse_suit.settings import parse_json, temporary_inventory_enabled, workflow_settings
 from warehouse_suit.validation import quantity_value, validate_project_code, validation_rule_enabled
 from warehouse_suit.workflow_service import (
+    create_workflow_tasks,
     require_form_status,
     require_permission,
     require_task_assignee,
@@ -122,40 +123,42 @@ def register_claim_routes(app, *, get_db, current_user_provider):
             form = dict(require_form_status(cursor, form_id, "claim", "leader_claim"))
             task = require_task_assignee(cursor, user, form_id, "leader_claim")
             decision = data.get("decision") or "同意"
+            remark = str(data.get("remark") or "").strip()
+            if decision != "同意" and not remark:
+                raise ValueError("不同意时必须填写审批意见")
             cursor.execute(
                 "UPDATE workflow_tasks SET status = 'completed', decision = ?, signature = ?, signed_at = ?, data_json = ?, updated_at = ? WHERE id = ?",
                 (
                     decision,
                     data.get("signature") or user["display_name"],
                     data.get("signed_at") or today_text(),
-                    json.dumps({"remark": data.get("remark") or ""}, ensure_ascii=False),
+                    json.dumps({"remark": remark}, ensure_ascii=False),
                     now_text(),
                     task["id"],
                 ),
             )
-            if decision != "同意" and not str(data.get("remark") or "").strip():
-                raise ValueError("不同意时必须填写审批意见")
             if decision == "同意":
-                status = "outbound"
-            else:
-                status = "applicant_revision"
-            cursor.execute(
-                "UPDATE workflow_forms SET status = ?, current_step = ?, updated_at = ? WHERE id = ?",
-                (status, status, now_text(), form_id),
-            )
-            if decision == "同意":
-                outbound_user_id = workflow_assignees(
-                    cursor,
-                    "claim",
-                    "outbound",
-                    [int(data.get("warehouse_user_id") or user["id"])],
-                )[0]
                 cursor.execute(
-                    "INSERT INTO workflow_tasks (form_id, step_code, assignee_id, created_at, updated_at) VALUES (?, 'outbound', ?, ?, ?)",
-                    (form_id, outbound_user_id, now_text(), now_text()),
+                    "SELECT COUNT(*) FROM workflow_tasks WHERE form_id = ? AND step_code = 'leader_claim' AND status = 'pending'",
+                    (form_id,),
                 )
+                if int(cursor.fetchone()[0] or 0) == 0:
+                    outbound_user_id = workflow_assignees(
+                        cursor,
+                        "claim",
+                        "outbound",
+                        [int(data.get("warehouse_user_id") or user["id"])],
+                    )[0]
+                    cursor.execute(
+                        "UPDATE workflow_forms SET status = 'outbound', current_step = 'outbound', updated_at = ? WHERE id = ?",
+                        (now_text(), form_id),
+                    )
+                    create_workflow_tasks(cursor, form_id, "claim", "outbound", [outbound_user_id])
             else:
-                remark = str(data.get("remark") or "").strip()
+                cursor.execute(
+                    "UPDATE workflow_forms SET status = 'applicant_revision', current_step = 'applicant_revision', updated_at = ? WHERE id = ?",
+                    (now_text(), form_id),
+                )
                 cursor.execute(
                     "INSERT INTO workflow_tasks (form_id, step_code, assignee_id, data_json, created_at, updated_at) VALUES (?, 'applicant_revision', ?, ?, ?, ?)",
                     (

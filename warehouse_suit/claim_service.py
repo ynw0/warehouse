@@ -69,7 +69,7 @@ def create_claim_workflow(
     )
     form_id = int(cursor.lastrowid)
     item_ids = insert_claim_allocations(cursor, form_id, allocations)
-    create_workflow_tasks(cursor, form_id, "claim", "leader_claim", [int(leader_id)])
+    create_workflow_tasks(cursor, form_id, "claim", "leader_claim", leader_ids)
     return {
         "form_id": form_id,
         "form_no": form_no,
