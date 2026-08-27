@@ -218,6 +218,16 @@ def create_workflow_tasks(cursor, form_id, form_type, step_code, assignee_ids):
     ids = workflow_assignees(cursor, form_type, step_code, assignee_ids)
     for assignee_id in ids:
         cursor.execute(
+            """
+            SELECT 1
+            FROM workflow_tasks
+            WHERE form_id = ? AND step_code = ? AND assignee_id = ? AND status = 'pending'
+            """,
+            (form_id, step_code, assignee_id),
+        )
+        if cursor.fetchone():
+            raise ValueError("该流程步骤已存在相同办理人的待办")
+        cursor.execute(
             "INSERT INTO workflow_tasks (form_id, step_code, assignee_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             (form_id, step_code, assignee_id, now_text(), now_text()),
         )

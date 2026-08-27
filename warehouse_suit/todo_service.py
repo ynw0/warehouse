@@ -89,7 +89,11 @@ def pending_tasks_for_user(cursor, user, limit=50):
     if not user:
         return []
     params = []
-    where = ["t.status = 'pending'"]
+    where = [
+        "t.status = 'pending'",
+        "t.step_code = f.current_step",
+        "f.status NOT IN ('completed', 'cancelled', 'rejected')",
+    ]
     if "admin" not in user.get("role_codes", []):
         where.append("t.assignee_id = ?")
         params.append(user["id"])
