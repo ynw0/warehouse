@@ -88,8 +88,8 @@
         state.rawRows = data.items || [];
         state.lastData = data;
         state.rows = window.WarehouseInventoryListControls?.apply(state.rawRows, state.listControlState, "temporary_quantity") || state.rawRows;
-        state.totalPages = 1;
-        renderRows({ ...data, items: state.rows, total: state.rows.length, pages: 1 });
+        state.totalPages = Number(data.pages || 1);
+        renderRows({ ...data, items: state.rows });
       } catch (error) {
         if (host) host.innerHTML = `<div class="empty-state">${escape(error.message)}</div>`;
         if (error.message === "临时库功能已关闭") handleDisabled();
@@ -101,10 +101,11 @@
     function renderRows(data) {
       const host = document.getElementById("temporaryInventoryResult");
       if (!host) return;
+      const rows = data.items || [];
       host.innerHTML = `
         <div class="table-scroll"><table class="flow-table temporary-table">
           <thead><tr><th>物料编号</th><th>名称</th><th>规格</th><th>仓库类型</th><th>临时库存</th><th>批次</th><th>状态</th><th>位置</th><th>操作</th></tr></thead>
-          <tbody>${state.rows.map(row => `
+          <tbody>${rows.map(row => `
             <tr>
               <td>${escape(row.material_code)}</td>
               <td>${escape(row.material_name)}</td>
