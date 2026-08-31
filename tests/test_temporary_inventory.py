@@ -6,6 +6,8 @@ import app as app_module
 
 from warehouse_suit.db import connect_db
 from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL, STOCK_SOURCE_TEMPORARY
+from warehouse_suit.inventory_service import add_inventory_batch
+from warehouse_suit.migrations.v2026083101_batch_warehouse_alignment import upgrade as align_batch_warehouses
 from warehouse_suit.temporary_inventory_service import adjust_temporary_batch
 
 
@@ -274,10 +276,11 @@ def test_query_filters_paging_and_zero_inventory(client, db):
     default_rows = client.get("/api/temporary-inventory").get_json()
     with_zero = client.get("/api/temporary-inventory?include_zero=1&page_size=1").get_json()
     second_page = client.get("/api/temporary-inventory?include_zero=1&page_size=1&page=2").get_json()
-    filtered = client.get("/api/temporary-inventory?warehouse_type=rd&q=B").get_json()
+    filtered = client.get("/api/temporary-inventory?material_warehouse_code=20&q=B").get_json()
 
     assert [row["material_id"] for row in default_rows["items"]] == [second_id]
     assert with_zero["total"] == 2
+    assert with_zero["pages"] == 2
     assert with_zero["items"][0]["material_id"] == second_id
     assert second_page["items"][0]["material_id"] == first_id
     assert [row["material_id"] for row in filtered["items"]] == [second_id]
@@ -288,6 +291,47 @@ def test_query_filters_paging_and_zero_inventory(client, db):
     ).get_json()["items"]
     assert len(batches) == 1
     assert batches[0]["stock_source"] == STOCK_SOURCE_TEMPORARY
+
+
+def test_temporary_batch_warehouse_type_follows_shelf(client, db):
+    material_id, _ = seed_material(db, "研发临时物料")
+    shelf = db.execute(
+        "SELECT id FROM shelves WHERE warehouse_type = 'rd' ORDER BY id LIMIT 1"
+    ).fetchone()
+    assert shelf
+    batch_id = add_inventory_batch(
+        db.cursor(),
+        material_id,
+        3,
+        2,
+        {"shelf_id": shelf["id"], "layer_number": 1, "zone_name": "A"},
+        "TEMP-RD-SHELF",
+        stock_source=STOCK_SOURCE_TEMPORARY,
+        operation_key="temporary-rd-shelf",
+    )
+    db.commit()
+    assert db.execute(
+        "SELECT warehouse_type FROM material_batches WHERE id = ?", (batch_id,)
+    ).fetchone()["warehouse_type"] == "rd"
+
+    db.execute(
+        "UPDATE material_batches SET warehouse_type = 'office' WHERE id = ?", (batch_id,)
+    )
+    db.commit()
+    enable_temporary(client)
+    login(client)
+    rows = client.get("/api/temporary-inventory?q=研发临时物料").get_json()["items"]
+    assert rows[0]["warehouse_type"] == "rd"
+    batches = client.get(
+        f"/api/temporary-inventory/materials/{material_id}/batches"
+    ).get_json()["items"]
+    assert batches[0]["warehouse_type"] == "rd"
+
+    align_batch_warehouses(db)
+    db.commit()
+    assert db.execute(
+        "SELECT warehouse_type FROM material_batches WHERE id = ?", (batch_id,)
+    ).fetchone()["warehouse_type"] == "rd"
 
 
 def test_disable_preserves_data_and_reenable_restores_it(client, db):
@@ -527,6 +571,7 @@ def test_frontend_assets_include_temporary_inventory_module(client):
     assert "setTemporaryInventoryEnabled" in system_js
     assert "manage_temporary_inventory" in system_js
     assert "/api/temporary-inventory" in module_js
+    assert "state.totalPages = Number(data.pages || 1)" in module_js
 
 
 def test_temporary_batch_uploads_are_returned_with_batch_details(client, db):
