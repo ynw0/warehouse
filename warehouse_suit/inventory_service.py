@@ -192,6 +192,23 @@ def _validate_existing_operation(rows, material_id, stock_source, operation_type
         raise ValueError("库存操作幂等键对应的数量不一致")
 
 
+def validate_inventory_location(cursor, warehouse_type="", shelf_id=0):
+    warehouse_type = str(warehouse_type or "").strip()
+    if warehouse_type and warehouse_type not in {"office", "rd"}:
+        raise ValueError("仓库类型必须为办公库或研发库")
+    shelf_id = int(shelf_id or 0)
+    if not shelf_id:
+        return warehouse_type or "office", None
+    cursor.execute("SELECT warehouse_type FROM shelves WHERE id = ?", (shelf_id,))
+    shelf = cursor.fetchone()
+    if not shelf:
+        raise ValueError("选择的货架不存在")
+    shelf_warehouse_type = str(shelf["warehouse_type"] or "").strip()
+    if warehouse_type and warehouse_type != shelf_warehouse_type:
+        raise ValueError("货架与仓库类型不一致")
+    return shelf_warehouse_type, shelf_id
+
+
 def add_inventory_batch(
     cursor,
     material_id,
@@ -211,6 +228,9 @@ def add_inventory_batch(
     operation_key = str(operation_key or "").strip() or None
     location = dict(location or {})
     begin_inventory_transaction(cursor.connection)
+    warehouse_type, shelf_id = validate_inventory_location(
+        cursor, location.get("warehouse_type"), location.get("shelf_id")
+    )
 
     existing = _existing_operation_rows(cursor, operation_key)
     if existing:
@@ -231,8 +251,8 @@ def add_inventory_batch(
             batch_no,
             quantity,
             unit_price,
-            location.get("warehouse_type") or "office",
-            int(location.get("shelf_id") or 0) or None,
+            warehouse_type,
+            shelf_id,
             int(location.get("layer_number") or 1),
             str(location.get("zone_name") or "A").upper(),
             form_no,

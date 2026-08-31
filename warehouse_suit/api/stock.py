@@ -386,7 +386,7 @@ def register_stock_routes(app, *, get_db, current_user_provider):
                     quantity,
                     unit_price,
                     {
-                        "warehouse_type": data.get("warehouse_type") or "office",
+                        "warehouse_type": data.get("warehouse_type"),
                         "shelf_id": data.get("shelf_id") or pos.get("shelf_id"),
                         "layer_number": data.get("layer_number") or pos.get("layer_number") or 1,
                         "zone_name": data.get("zone_name") or pos.get("zone_name") or "A",

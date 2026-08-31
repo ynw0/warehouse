@@ -21,6 +21,7 @@ from warehouse_suit.inventory_service import (
     adjust_inventory_batch,
     begin_inventory_transaction,
     update_inventory_total,
+    validate_inventory_location,
 )
 from warehouse_suit.material_service import update_material_master_by_id, upsert_material_master
 from warehouse_suit.recycle import recycle_material
@@ -62,21 +63,6 @@ def _page_values(page, page_size):
     page = max(1, int(page or 1))
     page_size = min(100, max(1, int(page_size or 20)))
     return page, page_size
-
-
-def _validate_warehouse_location(cursor, warehouse_type, shelf_id=0):
-    warehouse_type = str(warehouse_type or "office").strip()
-    if warehouse_type not in {"office", "rd"}:
-        raise ValueError("仓库类型必须为办公库或研发库")
-    shelf_id = int(shelf_id or 0)
-    if shelf_id:
-        cursor.execute("SELECT id, warehouse_type FROM shelves WHERE id = ?", (shelf_id,))
-        shelf = cursor.fetchone()
-        if not shelf:
-            raise ValueError("选择的货架不存在")
-        if shelf["warehouse_type"] != warehouse_type:
-            raise ValueError("货架与仓库类型不一致")
-    return warehouse_type, shelf_id or None
 
 
 def _date_value(value):
@@ -133,7 +119,7 @@ def temporary_inventory_rows(
                 COALESCE(SUM(CASE WHEN b.inventory_status = ? THEN b.quantity ELSE 0 END), 0) AS available_quantity,
                 COALESCE(SUM(CASE WHEN b.inventory_status = ? THEN b.quantity * b.unit_price ELSE 0 END), 0) AS amount,
                 COUNT(*) AS batch_count,
-                GROUP_CONCAT(DISTINCT b.warehouse_type) AS warehouse_types,
+                GROUP_CONCAT(DISTINCT COALESCE(s.warehouse_type, b.warehouse_type)) AS warehouse_types,
                 GROUP_CONCAT(DISTINCT COALESCE(s.name, '')) AS shelf_names,
                 GROUP_CONCAT(DISTINCT COALESCE(b.zone_name, '')) AS zone_names,
                 MAX(b.updated_at) AS updated_at
@@ -194,7 +180,7 @@ def temporary_inventory_rows(
 def temporary_batch_rows(cursor, material_id):
     cursor.execute(
         """
-        SELECT b.*, s.name AS shelf_name
+        SELECT b.*, s.name AS shelf_name, s.warehouse_type AS shelf_warehouse_type
         FROM material_batches b
         LEFT JOIN shelves s ON s.id = b.shelf_id
         WHERE b.material_id = ? AND b.stock_source = ?
@@ -209,6 +195,8 @@ def temporary_batch_rows(cursor, material_id):
         if batch_id in attachments_by_batch:
             attachments_by_batch[batch_id].append(attachment)
     for batch in batches:
+        batch["warehouse_type"] = batch.get("shelf_warehouse_type") or batch.get("warehouse_type")
+        batch.pop("shelf_warehouse_type", None)
         batch["attachments"] = attachments_by_batch[int(batch["id"])]
     return batches
 
@@ -278,7 +266,7 @@ def create_temporary_batch(cursor, data, user, ip_address=""):
     unit_price = unit_price_from_total_amount(
         data.get("total_amount"), quantity, "临时库入库总金额", "入库数量"
     )
-    warehouse_type, shelf_id = _validate_warehouse_location(
+    warehouse_type, shelf_id = validate_inventory_location(
         cursor, data.get("warehouse_type"), data.get("shelf_id")
     )
     cursor.execute("SELECT id FROM materials WHERE id = ?", (material_id,))

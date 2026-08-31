@@ -646,7 +646,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                         )
                     else:
                         location = {
-                            "warehouse_type": data.get("warehouse_type") or "office",
+                            "warehouse_type": data.get("warehouse_type"),
                             "shelf_id": data.get("shelf_id"),
                             "layer_number": data.get("layer_number") or 1,
                             "zone_name": data.get("zone_name") or "A",
@@ -665,7 +665,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 )
                 else:
                     location = {
-                        "warehouse_type": data.get("warehouse_type") or "office",
+                        "warehouse_type": data.get("warehouse_type"),
                         "shelf_id": data.get("shelf_id"),
                         "layer_number": data.get("layer_number") or 1,
                         "zone_name": data.get("zone_name") or "A",
@@ -730,7 +730,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 )
             else:
                 location = {
-                    "warehouse_type": data.get("warehouse_type") or "office",
+                    "warehouse_type": data.get("warehouse_type"),
                     "shelf_id": data.get("shelf_id"),
                     "layer_number": data.get("layer_number") or 1,
                     "zone_name": data.get("zone_name") or "A",

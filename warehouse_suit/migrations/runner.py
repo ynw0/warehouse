@@ -10,6 +10,7 @@ from .v2026071402_temporary_issue_obligations import MIGRATION as TEMPORARY_ISSU
 from .v2026071403_borrow_source_foundation import MIGRATION as BORROW_SOURCE_FOUNDATION
 from .v2026072401_defective_common_supply import MIGRATION as DEFECTIVE_COMMON_SUPPLY_FOUNDATION
 from .v2026082701_workflow_task_integrity import MIGRATION as WORKFLOW_TASK_INTEGRITY
+from .v2026083101_batch_warehouse_alignment import MIGRATION as BATCH_WAREHOUSE_ALIGNMENT
 
 
 LOGGER = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ def available_migrations():
         BORROW_SOURCE_FOUNDATION,
         DEFECTIVE_COMMON_SUPPLY_FOUNDATION,
         WORKFLOW_TASK_INTEGRITY,
+        BATCH_WAREHOUSE_ALIGNMENT,
     ]
 
 

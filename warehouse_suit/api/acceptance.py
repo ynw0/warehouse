@@ -257,7 +257,7 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                 if approved_qty <= 0:
                     continue
                 location = {
-                    "warehouse_type": patch.get("warehouse_type") or "office",
+                    "warehouse_type": patch.get("warehouse_type"),
                     "shelf_id": patch.get("shelf_id") or data.get("shelf_id"),
                     "layer_number": patch.get("layer_number") or data.get("layer_number") or 1,
                     "zone_name": patch.get("zone_name") or data.get("zone_name") or "A",
