@@ -29,6 +29,8 @@ from common import (UpgradeError, database_checks, database_metrics,
 PACKAGE_DIR = Path(__file__).resolve().parent.parent
 DANGEROUS_ROOTS = {"/", "/home", "/tmp", "/var/tmp", "/root"}
 CONFIG_NAME = "update-config.json"
+DEFAULT_APP_DIR = "/mnt/disk0/warehouse-suite"
+DEFAULT_SERVICE_NAME = "warehouse-suite.service"
 
 
 def _version(root):
@@ -187,6 +189,22 @@ def _write_config(info, service):
 
 def detect_service(root):
     """Return only concrete, locally verifiable controls; never guess a service name."""
+    default_service = {
+        "kind": "systemd",
+        "stop": "systemctl stop %s" % DEFAULT_SERVICE_NAME,
+        "start": "systemctl start %s" % DEFAULT_SERVICE_NAME,
+        "status": "systemctl is-active %s" % DEFAULT_SERVICE_NAME,
+    }
+    try:
+        loaded = subprocess.run(
+            ["systemctl", "show", "--property=LoadState", "--value", DEFAULT_SERVICE_NAME],
+            text=True,
+            capture_output=True,
+        )
+        if loaded.returncode == 0 and loaded.stdout.strip() == "loaded":
+            return [default_service]
+    except OSError:
+        pass
     candidates = []
     scripts = [root / name for name in ("stop.sh", "start_background.sh", "status.sh")]
     if all(item.is_file() for item in scripts):
@@ -340,7 +358,7 @@ def main(argv=None, input_fn=input, output=print):
     args = parser.parse_args(argv)
     if args.config:
         args.app_dir = read_json(args.config).get("installation_path")
-    default = args.app_dir or "/mnt/disk0/warehouse-suit"
+    default = args.app_dir or DEFAULT_APP_DIR
     if args.non_interactive and not args.app_dir:
         raise UpgradeError("--non-interactive 必须与 --app-dir 或 --config 一起使用")
     output("仓库物料系统离线升级程序\n本程序将执行环境检查、数据库副本迁移演练、备份和版本切换。\n正式升级期间系统将暂停写入，请勿关闭终端。")

@@ -3,18 +3,12 @@ set -Eeuo pipefail
 
 PACKAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
 PAYLOAD_DIR="$PACKAGE_DIR/app"
-APP_DIR="${1:-${APP_DIR:-}}"
+APP_DIR="${1:-${APP_DIR:-/mnt/disk0/warehouse-suite}}"
 UPDATE_VERSION="2026.7.27-direct"
-SERVICE_NAME="${SERVICE_NAME:-}"
+SERVICE_NAME="${SERVICE_NAME:-warehouse-suite.service}"
 
 log() { printf '[%s] %s\n' "$UPDATE_VERSION" "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
-if [ -z "$APP_DIR" ]; then
-  read -r -p "请输入系统安装目录（例如 /mnt/disk0/warehouse-suit）： " APP_DIR
-fi
-if [ -z "$SERVICE_NAME" ]; then
-  read -r -p "请输入 systemd 服务名（例如 warehouse-suit.service）： " SERVICE_NAME
-fi
 
 
 if [ -z "$APP_DIR" ]; then

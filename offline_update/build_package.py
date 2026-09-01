@@ -240,7 +240,7 @@ def main(argv=None):
             "- recommended_free_space: max(4 x database size + 100 MiB, 500 MiB)",
             "- recommended_maintenance_window: 30-60 minutes after a production-copy rehearsal",
             "- 单一入口: chmod +x update && ./update",
-            "- 预检查: ./update --dry-run --app-dir /绝对路径",
+            "- 预检查: ./update --dry-run --app-dir /mnt/disk0/warehouse-suite",
             "",
         ]),
         encoding="utf-8",
