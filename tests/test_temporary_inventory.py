@@ -573,7 +573,10 @@ def test_frontend_assets_include_temporary_inventory_module(client):
     assert "/api/temporary-inventory" in module_js
     assert "async function fetchAllRows(query)" in module_js
     assert "items.push(...(data.items || []))" in module_js
-    assert "temporaryNext" not in module_js
+    assert "pageSize: 20" in module_js
+    assert "requestPageSize: 100" in module_js
+    assert "temporaryNext" in module_js
+    assert "runMaterialQuery();\n  }\n\n  function renderStats" in system_js
 
 
 def test_temporary_batch_uploads_are_returned_with_batch_details(client, db):
