@@ -63,3 +63,14 @@ def test_invalid_or_quit_input_makes_no_change(tmp_path, monkeypatch):
     output = []
     assert interactive.main([], input_fn=lambda _: "q", output=output.append) == 0
     assert any("未修改" in line for line in output)
+
+
+def test_offline_update_defaults_are_production_values():
+    assert interactive.DEFAULT_APP_DIR == "/mnt/disk0/warehouse-suite"
+    assert interactive.DEFAULT_SERVICE_NAME == "warehouse-suite.service"
+    direct = (ROOT / "offline_update" / "direct_apply.sh").read_text(encoding="utf-8")
+    config = (ROOT / "offline_update" / "update-config.example.env").read_text(encoding="utf-8")
+    assert 'APP_DIR="${1:-${APP_DIR:-/mnt/disk0/warehouse-suite}}"' in direct
+    assert 'SERVICE_NAME="${SERVICE_NAME:-warehouse-suite.service}"' in direct
+    assert "APP_ROOT=/mnt/disk0/warehouse-suite" in config
+    assert "SERVICE_NAME=warehouse-suite.service" in config
