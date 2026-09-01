@@ -571,7 +571,9 @@ def test_frontend_assets_include_temporary_inventory_module(client):
     assert "setTemporaryInventoryEnabled" in system_js
     assert "manage_temporary_inventory" in system_js
     assert "/api/temporary-inventory" in module_js
-    assert "state.totalPages = Number(data.pages || 1)" in module_js
+    assert "async function fetchAllRows(query)" in module_js
+    assert "items.push(...(data.items || []))" in module_js
+    assert "temporaryNext" not in module_js
 
 
 def test_temporary_batch_uploads_are_returned_with_batch_details(client, db):
