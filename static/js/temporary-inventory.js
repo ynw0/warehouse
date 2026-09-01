@@ -1,7 +1,9 @@
 (() => {
   function create({ system, api, formatQty, moduleShell }) {
     const state = {
-      pageSize: 100,
+      page: 1,
+      pageSize: 20,
+      requestPageSize: 100,
       rows: [],
       records: [],
       materialChoices: [],
@@ -21,9 +23,15 @@
     const operationKey = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     function clear() {
+      state.page = 1;
       state.rows = [];
       state.records = [];
       state.materialChoices = [];
+    }
+
+    function reloadRows() {
+      state.page = 1;
+      loadRows();
     }
 
     function render(main) {
@@ -47,9 +55,9 @@
           </div>
         </div>
       `);
-      document.getElementById("temporarySearch").addEventListener("click", loadRows);
+      document.getElementById("temporarySearch").addEventListener("click", reloadRows);
       document.getElementById("temporaryKeyword").addEventListener("keydown", event => {
-        if (event.key === "Enter") loadRows();
+        if (event.key === "Enter") reloadRows();
       });
       document.getElementById("temporaryAddBatch")?.addEventListener("click", openAddBatch);
       loadRows();
@@ -58,7 +66,7 @@
         "temporaryInventory",
         state.listControlState,
         () => state.rawRows,
-        loadRows,
+        reloadRows,
         { quantityKey: "temporary_quantity" },
       );
     }
@@ -85,14 +93,14 @@
       try {
         const query = new URLSearchParams({
           q: document.getElementById("temporaryKeyword")?.value.trim() || "",
-          page_size: String(state.pageSize),
+          page_size: String(state.requestPageSize),
           material_warehouse_code: state.listControlState.filters.warehouse || "",
           inventory_status: "available",
           include_zero: state.listControlState.filters.hideZero ? "0" : "1",
         });
         state.rawRows = await fetchAllRows(query);
         state.rows = window.WarehouseInventoryListControls?.apply(state.rawRows, state.listControlState, "temporary_quantity") || state.rawRows;
-        renderRows(state.rows);
+        renderRows();
       } catch (error) {
         if (host) host.innerHTML = `<div class="empty-state">${escape(error.message)}</div>`;
         if (error.message === "临时库功能已关闭") handleDisabled();
@@ -101,9 +109,13 @@
       }
     }
 
-    function renderRows(rows) {
+    function renderRows() {
       const host = document.getElementById("temporaryInventoryResult");
       if (!host) return;
+      const totalPages = Math.max(1, Math.ceil(state.rows.length / state.pageSize));
+      state.page = Math.min(state.page, totalPages);
+      const start = (state.page - 1) * state.pageSize;
+      const rows = state.rows.slice(start, start + state.pageSize);
       host.innerHTML = `
         <div class="table-scroll"><table class="flow-table temporary-table">
           <thead><tr><th>物料编号</th><th>名称</th><th>规格</th><th>仓库类型</th><th>临时库存</th><th>批次</th><th>状态</th><th>位置</th><th>操作</th></tr></thead>
@@ -125,7 +137,12 @@
             </tr>
           `).join("") || '<tr><td colspan="9">暂无临时库存</td></tr>'}</tbody>
         </table></div>
-        <div class="temporary-pagination"><span>共 ${rows.length} 项</span></div>
+        <div class="temporary-pagination">
+          <span>共 ${state.rows.length} 项</span>
+          <button id="temporaryPrev" ${state.page <= 1 ? "disabled" : ""}>上一页</button>
+          <span>${state.page} / ${totalPages}</span>
+          <button id="temporaryNext" ${state.page >= totalPages ? "disabled" : ""}>下一页</button>
+        </div>
       `;
       host.querySelectorAll("[data-temporary-batches]").forEach(button => {
         button.addEventListener("click", () => openBatches(Number(button.dataset.temporaryBatches)));
@@ -141,6 +158,14 @@
       });
       host.querySelectorAll("[data-temporary-promote]").forEach(button => {
         button.addEventListener("click", () => promoteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryTransfer))));
+      });
+      document.getElementById("temporaryPrev")?.addEventListener("click", () => {
+        state.page = Math.max(1, state.page - 1);
+        renderRows();
+      });
+      document.getElementById("temporaryNext")?.addEventListener("click", () => {
+        state.page = Math.min(totalPages, state.page + 1);
+        renderRows();
       });
     }
 

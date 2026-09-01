@@ -1396,6 +1396,7 @@
       system.pages.materialQuery = 1;
       renderMaterialQueryPage();
     });
+    runMaterialQuery();
   }
 
   function renderStats(main) {
