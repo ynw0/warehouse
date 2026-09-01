@@ -1,15 +1,12 @@
 (() => {
   function create({ system, api, formatQty, moduleShell }) {
     const state = {
-      page: 1,
       pageSize: 100,
-      totalPages: 1,
       rows: [],
       records: [],
       materialChoices: [],
       loading: false,
       rawRows: [],
-      lastData: null,
       listControlState: { sort: "code", filters: { hideZero: true } },
     };
 
@@ -24,8 +21,6 @@
     const operationKey = prefix => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
     function clear() {
-      state.page = 1;
-      state.totalPages = 1;
       state.rows = [];
       state.records = [];
       state.materialChoices = [];
@@ -52,22 +47,34 @@
           </div>
         </div>
       `);
-      document.getElementById("temporarySearch").addEventListener("click", () => {
-        state.page = 1;
-        loadRows();
-      });
+      document.getElementById("temporarySearch").addEventListener("click", loadRows);
       document.getElementById("temporaryKeyword").addEventListener("keydown", event => {
-        if (event.key === "Enter") {
-          state.page = 1;
-          loadRows();
-        }
+        if (event.key === "Enter") loadRows();
       });
       document.getElementById("temporaryAddBatch")?.addEventListener("click", openAddBatch);
       loadRows();
-      window.WarehouseInventoryListControls?.bind(main, "temporaryInventory", state.listControlState, () => state.rawRows, () => {
-        state.page = 1;
-        loadRows();
-      }, { quantityKey: "temporary_quantity" });
+      window.WarehouseInventoryListControls?.bind(
+        main,
+        "temporaryInventory",
+        state.listControlState,
+        () => state.rawRows,
+        loadRows,
+        { quantityKey: "temporary_quantity" },
+      );
+    }
+
+    async function fetchAllRows(query) {
+      const items = [];
+      let page = 1;
+      let pages = 1;
+      do {
+        query.set("page", String(page));
+        const data = await api(`/api/temporary-inventory?${query}`);
+        items.push(...(data.items || []));
+        pages = Number(data.pages || 1);
+        page += 1;
+      } while (page <= pages);
+      return items;
     }
 
     async function loadRows() {
@@ -78,18 +85,14 @@
       try {
         const query = new URLSearchParams({
           q: document.getElementById("temporaryKeyword")?.value.trim() || "",
-          page: String(state.page),
           page_size: String(state.pageSize),
           material_warehouse_code: state.listControlState.filters.warehouse || "",
           inventory_status: "available",
           include_zero: state.listControlState.filters.hideZero ? "0" : "1",
         });
-        const data = await api(`/api/temporary-inventory?${query}`);
-        state.rawRows = data.items || [];
-        state.lastData = data;
+        state.rawRows = await fetchAllRows(query);
         state.rows = window.WarehouseInventoryListControls?.apply(state.rawRows, state.listControlState, "temporary_quantity") || state.rawRows;
-        state.totalPages = Number(data.pages || 1);
-        renderRows({ ...data, items: state.rows });
+        renderRows(state.rows);
       } catch (error) {
         if (host) host.innerHTML = `<div class="empty-state">${escape(error.message)}</div>`;
         if (error.message === "临时库功能已关闭") handleDisabled();
@@ -98,10 +101,9 @@
       }
     }
 
-    function renderRows(data) {
+    function renderRows(rows) {
       const host = document.getElementById("temporaryInventoryResult");
       if (!host) return;
-      const rows = data.items || [];
       host.innerHTML = `
         <div class="table-scroll"><table class="flow-table temporary-table">
           <thead><tr><th>物料编号</th><th>名称</th><th>规格</th><th>仓库类型</th><th>临时库存</th><th>批次</th><th>状态</th><th>位置</th><th>操作</th></tr></thead>
@@ -123,12 +125,7 @@
             </tr>
           `).join("") || '<tr><td colspan="9">暂无临时库存</td></tr>'}</tbody>
         </table></div>
-        <div class="temporary-pagination">
-          <span>共 ${Number(data.total || 0)} 项</span>
-          <button id="temporaryPrev" ${state.page <= 1 ? "disabled" : ""}>上一页</button>
-          <span>${state.page} / ${state.totalPages}</span>
-          <button id="temporaryNext" ${state.page >= state.totalPages ? "disabled" : ""}>下一页</button>
-        </div>
+        <div class="temporary-pagination"><span>共 ${rows.length} 项</span></div>
       `;
       host.querySelectorAll("[data-temporary-batches]").forEach(button => {
         button.addEventListener("click", () => openBatches(Number(button.dataset.temporaryBatches)));
@@ -144,14 +141,6 @@
       });
       host.querySelectorAll("[data-temporary-promote]").forEach(button => {
         button.addEventListener("click", () => promoteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryTransfer))));
-      });
-      document.getElementById("temporaryPrev")?.addEventListener("click", () => {
-        state.page = Math.max(1, state.page - 1);
-        loadRows();
-      });
-      document.getElementById("temporaryNext")?.addEventListener("click", () => {
-        state.page = Math.min(state.totalPages, state.page + 1);
-        loadRows();
       });
     }
 
