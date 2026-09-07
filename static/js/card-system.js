@@ -1493,12 +1493,17 @@
       document.getElementById("modalClose").addEventListener("click", closeModal);
       document.getElementById("modalCancel").addEventListener("click", closeModal);
       if (!hideOk) {
-        document.getElementById("modalOk").addEventListener("click", async () => {
+        const submitButton = document.getElementById("modalOk");
+        submitButton.addEventListener("click", async () => {
+          if (submitButton.disabled) return;
+          submitButton.disabled = true;
           try {
             await onOk?.();
             closeModal();
           } catch (error) {
             toast(error.message || "操作失败");
+          } finally {
+            submitButton.disabled = false;
           }
         });
       }

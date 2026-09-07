@@ -157,7 +157,7 @@
         button.addEventListener("click", () => deleteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryDelete))));
       });
       host.querySelectorAll("[data-temporary-promote]").forEach(button => {
-        button.addEventListener("click", () => promoteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryTransfer))));
+        button.addEventListener("click", () => promoteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryPromote))));
       });
       document.getElementById("temporaryPrev")?.addEventListener("click", () => {
         state.page = Math.max(1, state.page - 1);

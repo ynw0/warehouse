@@ -21,6 +21,7 @@ from warehouse_suit.validation import quantity_value, validate_project_code, val
 from warehouse_suit.workflow_service import (
     create_workflow_tasks,
     require_form_status,
+    require_form_view,
     require_permission,
     require_task_assignee,
     resolve_department_leader,
@@ -190,6 +191,7 @@ def register_claim_routes(app, *, get_db, current_user_provider):
             begin_inventory_transaction(conn)
             form = dict(require_form_status(cursor, form_id, "claim", "outbound", "completed"))
             if form["status"] == "completed":
+                require_form_view(cursor, form_id)
                 form_data = serialize_form(cursor, form_id)
                 conn.commit()
                 conn.close()

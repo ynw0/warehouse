@@ -113,3 +113,58 @@ def test_return_after_temporary_promotion_uses_current_batch_source(client, db):
     assert response.status_code == 200, response.get_json()
     assert client.get("/api/my-claims").get_json()["items"][0]["stock_source"] == "formal"
     assert db.execute("SELECT quantity FROM inventory WHERE material_id=?", (material_id,)).fetchone()[0] == 6
+
+
+def test_missing_batch_stays_visible_but_cannot_be_returned(client, db):
+    outbound_id, _, _ = seed_issue(db)
+    db.execute("UPDATE stock_records SET batch_id=NULL WHERE id=?", (outbound_id,))
+    db.commit()
+    _login(client, "testuser", "test")
+    assert client.get("/api/my-claims").get_json()["total"] == 1
+    response = client.post(f"/api/my-claims/{outbound_id}/return",
+                           json={"quantity": 1, "operation_key": "missing"})
+    assert response.status_code == 400
+    assert "批次缺失" in response.get_json()["error"]
+
+
+def test_completed_outbound_does_not_expose_form_to_unrelated_user(client, db):
+    seed_issue(db)
+    form_id = db.execute("SELECT id FROM workflow_forms WHERE form_no='CK-RETURN-TEST'").fetchone()[0]
+    _login(client, "testuser", "test")
+    # Remove participation by assigning the form to the warehouse user.
+    warehouse_id = db.execute("SELECT id FROM users WHERE username='warehouse'").fetchone()[0]
+    db.execute("UPDATE workflow_forms SET applicant_id=? WHERE id=?", (warehouse_id, form_id))
+    db.commit()
+    response = client.post(f"/api/claims/{form_id}/outbound", json={})
+    assert response.status_code == 400
+    assert "没有查看该流程的权限" in response.get_json()["error"]
+
+
+def test_concurrent_returns_cannot_exceed_issued_quantity(db):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from warehouse_suit.claim_return_service import return_claim
+    from warehouse_suit.db import connect_db
+    outbound_id, batch_id, _ = seed_issue(db)
+    user_id = db.execute("SELECT id FROM users WHERE username='testuser'").fetchone()[0]
+    database_path = db.execute("PRAGMA database_list").fetchone()[2]
+    barrier = Barrier(2)
+
+    def worker(key):
+        conn = connect_db(database_path)
+        try:
+            barrier.wait(timeout=5)
+            return_claim(conn.cursor(), user_id, outbound_id, 4, key)
+            conn.commit()
+            return True
+        except ValueError:
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(worker, ["concurrent-one", "concurrent-two"]))
+    assert sorted(results) == [False, True]
+    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 8
+    assert db.execute("SELECT SUM(quantity) FROM claim_returns").fetchone()[0] == 4
