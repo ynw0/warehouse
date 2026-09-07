@@ -63,7 +63,8 @@ def project_version():
 
 
 def migration_versions():
-    versions = []
+    # Applied migration IDs remain valid after their transfer modules were removed.
+    versions = ["2026071404", "2026071501"]
     for source in (ROOT / "warehouse_suit" / "migrations").glob("v*_*.py"):
         match = re.match(r"v(\d+)_", source.name)
         if match:

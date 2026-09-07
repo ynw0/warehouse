@@ -1,6 +1,7 @@
 """Personal issued-material balances and atomic returns to the original batch."""
 
 from warehouse_suit.db import now_text
+from warehouse_suit.inventory_constants import BUSINESS_TYPE_CLAIM_RETURN_INBOUND
 from warehouse_suit.inventory_service import adjust_inventory_batch, begin_inventory_transaction
 from warehouse_suit.settings import temporary_inventory_enabled
 from warehouse_suit.temporary_inventory_visibility import append_workflow_visibility
@@ -74,8 +75,9 @@ def return_claim(cursor, user_id, outbound_record_id, quantity, operation_key):
     if not row:
         raise PermissionError("没有该领用记录的退库权限，或库存来源当前不可用")
     row = dict(row)
-    if quantity > row["returnable_quantity"]:
+    if row["returnable_quantity"] <= 0 or quantity > row["returnable_quantity"] + 1e-9:
         raise ValueError("退库数量不能超过尚未退回的领用数量")
+    quantity = min(quantity, row["returnable_quantity"])
     if row["inventory_status"] is None:
         raise ValueError("原出库批次缺失，请联系库管核对原始出库记录")
     if row["inventory_status"] != "available":
@@ -89,7 +91,7 @@ def return_claim(cursor, user_id, outbound_record_id, quantity, operation_key):
     record_key = "claim-return:" + operation_key
     adjust_inventory_batch(
         cursor, row["batch_id"], quantity, "领用退库 " + row["form_no"],
-        stock_source=row["stock_source"], business_type="claim_return_inbound",
+        stock_source=row["stock_source"], business_type=BUSINESS_TYPE_CLAIM_RETURN_INBOUND,
         operation_key=record_key, operator_id=user_id,
     )
     cursor.execute("""

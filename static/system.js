@@ -4777,8 +4777,7 @@
 
   async function runMaterialQuery() {
     const keyword = document.getElementById("queryKeyword").value.trim();
-    const localMaterials = typeof state !== "undefined" && Array.isArray(state.materials) ? state.materials : await refreshMaterialsCache();
-    const rows = keyword ? await systemApi(`/api/materials/search?keyword=${encodeURIComponent(keyword)}`) : localMaterials;
+    const rows = keyword ? await systemApi(`/api/materials/search?keyword=${encodeURIComponent(keyword)}`) : await refreshMaterialsCache();
     system.materialQuerySourceRows = rows;
     system.materialQueryControlState ||= { sort: "code", filters: { hideZero: false } };
     system.materialQueryRows = window.WarehouseInventoryListControls?.apply(rows, system.materialQueryControlState) || rows;

@@ -524,6 +524,7 @@
         temporary_manual_inbound: "手工入库",
         temporary_manual_adjust_in: "调整增加",
         temporary_manual_adjust_out: "调整减少",
+        claim_return_inbound: "领用退库",
       })[value] || value || "";
     }
 

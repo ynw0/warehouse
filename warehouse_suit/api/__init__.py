@@ -31,6 +31,7 @@ __all__ = [
     "register_backup_routes",
     "register_borrow_routes",
     "register_claim_routes",
+    "register_claim_return_routes",
     "register_history_routes",
     "register_material_routes",
     "register_notification_routes",

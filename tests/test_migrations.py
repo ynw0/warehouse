@@ -22,7 +22,10 @@ def _old_database():
             batch_no TEXT NOT NULL,
             quantity REAL NOT NULL DEFAULT 0,
             unit_price REAL NOT NULL DEFAULT 0,
-            received_date TEXT NOT NULL
+            received_date TEXT NOT NULL,
+            warehouse_type TEXT NOT NULL DEFAULT 'office',
+            shelf_id INTEGER,
+            updated_at TEXT DEFAULT ''
         );
         CREATE TABLE stock_records (
             id INTEGER PRIMARY KEY,
@@ -33,7 +36,9 @@ def _old_database():
         );
         CREATE TABLE workflow_forms (
             id INTEGER PRIMARY KEY,
-            form_no TEXT NOT NULL
+            form_no TEXT NOT NULL,
+            status TEXT DEFAULT 'completed',
+            current_step TEXT DEFAULT 'completed'
         );
         CREATE TABLE workflow_items (
             id INTEGER PRIMARY KEY,
@@ -51,12 +56,20 @@ def _old_database():
             user_id INTEGER,
             is_read INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE users (id INTEGER PRIMARY KEY);
+        CREATE TABLE shelves (id INTEGER PRIMARY KEY, warehouse_type TEXT NOT NULL);
+        CREATE TABLE workflow_tasks (
+            id INTEGER PRIMARY KEY, form_id INTEGER NOT NULL,
+            step_code TEXT NOT NULL, assignee_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending', decision TEXT DEFAULT '',
+            updated_at TEXT DEFAULT ''
+        );
         """
     )
     conn.execute("INSERT INTO materials VALUES (1, 'OLD001', 'Old material')")
-    conn.execute("INSERT INTO material_batches VALUES (1, 1, 'OLD-B1', 8, 2, '2025-01-01')")
+    conn.execute("INSERT INTO material_batches (id, material_id, batch_no, quantity, unit_price, received_date) VALUES (1, 1, 'OLD-B1', 8, 2, '2025-01-01')")
     conn.execute("INSERT INTO stock_records VALUES (1, 1, 'in', 8, '2025-01-01')")
-    conn.execute("INSERT INTO workflow_forms VALUES (1, 'OLD-F1')")
+    conn.execute("INSERT INTO workflow_forms (id, form_no) VALUES (1, 'OLD-F1')")
     conn.execute("INSERT INTO workflow_items VALUES (1, 1, 1)")
     conn.execute("INSERT INTO borrow_records VALUES (1, 1, 7, 'borrowed')")
     conn.execute("INSERT INTO notifications VALUES (1, 7, 0)")
@@ -94,10 +107,13 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026071402",
         "2026071403",
         "2026072401",
+        "2026082701",
+        "2026083101",
+        "2026090701",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 5
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 8
     assert {"stock_source", "inventory_status", "version"} <= _column_names(conn, "material_batches")
     assert {
         "stock_source",

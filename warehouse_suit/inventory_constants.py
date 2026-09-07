@@ -21,6 +21,7 @@ BUSINESS_TYPE_TEMPORARY_MANUAL_INBOUND = "temporary_manual_inbound"
 BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_IN = "temporary_manual_adjust_in"
 BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_OUT = "temporary_manual_adjust_out"
 BUSINESS_TYPE_CLAIM_OUTBOUND = "claim_outbound"
+BUSINESS_TYPE_CLAIM_RETURN_INBOUND = "claim_return_inbound"
 BUSINESS_TYPE_BORROW_OUTBOUND = "borrow_outbound"
 BUSINESS_TYPE_BORROW_RETURN_INBOUND = "borrow_return_inbound"
 TEMPORARY_WORKFLOW_ORIGIN_TYPES = frozenset(
