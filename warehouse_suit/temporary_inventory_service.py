@@ -588,7 +588,7 @@ def promote_temporary_material(cursor, material_id, user, ip_address=""):
     cursor.execute(
         """
         UPDATE temporary_issue_obligations
-        SET settled_quantity = issued_quantity, status = 'settled', settled_at = ?,
+        SET settled_quantity = issued_quantity - returned_quantity, status = 'settled', settled_at = ?,
             updated_at = ?, error_message = ''
         WHERE material_id = ? AND status IN ('pending', 'reserved', 'processing', 'exception')
         """,

@@ -7,6 +7,7 @@ from warehouse_suit.api.attachments import register_attachment_routes
 from warehouse_suit.api.backup import register_backup_routes
 from warehouse_suit.api.borrow import register_borrow_routes
 from warehouse_suit.api.claim import register_claim_routes
+from warehouse_suit.api.claim_returns import register_claim_return_routes
 from warehouse_suit.api.history import register_history_routes
 from warehouse_suit.api.materials import register_material_routes
 from warehouse_suit.api.notifications import register_notification_routes

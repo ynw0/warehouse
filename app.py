@@ -18,6 +18,7 @@ from warehouse_suit.api import (
     register_backup_routes,
     register_borrow_routes,
     register_claim_routes,
+    register_claim_return_routes,
     register_history_routes,
     register_extended_routes,
     register_material_routes,
@@ -440,6 +441,7 @@ register_temporary_inventory_routes(app, get_db=get_db, current_user_provider=cu
 register_workflow_routes(app, get_db=get_db, current_user_provider=current_user, notify_todos_changed=notify_todos_changed)
 register_acceptance_routes(app, get_db=get_db, current_user_provider=current_user)
 register_claim_routes(app, get_db=get_db, current_user_provider=current_user)
+register_claim_return_routes(app, get_db=get_db, current_user_provider=current_user)
 register_borrow_routes(app, get_db=get_db, current_user_provider=current_user)
 register_production_routes(app, get_db=get_db, current_user_provider=current_user, optional_active_user_id_provider=optional_active_user_id)
 register_stock_routes(app, get_db=get_db, current_user_provider=current_user)

@@ -17,6 +17,7 @@
   let systemParticleEffects = null;
   const VIEW_META = {
     dashboard: { title: "数据大屏", icon: "chart" }, todo: { title: "待办流程", icon: "clipboard-list" }, notifications: { title: "通知", icon: "bell" },
+    myClaims: { title: "我已领用", icon: "hand-package" },
     myInspections: { title: "我的验收", icon: "clipboard-check" }, myStarted: { title: "我的发起", icon: "file-pen" },
     acceptance: { title: "物料验收", icon: "shield-check" }, semifinished: { title: "半成品验收", icon: "shield-check" }, finished: { title: "成品验收", icon: "shield-check" },
     claim: { title: "物料申领", icon: "hand-package" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" },
@@ -24,6 +25,7 @@
     flow: { title: "流程中心", icon: "workflow" }, stats: { title: "统计", icon: "chart" }, stocktake: { title: "盘点", icon: "scan" }, logs: { title: "日志中心", icon: "history" }, recycle: { title: "回收站", icon: "trash" }, admin: { title: "系统设置", icon: "settings" },
     defectiveInventory: { title: "不良品物料", icon: "shield-check" }, commonMaterials: { title: "常用物料", icon: "bell" }, supplies: { title: "供货管理", icon: "package-open" },
   };
+  const myClaims = window.WarehouseMyClaims.create({ api: systemApi, formatQty: formatInputQty, moduleShell });
   temporaryInventory = window.WarehouseTemporaryInventory.create({
     system,
     api: systemApi,
@@ -74,6 +76,7 @@
             ])}
             ${navGroup("领用中心", "hand-package", [
               ["claim", "物料申领", canView("claim")],
+              ["myClaims", "我已领用", canView("myClaims")],
               ["borrow", "借用申请", canView("borrow")],
               ["myBorrow", "我的借用", canView("myBorrow")],
               ["outbound", "物料出库", canView("outbound")],
@@ -207,6 +210,7 @@
       flow: renderFlowCenter,
       acceptance: renderAcceptance,
       claim: renderClaim,
+      myClaims: myClaims.render,
       borrow: renderBorrow,
       myBorrow: renderMyBorrow,
       myInspections: renderMyInspections,
@@ -236,6 +240,7 @@
   }
 
   function canView(view) {
+    if (view === "myClaims") return Boolean(system.boot?.user);
     if (view === "acceptance" || view === "semifinished" || view === "finished") {
       return hasPerm("start_acceptance");
     }
