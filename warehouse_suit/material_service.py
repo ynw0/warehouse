@@ -289,6 +289,13 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
     batches = data.get("batches") or []
     if not isinstance(batches, list):
         raise ValueError("batches must be a list")
+    snapshot_raw = data.get("batch_snapshot_versions")
+    if not isinstance(snapshot_raw, dict):
+        raise ValueError("缺少批次版本快照，请刷新后重试")
+    snapshot_versions = {
+        int(batch_id): int(version) for batch_id, version in snapshot_raw.items()
+    }
+    delete_batch_ids = {int(value) for value in data.get("delete_batch_ids") or []}
 
     cursor.execute("SELECT * FROM materials WHERE id = ?", (material_id,))
     material = row_to_dict(cursor.fetchone()) or {}
@@ -297,13 +304,18 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
         (material_id, STOCK_SOURCE_FORMAL),
     )
     existing = {row["id"]: dict(row) for row in cursor.fetchall()}
-    touched_ids = set()
 
     for item in batches:
         if not isinstance(item, dict):
             raise ValueError("batch item must be an object")
         batch_id = payload_int_or_none(item.get("id"))
         current = existing.get(batch_id) if batch_id else None
+        if batch_id and not current:
+            raise ValueError("批次不存在或已被删除，请刷新后重试")
+        if current:
+            expected_version = snapshot_versions.get(batch_id)
+            if expected_version is None or int(item.get("version") or 0) != expected_version or int(current.get("version") or 0) != expected_version:
+                raise ValueError("批次已被其他操作修改，请刷新后重试")
         has_payload = any(str(item.get(key) or "").strip() for key in ("batch_no", "quantity", "total_amount", "received_date", "shelf_id", "layer_number", "zone_name"))
         if not current and not has_payload:
             continue
@@ -337,7 +349,7 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                 SET batch_no = ?, quantity = ?, unit_price = ?, warehouse_type = ?,
                     shelf_id = ?, layer_number = ?, zone_name = ?, source_form_no = ?,
                     received_date = ?, version = version + 1, updated_at = ?
-                WHERE id = ? AND material_id = ? AND stock_source = ? AND inventory_status = ?
+                WHERE id = ? AND material_id = ? AND stock_source = ? AND inventory_status = ? AND version = ?
                 """,
                 (
                     batch_no,
@@ -354,11 +366,11 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                     material_id,
                     STOCK_SOURCE_FORMAL,
                     INVENTORY_STATUS_AVAILABLE,
+                    expected_version,
                 ),
             )
             if cursor.rowcount != 1:
                 raise ValueError("批次数量或预留状态已变化，请刷新后重试")
-            touched_ids.add(batch_id)
         elif quantity > 0 or batch_no:
             cursor.execute(
                 """
@@ -385,20 +397,27 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                     now_text(),
                 ),
             )
-            touched_ids.add(cursor.lastrowid)
 
-    for batch_id in set(existing) - touched_ids:
+    for batch_id in delete_batch_ids:
+        current = existing.get(batch_id)
+        expected_version = snapshot_versions.get(batch_id)
+        if not current or expected_version is None or int(current.get("version") or 0) != expected_version:
+            raise ValueError("待删除批次已变化，请刷新后重试")
         cursor.execute("SELECT COUNT(*) FROM material_attachments WHERE material_batch_id = ?", (batch_id,))
         if int(cursor.fetchone()[0] or 0) > 0:
             raise ValueError("已有附件的批次需要永久留存，不能删除")
-        cursor.execute("UPDATE stock_records SET batch_id = NULL WHERE batch_id = ?", (batch_id,))
-        cursor.execute("UPDATE production_material_consumptions SET batch_id = NULL WHERE batch_id = ?", (batch_id,))
+        cursor.execute("SELECT 1 FROM stock_records WHERE batch_id = ? LIMIT 1", (batch_id,))
+        if cursor.fetchone():
+            raise ValueError("已有库存流水的批次需要永久留存，不能删除")
+        cursor.execute("SELECT 1 FROM production_material_consumptions WHERE batch_id = ? LIMIT 1", (batch_id,))
+        if cursor.fetchone():
+            raise ValueError("已有生产消耗记录的批次需要永久留存，不能删除")
         cursor.execute(
             """
             DELETE FROM material_batches
-            WHERE id = ? AND material_id = ? AND stock_source = ?
+            WHERE id = ? AND material_id = ? AND stock_source = ? AND version = ?
             """,
-            (batch_id, material_id, STOCK_SOURCE_FORMAL),
+            (batch_id, material_id, STOCK_SOURCE_FORMAL, expected_version),
         )
         if cursor.rowcount != 1:
             raise ValueError("批次状态已变化，不能删除")

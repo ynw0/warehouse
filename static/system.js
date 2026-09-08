@@ -4415,7 +4415,7 @@
   }
 
   function materialBatchRowHtml(batch = {}) {
-    return `<tr data-material-batch-row data-batch-id="${batch.id || ""}">
+    return `<tr data-material-batch-row data-batch-id="${batch.id || ""}" data-batch-version="${Number(batch.version || 0)}">
       <td><input data-batch-no value="${escapeAttr(batch.batch_no || "")}"></td>
       <td><input data-batch-date type="date" value="${escapeAttr(batch.received_date || "")}"></td>
       <td><input data-batch-qty type="number" step="1" value="${Number(batch.quantity || 0)}"></td>
@@ -4464,6 +4464,7 @@
   function materialBatchPayloadFromEditor(defaultLocation) {
     return [...document.querySelectorAll("[data-material-batch-row]")].map(row => ({
       id: row.dataset.batchId ? Number(row.dataset.batchId) : undefined,
+      version: row.dataset.batchId ? Number(row.dataset.batchVersion || 0) : undefined,
       batch_no: row.querySelector("[data-batch-no]").value.trim(),
       received_date: row.querySelector("[data-batch-date]").value,
       quantity: row.querySelector("[data-batch-qty]").value,
@@ -4528,6 +4529,9 @@
     const material = await systemApi(`/api/materials/${materialId}`);
     const fallbackBatch = material.batches?.length ? [] : [{ quantity: material.quantity || 0, shelf_id: material.shelf_id, layer_number: material.layer_number, zone_name: material.zone_name, received_date: new Date().toISOString().slice(0, 10), batch_no: material.material_code ? `00000000${material.material_code}` : "" }];
     const batches = [...(material.batches || []), ...fallbackBatch];
+    const batchSnapshotVersions = Object.fromEntries(
+      (material.batches || []).map(batch => [String(batch.id), Number(batch.version || 0)])
+    );
     openModal({
       title: "修改物料",
       body: `<div class="form-grid">
@@ -4566,6 +4570,9 @@
           layer_number: document.getElementById("editMatLayer").value,
           zone_name: document.getElementById("editMatZone").value,
         };
+        const batchPayload = materialBatchPayloadFromEditor(defaultLocation);
+        const currentBatchIds = new Set(batchPayload.filter(batch => batch.id).map(batch => String(batch.id)));
+        const deleteBatchIds = Object.keys(batchSnapshotVersions).filter(id => !currentBatchIds.has(id)).map(Number);
         await systemApi(`/api/materials/${materialId}`, {
           method: "PUT",
           body: JSON.stringify({
@@ -4587,7 +4594,9 @@
             layer_number: defaultLocation.layer_number,
             zone_name: defaultLocation.zone_name,
             slot_index: document.getElementById("editMatSlot").value,
-            batches: materialBatchPayloadFromEditor(defaultLocation),
+            batches: batchPayload,
+            batch_snapshot_versions: batchSnapshotVersions,
+            delete_batch_ids: deleteBatchIds,
           }),
         });
         toast("已保存");
