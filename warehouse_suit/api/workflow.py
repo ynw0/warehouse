@@ -55,6 +55,7 @@ from warehouse_suit.workflow_service import (
     require_workflow_edit_or_applicant,
     serialize_form,
     user_has_permission,
+    validate_step_assignees,
     workflow_applicant_can_modify,
     workflow_edit_permission,
     workflow_list_rows,
@@ -544,6 +545,59 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             return jsonify(form)
         finally:
             conn.close()
+
+    @app.post("/api/workflows/<int:form_id>/tasks/<int:task_id>/reassign")
+    def reassign_workflow_task(form_id, task_id):
+        """Allow an administrator to reassign the currently pending task."""
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = current_user(cursor)
+            if not user or "admin" not in (user.get("role_codes") or []):
+                raise PermissionError("仅管理员可以改派流程待办")
+            payload = request.get_json(silent=True) or {}
+            target_user_id = int(payload.get("target_user_id") or 0)
+            cursor.execute(
+                """
+                SELECT t.*, f.form_type, f.current_step, f.status AS form_status
+                FROM workflow_tasks t
+                JOIN workflow_forms f ON f.id = t.form_id
+                WHERE t.form_id = ? AND t.id = ?
+                """,
+                (form_id, task_id),
+            )
+            task = row_to_dict(cursor.fetchone())
+            if not task:
+                raise ValueError("待办不存在")
+            if task.get("status") != "pending" or task.get("step_code") != task.get("current_step"):
+                raise ValueError("只能改派当前环节的待办")
+            assignees = validate_step_assignees(
+                cursor,
+                task.get("form_type"),
+                task.get("step_code"),
+                [target_user_id],
+            )
+            if not assignees:
+                raise ValueError("请选择新的办理人")
+            cursor.execute(
+                """
+                UPDATE workflow_tasks
+                SET assignee_id = ?, updated_at = ?
+                WHERE id = ? AND form_id = ? AND status = 'pending'
+                """,
+                (assignees[0], now_text(), task_id, form_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("待办状态已变化，请刷新后重试")
+            conn.commit()
+            updated = serialize_form(cursor, form_id)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+        notify_todos_changed()
+        return jsonify({"success": True, "form": updated})
 
 
     def personal_flow_filter_clause():

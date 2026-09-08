@@ -3343,6 +3343,7 @@
   function flowActions(form) {
     const buttons = [];
     const pendingTask = currentPendingTask(form);
+    const isAdmin = (system.boot?.user?.role_codes || []).includes("admin");
     if (pendingTask && isProductionFlow(form) && form.status === "acceptance") buttons.push(`<button data-flow-action="productionInspect" class="primary">填写验收</button>`);
     if (pendingTask && isProductionFlow(form) && form.status === "leader_acceptance") buttons.push(`<button data-flow-action="productionLeader" class="primary">领导审批</button>`);
     if (pendingTask && isProductionFlow(form) && form.status === "inbound") buttons.push(`<button data-flow-action="productionInbound" class="good">办理入库</button>`);
@@ -3361,6 +3362,7 @@
     if (pendingTask && form.form_type === "supply_extension" && form.status === "leader_supply_extension") buttons.push('<button data-flow-action="leaderSupplyExtension" class="primary">延期审批</button>');
     if (pendingTask && form.status === "applicant_revision") buttons.push(`<button data-flow-action="returnedRevision" class="primary">重新提交</button>`);
     if (workflowCanReturn(form)) buttons.push(`<button data-flow-action="returnFlow" class="danger">退回</button>`);
+    if (isAdmin && currentStepPendingTasks(form).length) buttons.push(`<button data-flow-action="reassignTask">改派当前待办</button>`);
     buttons.push(`<button data-flow-action="printDetail">打印</button>`);
     return buttons.join("");
   }
@@ -3385,6 +3387,7 @@
     if (action === "borrowReturnInbound") return borrowReturnInboundFlow(form);
     if (action === "returnedRevision") return editApplicantWorkflow(form);
     if (action === "returnFlow") return returnWorkflowFlow(form);
+    if (action === "reassignTask") return reassignWorkflowTask(form);
     if (action === "printDetail") return printFullFlowRows([form]);
   }
 
@@ -3408,6 +3411,35 @@
     const step = form.current_step || form.status;
     const isAdmin = (system.boot?.user?.role_codes || []).includes("admin");
     return (form.tasks || []).find(task => task.status === "pending" && task.step_code === step && (isAdmin || Number(task.assignee_id || 0) === Number(system.userId || 0)));
+  }
+
+  function currentStepPendingTasks(form) {
+    const step = form.current_step || form.status;
+    return (form.tasks || []).filter(task => task.status === "pending" && task.step_code === step);
+  }
+
+  function reassignWorkflowTask(form) {
+    const tasks = currentStepPendingTasks(form);
+    const activeUsers = (system.boot?.users || []).filter(user => user.is_active);
+    openModal({
+      title: `改派 ${form.form_no}`,
+      body: `<div class="form-grid">
+        <label>当前待办<select id="reassignTaskId">${tasks.map(task => `<option value="${task.id}">${escapeHtml(workflowStepLabel(task.step_code))} · ${escapeHtml(task.assignee_name || "未指定")}</option>`).join("")}</select></label>
+        <label>新的办理人<select id="reassignTargetUser"><option value="">请选择</option>${userOptionsFrom(activeUsers, 0)}</select></label>
+      </div>`,
+      okText: "确认改派",
+      onOk: async () => {
+        const taskId = Number(document.getElementById("reassignTaskId").value || 0);
+        const targetUserId = Number(document.getElementById("reassignTargetUser").value || 0);
+        if (!taskId || !targetUserId) throw new Error("请选择待办和新的办理人");
+        await systemApi(`/api/workflows/${form.id}/tasks/${taskId}/reassign`, {
+          method: "POST",
+          body: JSON.stringify({ target_user_id: targetUserId }),
+        });
+        toast("待办已改派");
+        await refreshAfterFlowMutation();
+      },
+    });
   }
 
   function workflowCanReturn(form) {
