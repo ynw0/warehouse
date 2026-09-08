@@ -3628,7 +3628,7 @@
         title: `办理${flowTypeLabel(form.form_type)}入库`,
         body: `<div class="form-grid">
           <div class="wide">${productionHeaderTable(form, item)}${productionComponentsTable(item)}<p class="hint">合格数量：${formatQty(item.qualified_quantity || 0)}；不合格数量：${formatQty(item.unqualified_quantity || 0)}</p></div>
-          <label>核准入库数量<input id="prodInboundQty" type="number" step="1" min="0" max="${Number(item.qualified_quantity || 0)}" value="${formatInputQty(item.qualified_quantity || 0)}"></label>
+          <label>核准入库数量<input id="prodInboundQty" type="number" step="1" value="${formatInputQty(item.qualified_quantity || 0)}" readonly></label>
           <label>入库日期${datePickerHtml("prodInboundDate", new Date().toISOString().slice(0, 10))}</label>
           ${shelfLocationSelects(shelvesData, "prod")}
           <label>库管签字<input id="prodInboundSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label>

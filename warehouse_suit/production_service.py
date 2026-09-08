@@ -356,6 +356,17 @@ def insert_semifinished_consumptions(cursor, finished_acceptance_id, prepared):
     for item in prepared:
         cursor.execute(
             """
+            UPDATE semifinished_inventory
+            SET used_quantity = used_quantity + ?, updated_at = ?
+            WHERE id = ?
+              AND quantity - used_quantity - borrowed_quantity >= ?
+            """,
+            (item["total_quantity"], now_text(), item["semifinished_inventory_id"], item["total_quantity"]),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError(f"{item['name']} 半成品余量已变化，请刷新后重试")
+        cursor.execute(
+            """
             INSERT INTO semifinished_consumptions
                 (finished_acceptance_id, semifinished_inventory_id, quantity, unit_cost, amount, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
@@ -368,14 +379,6 @@ def insert_semifinished_consumptions(cursor, finished_acceptance_id, prepared):
                 item["amount"],
                 now_text(),
             ),
-        )
-        cursor.execute(
-            """
-            UPDATE semifinished_inventory
-            SET used_quantity = used_quantity + ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (item["total_quantity"], now_text(), item["semifinished_inventory_id"]),
         )
 
 

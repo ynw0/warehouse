@@ -6,6 +6,7 @@ import json
 from flask import jsonify, request
 
 from warehouse_suit.db import now_text, row_to_dict, today_text
+from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.numbering import next_form_no, next_table_no
 from warehouse_suit.production_service import (
     claimed_material_batch_pool,
@@ -346,6 +347,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             user = current_user(cursor)
             if not user:
                 raise PermissionError("请先登录")
+            begin_inventory_transaction(conn)
             form = require_form_status(cursor, form_id, kind, "inbound")
             task = require_task_assignee(cursor, user, form_id, "inbound")
             cursor.execute("SELECT * FROM workflow_items WHERE form_id = ? ORDER BY id LIMIT 1", (form_id,))
@@ -353,9 +355,12 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             if not item:
                 raise ValueError("生产验收明细不存在")
             item_data = parse_json(item.get("data_json"), {})
-            approved_qty = quantity_value(data.get("approved_quantity") if data.get("approved_quantity") is not None else item.get("qualified_quantity"), "入库数量")
-            if validation_rule_enabled("workflow_bounds") and approved_qty > float(item.get("qualified_quantity") or 0) + 1e-9:
-                raise ValueError("入库数量不能大于合格数量")
+            approved_qty = quantity_value(
+                data.get("approved_quantity") if data.get("approved_quantity") is not None else item.get("qualified_quantity"),
+                "入库数量", positive=True,
+            )
+            if abs(approved_qty - float(item.get("qualified_quantity") or 0)) > 1e-9:
+                raise ValueError("生产入库数量必须等于验收合格数量")
             shelf_id = nonnegative_int_value(data.get("shelf_id"), "货架", 0)
             layer_number = positive_int_value(data.get("layer_number") or 1, "层号")
             zone_name = validate_plain_text(data.get("zone_name") or "", "分区", max_length=20).upper()
@@ -831,6 +836,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_acceptance")
+            begin_inventory_transaction(conn)
             name = str(data.get("name") or "").strip()
             if not name:
                 raise ValueError("请填写半成品名称")
@@ -1234,6 +1240,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_acceptance")
+            begin_inventory_transaction(conn)
             product_name = str(data.get("product_name") or "").strip()
             if not product_name:
                 raise ValueError("请填写成品名称")
