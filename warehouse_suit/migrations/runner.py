@@ -12,6 +12,7 @@ from .v2026072401_defective_common_supply import MIGRATION as DEFECTIVE_COMMON_S
 from .v2026082701_workflow_task_integrity import MIGRATION as WORKFLOW_TASK_INTEGRITY
 from .v2026083101_batch_warehouse_alignment import MIGRATION as BATCH_WAREHOUSE_ALIGNMENT
 from .v2026090701_claim_returns import MIGRATION as CLAIM_RETURNS
+from .v2026090801_defective_borrow_quantities import MIGRATION as DEFECTIVE_BORROW_QUANTITIES
 
 
 LOGGER = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ def available_migrations():
         WORKFLOW_TASK_INTEGRITY,
         BATCH_WAREHOUSE_ALIGNMENT,
         CLAIM_RETURNS,
+        DEFECTIVE_BORROW_QUANTITIES,
     ]
 
 

@@ -734,6 +734,9 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
     )
     for row in cursor.fetchall():
         item = dict(row)
+        available = max(0, 1 - float(item.get("borrowed_quantity") or 0))
+        if available <= 0:
+            continue
         rows.append(
             {
                 "item_type": "defective_semifinished",
@@ -744,7 +747,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": "",
                 "spec": item.get("spec") or "",
                 "unit": "\u4e2a",
-                "available_quantity": 1,
+                "available_quantity": available,
                 "location_text": "",
                 "batch_summary": "",
             }
@@ -766,6 +769,9 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
     )
     for row in cursor.fetchall():
         item = dict(row)
+        available = max(0, 1 - float(item.get("borrowed_quantity") or 0))
+        if available <= 0:
+            continue
         rows.append(
             {
                 "item_type": "defective_finished",
@@ -776,7 +782,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": "",
                 "spec": item.get("spec") or "",
                 "unit": "\u53f0",
-                "available_quantity": 1,
+                "available_quantity": available,
                 "location_text": "",
                 "batch_summary": "",
             }
@@ -918,7 +924,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "brand_model": "",
             "spec": item.get("spec") or "",
             "unit": "\u4e2a",
-            "available_quantity": 1,
+            "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0)),
             "cost_price": 0,
         }
     if item_type == "defective_finished":
@@ -935,7 +941,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "brand_model": "",
             "spec": item.get("spec") or "",
             "unit": "\u53f0",
-            "available_quantity": 1,
+            "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0)),
             "cost_price": 0,
         }
     if item_type == "scrapped_semifinished":
@@ -973,6 +979,52 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "cost_price": 0,
         }
     raise ValueError("borrow item type invalid")
+
+
+def adjust_nonmaterial_borrow(cursor, item_type, item_ref_id, quantity, outbound):
+    """在对应生产库存、不良品或报废品表中维护借用数量。"""
+    borrowed_tables = {
+        "semifinished": ("semifinished_inventory", "quantity - used_quantity - borrowed_quantity"),
+        "finished": ("finished_good_inventory", "quantity - borrowed_quantity"),
+        "defective_semifinished": ("defective_semifinished_goods", "1 - borrowed_quantity"),
+        "defective_finished": ("defective_finished_goods", "1 - borrowed_quantity"),
+    }
+    scrapped_tables = {
+        "scrapped_semifinished": "scrapped_semifinished_goods",
+        "scrapped_finished": "scrapped_finished_goods",
+    }
+    if item_type in borrowed_tables:
+        table, available = borrowed_tables[item_type]
+        if outbound:
+            cursor.execute(
+                f"""UPDATE {table}
+                    SET borrowed_quantity = borrowed_quantity + ?, updated_at = ?
+                    WHERE id = ? AND {available} >= ?""",
+                (quantity, now_text(), item_ref_id, quantity),
+            )
+        else:
+            cursor.execute(
+                f"""UPDATE {table}
+                    SET borrowed_quantity = borrowed_quantity - ?, updated_at = ?
+                    WHERE id = ? AND borrowed_quantity >= ?""",
+                (quantity, now_text(), item_ref_id, quantity),
+            )
+    elif item_type in scrapped_tables:
+        table = scrapped_tables[item_type]
+        if outbound:
+            cursor.execute(
+                f"UPDATE {table} SET quantity = quantity - ? WHERE id = ? AND quantity >= ?",
+                (quantity, item_ref_id, quantity),
+            )
+        else:
+            cursor.execute(
+                f"UPDATE {table} SET quantity = quantity + ? WHERE id = ?",
+                (quantity, item_ref_id),
+            )
+    else:
+        raise ValueError("borrow item type invalid")
+    if cursor.rowcount != 1:
+        raise ValueError("借用物品余量已变化，请刷新后重试")
 
 
 def borrow_out_item(
@@ -1016,10 +1068,8 @@ def borrow_out_item(
             "consumed_batches": consumed,
             "unit_price": amount / quantity if quantity > 0 else 0,
         }
-    table = "semifinished_inventory" if item["item_type"] == "semifinished" else "finished_good_inventory"
-    cursor.execute(
-        f"UPDATE {table} SET borrowed_quantity = COALESCE(borrowed_quantity, 0) + ?, updated_at = ? WHERE id = ?",
-        (quantity, now_text(), item["item_ref_id"]),
+    adjust_nonmaterial_borrow(
+        cursor, item["item_type"], item["item_ref_id"], quantity, outbound=True
     )
     return {"consumed_batches": [], "unit_price": float(item.get("cost_price") or 0)}
 
@@ -1098,15 +1148,9 @@ def return_borrow_item(
             operation_key=operation_key,
             operator_id=operator_id,
         )
-    elif record["item_type"] == "semifinished":
-        cursor.execute(
-            "UPDATE semifinished_inventory SET borrowed_quantity = MAX(0, COALESCE(borrowed_quantity, 0) - ?), updated_at = ? WHERE id = ?",
-            (quantity, now_text(), record["item_ref_id"]),
-        )
-    elif record["item_type"] == "finished":
-        cursor.execute(
-            "UPDATE finished_good_inventory SET borrowed_quantity = MAX(0, COALESCE(borrowed_quantity, 0) - ?), updated_at = ? WHERE id = ?",
-            (quantity, now_text(), record["item_ref_id"]),
+    else:
+        adjust_nonmaterial_borrow(
+            cursor, record["item_type"], record["item_ref_id"], quantity, outbound=False
         )
     return update_borrow_return_balance(
         cursor,
