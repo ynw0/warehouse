@@ -4,7 +4,8 @@ set -Eeuo pipefail
 PACKAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
 PAYLOAD_DIR="$PACKAGE_DIR/app"
 APP_DIR="${1:-${APP_DIR:-/mnt/disk0/warehouse-suite}}"
-UPDATE_VERSION="2026.7.27-direct"
+[ -f "$PACKAGE_DIR/VERSION" ] || { printf '更新包缺少 VERSION\n' >&2; exit 1; }
+UPDATE_VERSION="$(cat "$PACKAGE_DIR/VERSION")-direct"
 SERVICE_NAME="${SERVICE_NAME:-warehouse-suite.service}"
 
 log() { printf '[%s] %s\n' "$UPDATE_VERSION" "$*"; }
