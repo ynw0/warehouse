@@ -651,6 +651,13 @@ def serialize_form(cursor, form_id):
                 item["material_id"],
                 stock_source=stock_source,
             )
+            plan_quantity = float(item.get("request_quantity") or 0)
+            if form.get("form_type") == "claim":
+                item["remaining_outbound_quantity"] = max(
+                    0.0,
+                    plan_quantity - float(item.get("outbound_quantity") or 0),
+                )
+                plan_quantity = item["remaining_outbound_quantity"]
             item["stock_source"] = stock_source
             item["stock_source_label"] = "临时库" if stock_source == STOCK_SOURCE_TEMPORARY else "正式库"
             item["allocation_group_key"] = item["data"].get("allocation_group_key") or ""
@@ -663,7 +670,7 @@ def serialize_form(cursor, form_id):
             plan, shortage = build_fifo_plan(
                 cursor,
                 item["material_id"],
-                item.get("request_quantity") or 0,
+                plan_quantity,
                 stock_source=stock_source,
             )
             item["suggested_batches"] = [

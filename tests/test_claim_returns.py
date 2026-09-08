@@ -135,7 +135,10 @@ def test_completed_outbound_does_not_expose_form_to_unrelated_user(client, db):
     warehouse_id = db.execute("SELECT id FROM users WHERE username='warehouse'").fetchone()[0]
     db.execute("UPDATE workflow_forms SET applicant_id=? WHERE id=?", (warehouse_id, form_id))
     db.commit()
-    response = client.post(f"/api/claims/{form_id}/outbound", json={})
+    response = client.post(
+        f"/api/claims/{form_id}/outbound",
+        json={"operation_key": "unrelated-user-check"},
+    )
     assert response.status_code == 400
     assert "没有查看该流程的权限" in response.get_json()["error"]
 

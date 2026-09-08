@@ -13,6 +13,7 @@ from .v2026082701_workflow_task_integrity import MIGRATION as WORKFLOW_TASK_INTE
 from .v2026083101_batch_warehouse_alignment import MIGRATION as BATCH_WAREHOUSE_ALIGNMENT
 from .v2026090701_claim_returns import MIGRATION as CLAIM_RETURNS
 from .v2026090801_defective_borrow_quantities import MIGRATION as DEFECTIVE_BORROW_QUANTITIES
+from .v2026090802_partial_claim_outbound import MIGRATION as PARTIAL_CLAIM_OUTBOUND
 
 
 LOGGER = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ def available_migrations():
         BATCH_WAREHOUSE_ALIGNMENT,
         CLAIM_RETURNS,
         DEFECTIVE_BORROW_QUANTITIES,
+        PARTIAL_CLAIM_OUTBOUND,
     ]
 
 

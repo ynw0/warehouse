@@ -102,11 +102,25 @@ def approve_claim(client, db, form_id):
     return response.get_json()["form"]
 
 
-def outbound_claim(client, form, items=None):
+def outbound_claim(client, form, items=None, operation_key=None):
     login(client)
+    if items is None:
+        items = [
+            {
+                "id": item["id"],
+                "outbound_quantity": item.get("remaining_outbound_quantity")
+                or item["request_quantity"],
+                "batches": item.get("suggested_batches") or [],
+            }
+            for item in form["items"]
+        ]
     response = client.post(
         f"/api/claims/{form['id']}/outbound",
-        json={"items": items or [], "signature": "仓库管理员"},
+        json={
+            "items": items,
+            "signature": "仓库管理员",
+            "operation_key": operation_key or f"test-claim-outbound-{form['id']}",
+        },
     )
     return response
 
@@ -240,8 +254,8 @@ def test_temporary_fifo_outbound_creates_one_obligation_per_batch_and_is_idempot
     assert {row["business_type"] for row in records} == {"claim_outbound"}
     item_id = form["items"][0]["id"]
     assert [row["operation_key"] for row in records] == [
-        f"claim:{form['id']}:{item_id}:outbound:{batch_ids[0]}",
-        f"claim:{form['id']}:{item_id}:outbound:{batch_ids[1]}",
+        f"claim:{form['id']}:{item_id}:outbound:test-claim-outbound-{form['id']}:{batch_ids[0]}",
+        f"claim:{form['id']}:{item_id}:outbound:test-claim-outbound-{form['id']}:{batch_ids[1]}",
     ]
     assert len({row["operation_key"] for row in records}) == 2
     operation_key_index = next(
@@ -269,8 +283,8 @@ def test_temporary_fifo_outbound_creates_one_obligation_per_batch_and_is_idempot
         row["source_batch_id"]: row["stock_record_id"] for row in obligations
     } == record_by_batch
     assert [row["operation_key"] for row in obligations] == [
-        f"claim_out:{form['id']}:{item_id}:{batch_ids[0]}",
-        f"claim_out:{form['id']}:{item_id}:{batch_ids[1]}",
+        f"claim_out:{form['id']}:{item_id}:{batch_ids[0]}:{record_by_batch[batch_ids[0]]}",
+        f"claim_out:{form['id']}:{item_id}:{batch_ids[1]}:{record_by_batch[batch_ids[1]]}",
     ]
 
     retry = outbound_claim(client, response.get_json()["form"])
@@ -475,6 +489,63 @@ def test_obligation_and_ledger_failure_leave_no_partial_outbound(client, db):
     assert db.execute("SELECT COUNT(*) FROM temporary_issue_obligations").fetchone()[0] == 0
 
 
+def test_claim_partial_outbound_stays_pending_and_accumulates_idempotently(client, db):
+    enable_temporary(client)
+    material_id, _, batch_ids = seed_material(db, temporary_batches=(5,))
+    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 4}])
+    approved = approve_claim(client, db, form["id"])
+    item = approved["items"][0]
+
+    first_items = [{
+        "id": item["id"],
+        "outbound_quantity": 1,
+        "batches": [{"batch_id": batch_ids[0], "quantity": 1}],
+    }]
+    first = outbound_claim(client, approved, first_items, "partial-first")
+    assert first.status_code == 200, first.get_data(as_text=True)
+    first_form = first.get_json()["form"]
+    assert first.get_json()["partial_outbound"] is True
+    assert first_form["status"] == "outbound"
+    assert first_form["items"][0]["outbound_quantity"] == 1
+    assert first_form["items"][0]["remaining_outbound_quantity"] == 3
+    assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 4
+    expected_assignee_id = next(
+        task["assignee_id"]
+        for task in approved["tasks"]
+        if task["step_code"] == "outbound" and task["status"] == "pending"
+    )
+    pending = db.execute(
+        "SELECT step_code, assignee_id FROM workflow_tasks WHERE form_id = ? AND status = 'pending'",
+        (form["id"],),
+    ).fetchall()
+    assert [tuple(row) for row in pending] == [("outbound", expected_assignee_id)]
+
+    retry = outbound_claim(client, first_form, first_items, "partial-first")
+    assert retry.status_code == 200
+    assert retry.get_json()["idempotent"] is True
+    assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 4
+
+    second_items = [{
+        "id": item["id"],
+        "outbound_quantity": 3,
+        "batches": [{"batch_id": batch_ids[0], "quantity": 3}],
+    }]
+    second = outbound_claim(client, first_form, second_items, "partial-second")
+    assert second.status_code == 200, second.get_data(as_text=True)
+    completed = second.get_json()["form"]
+    assert second.get_json()["partial_outbound"] is False
+    assert completed["status"] == "completed"
+    assert completed["items"][0]["outbound_quantity"] == 4
+    assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 1
+    assert db.execute(
+        "SELECT COUNT(*) FROM claim_outbound_operations WHERE form_id = ?", (form["id"],)
+    ).fetchone()[0] == 2
+    obligations = db.execute(
+        "SELECT issued_quantity FROM temporary_issue_obligations ORDER BY id"
+    ).fetchall()
+    assert [row[0] for row in obligations] == [1, 3]
+
+
 def test_concurrent_duplicate_outbound_is_idempotent(app, client, db):
     enable_temporary(client)
     material_id, _, _ = seed_material(db, temporary_batches=(5,))
@@ -494,7 +565,16 @@ def test_concurrent_duplicate_outbound_is_idempotent(app, client, db):
             barrier.wait()
             response = test_client.post(
                 f"/api/claims/{approved['id']}/outbound",
-                json={"items": [], "signature": "并发测试"},
+                json={
+                    "items": [
+                        {
+                            "id": approved["items"][0]["id"],
+                            "outbound_quantity": approved["items"][0]["request_quantity"],
+                        }
+                    ],
+                    "signature": "并发测试",
+                    "operation_key": f"concurrent-{approved['id']}",
+                },
             )
             results.append((response.status_code, response.get_json()))
         except Exception as exc:

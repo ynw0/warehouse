@@ -88,7 +88,10 @@ def create_temporary_issue_obligations(cursor, form, item, consumed_batches):
         stock_record_id = int(consumed.get("stock_record_id") or 0)
         if quantity <= 0 or not batch_id or not stock_record_id:
             raise ValueError("临时领用出库结果缺少批次、流水或实际数量")
-        operation_key = f"claim_out:{int(form['id'])}:{int(item['id'])}:{batch_id}"
+        # 同一批次允许分多次出库，流水号才是一次实际出库的唯一边界。
+        operation_key = (
+            f"claim_out:{int(form['id'])}:{int(item['id'])}:{batch_id}:{stock_record_id}"
+        )
         cursor.execute(
             """
             SELECT *

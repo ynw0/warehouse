@@ -3831,23 +3831,33 @@
   }
 
 
-  function outboundFlow(form) {
-    openModal({ title: "办理出库", body: `<div class="form-grid">${form.items.map(item => `<label>${escapeHtml(item.material_name)} 出库数量<input data-out="${item.id}" type="number" value="${item.request_quantity || 0}"></label>`).join("")}<label>库管签字<input id="outSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`, okText: "确认出库", onOk: async () => {
-      const items = form.items.map(item => ({ id: item.id, outbound_quantity: document.querySelector(`[data-out="${item.id}"]`).value }));
-      await systemApi(`/api/claims/${form.id}/outbound`, { method: "POST", body: JSON.stringify({ items, signature: document.getElementById("outSign").value }) });
-      toast("出库完成，料卡已同步"); await loadBootstrap();
-    }});
-  }
-
   function outboundFlowV2(form) {
-    openModal({ title: "办理出库", body: `<div class="form-grid">${form.items.map(item => `<div class="wide work-panel"><div class="work-body"><h3>${escapeHtml(item.material_code)} ${escapeHtml(item.material_name)} ${ClaimSourceUI.sourceBadge(item.stock_source)}</h3><p>申领数量：${formatQty(item.request_quantity)} ${escapeHtml(item.unit || "")}；该来源可用库存：${formatQty(item.current_stock_quantity || 0)} ${escapeHtml(item.unit || "")}</p><label>出库数量<input data-out="${item.id}" type="number" step="1" value="${item.request_quantity || 0}"></label>${batchPickTable(item)}</div></div>`).join("")}<label>库管签字<input id="outSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`, okText: "确认出库", onOk: async () => {
-      const items = form.items.map(item => ({
+    const operationKey = newAttachmentToken();
+    const pendingItems = (form.items || []).filter(item => Number(item.remaining_outbound_quantity ?? (Number(item.request_quantity || 0) - Number(item.outbound_quantity || 0))) > 1e-9);
+    openModal({ title: "办理出库", body: `<div class="form-grid">${pendingItems.map(item => {
+      const remaining = Number(item.remaining_outbound_quantity ?? (Number(item.request_quantity || 0) - Number(item.outbound_quantity || 0)));
+      return `<div class="wide work-panel"><div class="work-body"><h3>${escapeHtml(item.material_code)} ${escapeHtml(item.material_name)} ${ClaimSourceUI.sourceBadge(item.stock_source)}</h3><p>申领数量：${formatQty(item.request_quantity)} ${escapeHtml(item.unit || "")}；已出：${formatQty(item.outbound_quantity || 0)}；待出：${formatQty(remaining)}；该来源可用库存：${formatQty(item.current_stock_quantity || 0)}</p><label>本次出库数量<input data-out="${item.id}" type="number" step="1" min="0" max="${remaining}" value="${formatInputQty(remaining)}"></label>${batchPickTable(item)}</div></div>`;
+    }).join("")}<label>库管签字<input id="outSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`, okText: "确认出库", onReady: () => {
+      pendingItems.forEach(item => {
+        const quantityInput = document.querySelector(`[data-out="${item.id}"]`);
+        quantityInput?.addEventListener("input", () => {
+          let remaining = Math.max(0, Number(quantityInput.value || 0));
+          document.querySelectorAll(`[data-batch-item="${item.id}"]`).forEach(batchInput => {
+            const take = Math.min(remaining, Number(batchInput.max || 0));
+            batchInput.value = formatInputQty(take);
+            remaining -= take;
+          });
+        });
+      });
+    }, onOk: async () => {
+      const items = pendingItems.map(item => ({
         id: item.id,
         outbound_quantity: document.querySelector(`[data-out="${item.id}"]`).value,
         batches: [...document.querySelectorAll(`[data-batch-item="${item.id}"]`)].map(input => ({ batch_id: input.dataset.batchId, quantity: input.value })),
       }));
-      await systemApi(`/api/claims/${form.id}/outbound`, { method: "POST", body: JSON.stringify({ items, signature: document.getElementById("outSign").value }) });
-      toast("出库完成，料卡已同步"); await loadBootstrap();
+      const result = await systemApi(`/api/claims/${form.id}/outbound`, { method: "POST", body: JSON.stringify({ items, signature: document.getElementById("outSign").value, operation_key: operationKey }) });
+      toast(result.partial_outbound ? "本次出库完成，流程仍有待出数量" : "出库完成，料卡已同步");
+      await loadBootstrap();
     }});
   }
 

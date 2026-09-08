@@ -7,11 +7,14 @@ def _columns(conn, table):
 
 def upgrade(conn):
     for table in ("defective_semifinished_goods", "defective_finished_goods"):
-        if "borrowed_quantity" not in _columns(conn, table):
+        columns = _columns(conn, table)
+        if not columns:
+            continue
+        if "borrowed_quantity" not in columns:
             conn.execute(
                 f'ALTER TABLE "{table}" ADD COLUMN borrowed_quantity REAL NOT NULL DEFAULT 0'
             )
-        if "updated_at" not in _columns(conn, table):
+        if "updated_at" not in columns:
             conn.execute(
                 f'ALTER TABLE "{table}" ADD COLUMN updated_at TEXT NOT NULL DEFAULT ""'
             )

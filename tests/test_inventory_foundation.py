@@ -432,7 +432,13 @@ def test_claim_outbound_api_only_consumes_formal_stock(client, db):
     db.commit()
     _login(client)
 
-    response = client.post(f"/api/claims/{form_id}/outbound", json={"items": []})
+    response = client.post(
+        f"/api/claims/{form_id}/outbound",
+        json={
+            "items": [{"id": item_id, "outbound_quantity": 4}],
+            "operation_key": "formal-outbound-test",
+        },
+    )
     assert response.status_code == 200, response.get_data(as_text=True)
 
     assert material_stock_total(cursor, material_id) == 6
