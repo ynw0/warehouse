@@ -3,7 +3,6 @@
 
 import json
 import os
-import shutil
 import sqlite3
 import threading
 import time
@@ -26,6 +25,7 @@ _db_path_provider = None
 _default_backup_dir = ""
 _backup_thread = None
 _backup_thread_lock = threading.Lock()
+BACKUP_LOCK_MAX_AGE_SECONDS = 6 * 60 * 60
 
 
 def configure_backup_service(db_provider, db_path_provider, default_backup_dir):
@@ -79,6 +79,38 @@ def save_backup_settings(cursor, settings):
     set_setting(cursor, "backup_settings", json.dumps(settings, ensure_ascii=False))
 
 
+def _process_is_running(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except PermissionError:
+        return True
+    except (ProcessLookupError, TypeError, ValueError):
+        return False
+
+
+def acquire_backup_lock(lock_path):
+    """获取跨进程备份锁，并清理已经失效的锁文件。"""
+    try:
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        age = max(0, time.time() - os.path.getmtime(lock_path))
+        try:
+            with open(lock_path, "r", encoding="ascii") as file:
+                pid = int(file.read().strip())
+        except (OSError, ValueError):
+            pid = 0
+        if age < 5 or (_process_is_running(pid) and age < BACKUP_LOCK_MAX_AGE_SECONDS):
+            raise FileExistsError("备份任务正在运行")
+        try:
+            os.remove(lock_path)
+        except FileNotFoundError:
+            pass
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(lock_fd, str(os.getpid()).encode("ascii"))
+    return lock_fd
+
+
 def create_database_backup(cursor=None, reason="manual", backup_dir=None):
     own_conn = None
     if cursor is None:
@@ -89,8 +121,7 @@ def create_database_backup(cursor=None, reason="manual", backup_dir=None):
     lock_path = os.path.join(target_dir, ".backup.lock")
     lock_fd = None
     try:
-        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(lock_fd, str(os.getpid()).encode("ascii", errors="ignore"))
+        lock_fd = acquire_backup_lock(lock_path)
         filename = backup_filename()
         target_path = os.path.join(target_dir, filename)
         src = sqlite3.connect(_db_path())
@@ -148,12 +179,26 @@ def backup_path_from_name(cursor, filename):
     return path
 
 
+def sqlite_copy_database(source_path, destination_path):
+    """通过SQLite备份接口复制完整数据库，包括WAL中的已提交事务。"""
+    source_uri = f"file:{os.path.abspath(source_path)}?mode=ro"
+    source = sqlite3.connect(source_uri, uri=True)
+    destination = sqlite3.connect(destination_path)
+    try:
+        source.backup(destination)
+        if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise ValueError("数据库复制后的完整性检查失败")
+    finally:
+        destination.close()
+        source.close()
+
+
 def restore_database_from_backup(source_path):
     validate_sqlite_file(source_path)
     restore_guard = _db_path() + f".before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
     if os.path.exists(_db_path()):
-        shutil.copy2(_db_path(), restore_guard)
-    shutil.copy2(source_path, _db_path())
+        sqlite_copy_database(_db_path(), restore_guard)
+    sqlite_copy_database(source_path, _db_path())
     return restore_guard
 
 
