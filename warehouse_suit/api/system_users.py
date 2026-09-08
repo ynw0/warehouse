@@ -126,9 +126,11 @@ def register_system_user_routes(app, *, get_db, require_admin):
                         (generate_password_hash(data.get("password")), 1 if policy.get("force_change_on_first_login") else 0, now_text(), user_id),
                     )
             else:
-                raw_password = data.get("password") or "123456"
                 policy = password_policy(cursor)
-                validate_password_policy(raw_password, policy)
+                supplied_password = str(data.get("password") or "")
+                raw_password = supplied_password or "123456"
+                if supplied_password:
+                    validate_password_policy(raw_password, policy)
                 cursor.execute(
                     """
                     INSERT INTO users (username, display_name, department, password, must_change_password, is_active, updated_at)
@@ -238,11 +240,12 @@ def register_system_user_routes(app, *, get_db, require_admin):
                     updated += 1
                 else:
                     password = imported_password or "123456"
-                    try:
-                        validate_password_policy(password, policy)
-                    except ValueError as exc:
-                        errors.append("第 {} 行：{}".format(index, exc))
-                        continue
+                    if imported_password:
+                        try:
+                            validate_password_policy(password, policy)
+                        except ValueError as exc:
+                            errors.append("第 {} 行：{}".format(index, exc))
+                            continue
                     cursor.execute(
                         """
                         INSERT INTO users (username, display_name, department, password, must_change_password, is_active, updated_at)

@@ -4967,12 +4967,25 @@
   }
 
   async function saveNewUser() {
-    const roles = [...document.getElementById("newRoles").selectedOptions].map(option => option.value);
-    await systemApi("/api/system/users", { method: "POST", body: JSON.stringify({ id: document.getElementById("editUserId").value, username: document.getElementById("newUsername").value, display_name: document.getElementById("newDisplayName").value, password: document.getElementById("newPassword").value, department: document.getElementById("newDepartment").value, is_active: document.getElementById("newActive").value === "1", roles }) });
-    toast("\u7528\u6237\u5df2\u4fdd\u5b58");
-    document.getElementById("editUserId").value = "";
-    document.getElementById("newPassword").value = "";
-    loadUsers();
+    const button = document.getElementById("saveUser");
+    button.disabled = true;
+    try {
+      const roles = [...document.getElementById("newRoles").selectedOptions].map(option => option.value);
+      await systemApi("/api/system/users", { method: "POST", body: JSON.stringify({ id: document.getElementById("editUserId").value, username: document.getElementById("newUsername").value, display_name: document.getElementById("newDisplayName").value, password: document.getElementById("newPassword").value, department: document.getElementById("newDepartment").value, is_active: document.getElementById("newActive").value === "1", roles }) });
+      toast("\u7528\u6237\u5df2\u4fdd\u5b58");
+      document.getElementById("editUserId").value = "";
+      document.getElementById("newUsername").value = "";
+      document.getElementById("newDisplayName").value = "";
+      document.getElementById("newPassword").value = "";
+      document.getElementById("newDepartment").value = "";
+      document.getElementById("newActive").value = "1";
+      [...document.getElementById("newRoles").options].forEach(option => { option.selected = false; });
+      await loadUsers();
+    } catch (error) {
+      toast(error.message || "\u7528\u6237\u4fdd\u5b58\u5931\u8d25");
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function importUsers() {
