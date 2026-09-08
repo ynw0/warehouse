@@ -9,6 +9,7 @@ from warehouse_suit.db import now_text, row_to_dict, today_text
 from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.material_repository import fetch_material, material_query
 from warehouse_suit.material_service import (
+    material_delete_blocker,
     next_material_code,
     save_material_batches_from_payload,
     update_material_master_by_id,
@@ -118,91 +119,6 @@ def register_material_routes(app, *, get_db):
         materials = [dict(row) for row in cursor.fetchall()]
         conn.close()
         return jsonify(materials)
-
-    @app.post("/api/materials")
-    def create_material():
-        data = request.get_json(force=True)
-        try:
-            required = ["material_code", "name", "shelf_id", "layer_number", "zone_name"]
-            missing = [field for field in required if not data.get(field)]
-            if missing:
-                raise ValueError("缺少字段: " + ", ".join(missing))
-            material_code = validate_material_code_value(data.get("material_code"))
-            name = validate_plain_text(data.get("name"), "物料名称", max_length=120, required=True)
-            initial_quantity = quantity_value(data.get("initial_quantity"), "初始库存", 0)
-            shelf_id = positive_int_value(data.get("shelf_id"), "货架")
-            layer_number = positive_int_value(data.get("layer_number"), "层号")
-            slot_index = nonnegative_int_value(data.get("slot_index"), "货位序号", 0)
-            zone_name = validate_plain_text(data.get("zone_name"), "分区", max_length=20, required=True).upper()
-        except Exception as exc:
-            return jsonify({"success": False, "error": str(exc)}), 400
-
-        conn = get_db()
-        cursor = conn.cursor()
-        require_permission(cursor, "add_material")
-        cursor.execute("SELECT id FROM materials WHERE material_code = ?", (material_code,))
-        if cursor.fetchone():
-            conn.close()
-            return jsonify({"success": False, "error": "物料编号已存在"}), 400
-
-        cursor.execute(
-            """
-            INSERT INTO materials
-                (material_code, brand_model, spec, name, category, sub_category, unit, icon, purchase_applicant, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                material_code,
-                data.get("brand_model") or "",
-                data.get("spec") or "",
-                name,
-                data.get("category") or "",
-                data.get("sub_category") or "",
-                data.get("unit") or "个",
-                data.get("icon") or "📦",
-                data.get("purchase_applicant") or "",
-                now_text(),
-            ),
-        )
-        material_id = cursor.lastrowid
-        cursor.execute(
-            "INSERT INTO inventory (material_id, quantity, updated_at) VALUES (?, ?, ?)",
-            (material_id, initial_quantity, now_text()),
-        )
-        cursor.execute(
-            """
-            INSERT INTO material_positions (material_id, shelf_id, layer_number, zone_name, slot_index)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                material_id,
-                shelf_id,
-                layer_number,
-                zone_name,
-                slot_index,
-            ),
-        )
-        if initial_quantity:
-            cursor.execute(
-                """
-                INSERT INTO stock_records
-                    (material_id, operation_type, quantity, balance_after, operation_date, remark, created_at)
-                VALUES (?, 'in', ?, ?, ?, ?, ?)
-                """,
-                (
-                    material_id,
-                    initial_quantity,
-                    initial_quantity,
-                    data.get("operation_date") or today_text(),
-                    "初始入库",
-                    now_text(),
-                ),
-            )
-        conn.commit()
-        material = fetch_material(cursor, material_id)
-        conn.close()
-        return jsonify({"success": True, "material": material})
-
 
     @app.get("/api/materials/<int:material_id>")
     def get_material(material_id):
@@ -341,25 +257,31 @@ def register_material_routes(app, *, get_db):
     @app.delete("/api/materials/<int:material_id>")
     def delete_material(material_id):
         conn = get_db()
-        cursor = conn.cursor()
-        user = require_permission(cursor, "edit_material")
-        cursor.execute("SELECT id FROM materials WHERE id = ?", (material_id,))
-        if not cursor.fetchone():
+        try:
+            cursor = conn.cursor()
+            user = require_permission(cursor, "edit_material")
+            cursor.execute("SELECT id FROM materials WHERE id = ?", (material_id,))
+            if not cursor.fetchone():
+                return jsonify({"success": False, "error": "物料不存在"}), 404
+            blocker = material_delete_blocker(cursor, material_id)
+            if blocker:
+                raise ValueError(blocker)
+            cursor.execute("SELECT COUNT(*) FROM material_attachments WHERE material_id = ? AND material_batch_id IS NOT NULL", (material_id,))
+            if int(cursor.fetchone()[0] or 0) > 0:
+                raise ValueError("该物料已有需永久留存的批次附件，不能删除")
+            recycle_material(cursor, material_id, user.get("id"))
+            cursor.execute("DELETE FROM material_batches WHERE material_id = ?", (material_id,))
+            cursor.execute("DELETE FROM stock_records WHERE material_id = ?", (material_id,))
+            cursor.execute("DELETE FROM material_positions WHERE material_id = ?", (material_id,))
+            cursor.execute("DELETE FROM inventory WHERE material_id = ?", (material_id,))
+            cursor.execute("DELETE FROM materials WHERE id = ?", (material_id,))
+            conn.commit()
+            return jsonify({"success": True})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
             conn.close()
-            return jsonify({"success": False, "error": "物料不存在"}), 404
-        cursor.execute("SELECT COUNT(*) FROM material_attachments WHERE material_id = ? AND material_batch_id IS NOT NULL", (material_id,))
-        if int(cursor.fetchone()[0] or 0) > 0:
-            conn.close()
-            return jsonify({"success": False, "error": "该物料已有需永久留存的批次附件，不能删除"}), 400
-        recycle_material(cursor, material_id, user.get("id"))
-        cursor.execute("DELETE FROM material_batches WHERE material_id = ?", (material_id,))
-        cursor.execute("DELETE FROM stock_records WHERE material_id = ?", (material_id,))
-        cursor.execute("DELETE FROM material_positions WHERE material_id = ?", (material_id,))
-        cursor.execute("DELETE FROM inventory WHERE material_id = ?", (material_id,))
-        cursor.execute("DELETE FROM materials WHERE id = ?", (material_id,))
-        conn.commit()
-        conn.close()
-        return jsonify({"success": True})
 
     app.add_url_rule("/api/materials", "get_materials", get_materials, methods=["GET"])
     app.add_url_rule("/api/material-code/next", "get_next_material_code", get_next_material_code, methods=["GET"])

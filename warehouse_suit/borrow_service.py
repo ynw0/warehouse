@@ -293,23 +293,29 @@ def borrow_has_actual_outbound(cursor, form_id):
     return bool(cursor.fetchone())
 
 
-def list_active_temporary_borrows(cursor, material_id):
-    cursor.execute(
-        """
+def list_active_borrows(cursor, material_id, stock_source=None):
+    """查询指定物料仍未归还的借用记录。"""
+    sql = """
         SELECT
             br.*,
             COALESCE(br.quantity, 0) - COALESCE(br.returned_quantity, 0)
                 AS remaining_quantity
         FROM borrow_records br
         WHERE br.material_id = ?
-          AND br.stock_source = ?
           AND br.status IN ('borrowed', 'transferring', 'partially_returned')
           AND COALESCE(br.quantity, 0) - COALESCE(br.returned_quantity, 0) > 0.000000001
-        ORDER BY br.id
-        """,
-        (int(material_id), STOCK_SOURCE_TEMPORARY),
-    )
+    """
+    params = [int(material_id)]
+    if stock_source:
+        sql += " AND br.stock_source = ?"
+        params.append(stock_source)
+    sql += " ORDER BY br.id"
+    cursor.execute(sql, params)
     return [dict(row) for row in cursor.fetchall()]
+
+
+def list_active_temporary_borrows(cursor, material_id):
+    return list_active_borrows(cursor, material_id, STOCK_SOURCE_TEMPORARY)
 
 
 def has_active_temporary_borrows(cursor, material_id):

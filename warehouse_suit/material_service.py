@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Material master, numbering, position, and batch services."""
 
+from warehouse_suit.borrow_service import list_active_borrows
 from warehouse_suit.db import now_text, row_to_dict, today_text
 from warehouse_suit.inventory_constants import INVENTORY_STATUS_AVAILABLE, STOCK_SOURCE_FORMAL
 from warehouse_suit.inventory_service import update_inventory_total
@@ -18,6 +19,45 @@ from warehouse_suit.validation import (
     validate_batch_no,
     validate_material_code_value,
 )
+
+
+def material_delete_blocker(cursor, material_id):
+    """返回阻止删除物料的首个业务原因。"""
+    cursor.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM material_batches WHERE material_id = ? AND inventory_status = ?",
+        (material_id, INVENTORY_STATUS_AVAILABLE),
+    )
+    if float(cursor.fetchone()[0] or 0) > 0.000000001:
+        return "该物料仍有库存，不能删除"
+    cursor.execute(
+        """
+        SELECT f.form_no
+        FROM workflow_items wi
+        JOIN workflow_forms f ON f.id = wi.form_id
+        WHERE wi.material_id = ?
+          AND f.status NOT IN ('completed', 'cancelled', 'rejected')
+        ORDER BY f.id LIMIT 1
+        """,
+        (material_id,),
+    )
+    form = cursor.fetchone()
+    if form:
+        return f"该物料仍被活动流程 {form['form_no']} 使用，不能删除"
+    active_borrows = list_active_borrows(cursor, material_id)
+    if active_borrows:
+        return f"该物料仍有未归还借用 {active_borrows[0]['borrow_no']}，不能删除"
+    cursor.execute(
+        """
+        SELECT 1 FROM temporary_issue_obligations
+        WHERE material_id = ?
+          AND status IN ('pending', 'reserved', 'processing', 'exception')
+        LIMIT 1
+        """,
+        (material_id,),
+    )
+    if cursor.fetchone():
+        return "该物料仍有未完成的临时领用义务，不能删除"
+    return ""
 
 
 def next_material_code(cursor, warehouse_code, major_code, middle_code, small_code, name="", brand_model="", spec=""):

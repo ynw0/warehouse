@@ -209,13 +209,8 @@ def register_system_user_routes(app, *, get_db, require_admin):
                     errors.append("第 {} 行：账号和姓名不能为空".format(index))
                     continue
                 department = str(row.get("department") or row.get("部门") or "").strip()
-                password = str(row.get("password") or row.get("密码") or "123456").strip() or "123456"
                 policy = password_policy(cursor)
-                try:
-                    validate_password_policy(password, policy)
-                except ValueError as exc:
-                    errors.append("第 {} 行：{}".format(index, exc))
-                    continue
+                imported_password = str(row.get("password") or row.get("密码") or "").strip()
                 raw_roles = str(row.get("roles") or row.get("角色") or "user")
                 role_codes = [item.strip() for item in raw_roles.replace("；", ",").replace(";", ",").split(",") if item.strip()] or ["user"]
                 is_active_text = str(row.get("is_active") or row.get("启用") or "1").strip().lower()
@@ -225,17 +220,29 @@ def register_system_user_routes(app, *, get_db, require_admin):
                 existing = cursor.fetchone()
                 if existing:
                     user_id = existing["id"]
+                    if imported_password:
+                        try:
+                            validate_password_policy(imported_password, policy)
+                        except ValueError as exc:
+                            errors.append("第 {} 行：{}".format(index, exc))
+                            continue
                     cursor.execute(
                         "UPDATE users SET display_name = ?, department = ?, is_active = ?, updated_at = ? WHERE id = ?",
                         (display_name, department, is_active, now_text(), user_id),
                     )
-                    if password:
+                    if imported_password:
                         cursor.execute(
                             "UPDATE users SET password = ?, must_change_password = ?, updated_at = ? WHERE id = ?",
-                            (generate_password_hash(password), 1 if policy.get("force_change_on_first_login") else 0, now_text(), user_id),
+                            (generate_password_hash(imported_password), 1 if policy.get("force_change_on_first_login") else 0, now_text(), user_id),
                         )
                     updated += 1
                 else:
+                    password = imported_password or "123456"
+                    try:
+                        validate_password_policy(password, policy)
+                    except ValueError as exc:
+                        errors.append("第 {} 行：{}".format(index, exc))
+                        continue
                     cursor.execute(
                         """
                         INSERT INTO users (username, display_name, department, password, must_change_password, is_active, updated_at)
