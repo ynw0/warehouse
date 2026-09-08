@@ -48,6 +48,7 @@
           <p class="wide">${escape(row.material_code)} · ${escape(row.material_name)}<br>
           领用单：${escape(row.form_no)} · 批次：${escape(row.batch_no)}<br>
           可退数量：${formatQty(row.returnable_quantity)} ${escape(row.unit)}</p>
+          <p class="wide">退回物料统一进入临时库，需由库管确认后再转入正式库。</p>
           <label class="wide">退库数量<input id="claimReturnQuantity" type="number" min="0" max="${row.returnable_quantity}" step="any" value="${row.returnable_quantity}"></label>
         </div>`,
         okText: "确认退库",

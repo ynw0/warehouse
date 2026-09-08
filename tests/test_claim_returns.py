@@ -52,7 +52,8 @@ def test_partial_return_duplicate_and_full_return(client, db, source):
     response = client.post(url, json=payload)
     assert response.status_code == 200, response.get_json()
     assert client.post(url, json=payload).get_json()["idempotent"] is True
-    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 6
+    expected_original_after_partial = 6 if source == "temporary" else 4
+    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == expected_original_after_partial
     assert db.execute("SELECT COUNT(*) FROM claim_returns").fetchone()[0] == 1
     response = client.post(url, json={"quantity": 5, "operation_key": "too-many"})
     assert response.status_code == 400
@@ -61,7 +62,13 @@ def test_partial_return_duplicate_and_full_return(client, db, source):
     row = client.get("/api/my-claims").get_json()["items"][0]
     assert row["issued_quantity"] == row["returned_quantity"] == 6
     assert row["returnable_quantity"] == 0
-    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 10
+    expected_original_after_full = 10 if source == "temporary" else 4
+    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == expected_original_after_full
+    temporary_quantity = db.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM material_batches WHERE material_id=? AND stock_source='temporary'",
+        (material_id,),
+    ).fetchone()[0]
+    assert temporary_quantity == (10 if source == "temporary" else 6)
     ledger = db.execute("""
         SELECT SUM(quantity), SUM(amount) FROM stock_records
         WHERE material_id=? AND business_type='claim_return_inbound'
@@ -70,7 +77,7 @@ def test_partial_return_duplicate_and_full_return(client, db, source):
     if source == "temporary":
         assert tuple(db.execute("SELECT issued_quantity, returned_quantity, status FROM temporary_issue_obligations").fetchone()) == (6, 6, "cancelled")
     else:
-        assert db.execute("SELECT quantity FROM inventory WHERE material_id=?", (material_id,)).fetchone()[0] == 10
+        assert db.execute("SELECT quantity FROM inventory WHERE material_id=?", (material_id,)).fetchone()[0] == 4
 
 
 def test_other_user_cannot_view_or_return_and_invalid_quantity_is_rejected(client, db):
@@ -101,7 +108,7 @@ def test_ledger_failure_rolls_back_batch_and_return(client, db):
     assert db.execute("SELECT COUNT(*) FROM stock_records WHERE business_type='claim_return_inbound'").fetchone()[0] == 0
 
 
-def test_return_after_temporary_promotion_uses_current_batch_source(client, db):
+def test_return_after_temporary_promotion_enters_temporary_stock(client, db):
     outbound_id, batch_id, material_id = seed_issue(db, "temporary")
     from warehouse_suit.temporary_inventory_service import promote_temporary_material
     user = dict(db.execute("SELECT * FROM users WHERE username='warehouse'").fetchone())
@@ -112,7 +119,14 @@ def test_return_after_temporary_promotion_uses_current_batch_source(client, db):
                            json={"quantity": 2, "operation_key": "promoted-return"})
     assert response.status_code == 200, response.get_json()
     assert client.get("/api/my-claims").get_json()["items"][0]["stock_source"] == "formal"
-    assert db.execute("SELECT quantity FROM inventory WHERE material_id=?", (material_id,)).fetchone()[0] == 6
+    assert db.execute("SELECT quantity FROM inventory WHERE material_id=?", (material_id,)).fetchone()[0] == 4
+    assert db.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM material_batches WHERE material_id=? AND stock_source='temporary'",
+        (material_id,),
+    ).fetchone()[0] == 2
+    assert tuple(
+        db.execute("SELECT issued_quantity, returned_quantity, status FROM temporary_issue_obligations").fetchone()
+    ) == (6, 2, "pending")
 
 
 def test_missing_batch_stays_visible_but_cannot_be_returned(client, db):
@@ -169,5 +183,9 @@ def test_concurrent_returns_cannot_exceed_issued_quantity(db):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(worker, ["concurrent-one", "concurrent-two"]))
     assert sorted(results) == [False, True]
-    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 8
+    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 4
+    assert db.execute(
+        "SELECT COALESCE(SUM(quantity), 0) FROM material_batches WHERE material_id=(SELECT material_id FROM material_batches WHERE id=?) AND stock_source='temporary'",
+        (batch_id,),
+    ).fetchone()[0] == 4
     assert db.execute("SELECT SUM(quantity) FROM claim_returns").fetchone()[0] == 4
