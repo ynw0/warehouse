@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "warehouse-suit"
-version = "2026.9.8"
+version = "2026.9.9"
 description = "Warehouse material workflow management system"
 readme = "README.md"
 requires-python = ">=3.8"
