@@ -157,7 +157,9 @@
         button.addEventListener("click", () => deleteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryDelete))));
       });
       host.querySelectorAll("[data-temporary-promote]").forEach(button => {
-        button.addEventListener("click", () => promoteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryPromote))));
+        button.addEventListener("click", () => promoteTemporaryMaterial(
+          state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryPromote))
+        ).catch(error => window.toast(error.message || "批次详情加载失败")));
       });
       document.getElementById("temporaryPrev")?.addEventListener("click", () => {
         state.page = Math.max(1, state.page - 1);
@@ -257,15 +259,32 @@
       });
     }
 
-    function promoteTemporaryMaterial(row) {
+    async function promoteTemporaryMaterial(row) {
       if (!row) return;
+      const data = await api(`/api/temporary-inventory/materials/${Number(row.material_id)}/batches`);
+      const batches = data.items || [];
       window.openModal({
         title: "转移到正式库",
-        body: `<div class="transfer-confirm"><div><span>物料</span><strong>${escape(row.material_code)} · ${escape(row.material_name)}</strong></div><div><span>临时现存数量</span><strong>${formatQty(row.temporary_quantity)} ${escape(row.unit || "")}</strong></div><p class="transfer-warning">确认后将直接把该物料关联的临时库验收、入库、借用、领用单据转换为正式库单据，并把相关日期统一改为今天。此操作不可撤销。</p></div>`,
+        body: `<div class="transfer-confirm"><div><span>物料</span><strong>${escape(row.material_code)} · ${escape(row.material_name)}</strong></div><p class="transfer-warning">仅勾选的普通临时批次会转入正式库；领用退库批次不可转移。</p></div>
+          <div class="table-scroll"><table class="flow-table"><thead><tr><th>选择</th><th>批次号</th><th>日期</th><th>数量</th><th>仓库类型</th><th>转移状态</th></tr></thead><tbody>
+          ${batches.map(batch => {
+            const blocked = Boolean(batch.transfer_blocked) || Number(batch.quantity || 0) <= 0 || batch.inventory_status !== "available";
+            const status = batch.transfer_block_reason === "claim_return" ? "领用退库 · 不可转移" : (blocked ? "不可转移" : "可转移");
+            return `<tr><td><input type="checkbox" data-promote-batch="${Number(batch.id)}" data-version="${Number(batch.version || 0)}" ${blocked ? "disabled" : ""}></td><td>${escape(batch.batch_no)}</td><td>${escape(batch.received_date)}</td><td>${formatQty(batch.quantity)} ${escape(row.unit || "")}</td><td>${escape(warehouseLabel(batch.warehouse_type))}</td><td>${escape(status)}</td></tr>`;
+          }).join("") || '<tr><td colspan="6">暂无临时批次</td></tr>'}
+          </tbody></table></div>`,
         okText: "确认转正式库",
         onOk: async () => {
-          const result = await api(`/api/temporary-inventory/materials/${Number(row.material_id)}/promote`, { method: "POST", body: "{}" });
-          window.toast(`已转为正式库：${Number(result.converted_forms || 0)} 张流程单据、${Number(result.converted_batches || 0)} 个批次`);
+          const selected = [...document.querySelectorAll("[data-promote-batch]:checked")].map(input => ({
+            id: Number(input.dataset.promoteBatch),
+            version: Number(input.dataset.version),
+          }));
+          if (!selected.length) throw new Error("请至少选择一个可转移批次");
+          const result = await api(`/api/temporary-inventory/materials/${Number(row.material_id)}/promote`, {
+            method: "POST",
+            body: JSON.stringify({ batches: selected }),
+          });
+          window.toast(`已转为正式库：${Number(result.converted_batches || 0)} 个批次`);
           await loadRows();
         },
       });
@@ -495,8 +514,8 @@
     }
 
     function batchTable(batches) {
-      return `<div class="table-scroll"><table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>数量</th><th>仓库类型</th><th>层/分区</th><th>附件</th><th>来源</th><th>状态</th></tr></thead>` +
-        `<tbody>${batches.map(batch => `<tr><td>${escape(batch.batch_no)}</td><td>${escape(batch.received_date)}</td><td>${formatQty(batch.quantity)}</td><td>${escape(warehouseLabel(batch.warehouse_type))}</td><td>${Number(batch.layer_number || 1)} / ${escape(batch.zone_name || "")}</td><td><div class="attachment-gallery">${batchAttachmentHtml(batch)}</div></td><td><span class="source-badge">临时库</span></td><td>可用</td></tr>`).join("") || '<tr><td colspan="8">暂无批次</td></tr>'}</tbody>` +
+      return `<div class="table-scroll"><table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>数量</th><th>仓库类型</th><th>层/分区</th><th>附件</th><th>来源</th><th>状态</th><th>转移限制</th></tr></thead>` +
+        `<tbody>${batches.map(batch => `<tr><td>${escape(batch.batch_no)}</td><td>${escape(batch.received_date)}</td><td>${formatQty(batch.quantity)}</td><td>${escape(warehouseLabel(batch.warehouse_type))}</td><td>${Number(batch.layer_number || 1)} / ${escape(batch.zone_name || "")}</td><td><div class="attachment-gallery">${batchAttachmentHtml(batch)}</div></td><td><span class="source-badge">临时库</span></td><td>可用</td><td>${batch.transfer_block_reason === "claim_return" ? '<span class="status-badge">领用退库 · 不可转移</span>' : "可转移"}</td></tr>`).join("") || '<tr><td colspan="9">暂无批次</td></tr>'}</tbody>` +
       `</table></div>`;
     }
 

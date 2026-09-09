@@ -144,6 +144,52 @@ def test_create_batch_forces_temporary_and_keeps_formal_inventory_unchanged(clie
     ).fetchone()[0] == 1
 
 
+def test_promote_only_selected_transferable_batches(client, db):
+    material_id, _ = seed_material(db)
+    enable_temporary(client)
+    cursor = db.cursor()
+    first_id = add_inventory_batch(
+        cursor, material_id, 3, 2, {}, "TEMP-FIRST",
+        stock_source=STOCK_SOURCE_TEMPORARY, operation_key="selective-first",
+    )
+    second_id = add_inventory_batch(
+        cursor, material_id, 5, 2, {}, "TEMP-SECOND",
+        stock_source=STOCK_SOURCE_TEMPORARY, operation_key="selective-second",
+    )
+    db.commit()
+    login(client)
+
+    batches = client.get(
+        f"/api/temporary-inventory/materials/{material_id}/batches"
+    ).get_json()["items"]
+    selected = next(batch for batch in batches if batch["id"] == first_id)
+    response = client.post(
+        f"/api/temporary-inventory/materials/{material_id}/promote",
+        json={"batches": [{"id": first_id, "version": selected["version"]}]},
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.get_json()["converted_batches"] == 1
+    rows = db.execute(
+        "SELECT id, stock_source, quantity FROM material_batches WHERE id IN (?, ?) ORDER BY id",
+        (first_id, second_id),
+    ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        (first_id, STOCK_SOURCE_FORMAL, 3),
+        (second_id, STOCK_SOURCE_TEMPORARY, 5),
+    ]
+    assert db.execute(
+        "SELECT quantity FROM inventory WHERE material_id=?", (material_id,)
+    ).fetchone()[0] == 3
+    sources = db.execute(
+        "SELECT operation_key, stock_source FROM stock_records WHERE material_id=? ORDER BY id",
+        (material_id,),
+    ).fetchall()
+    assert [tuple(row) for row in sources] == [
+        ("selective-first", STOCK_SOURCE_FORMAL),
+        ("selective-second", STOCK_SOURCE_TEMPORARY),
+    ]
+
+
 def test_create_validation_and_idempotency(client, db):
     material_id, _ = seed_material(db)
     enable_temporary(client)

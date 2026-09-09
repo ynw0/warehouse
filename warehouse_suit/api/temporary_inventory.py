@@ -40,11 +40,12 @@ def register_temporary_inventory_routes(app, *, get_db, current_user_provider):
         conn = get_db()
         cursor = conn.cursor()
         try:
-            require_access(cursor, "transfer_temporary_inventory")
-            user = require_permission(cursor, "transfer_temporary_inventory")
+            user = require_access(cursor, "transfer_temporary_inventory")
+            data = request.get_json(force=True) or {}
             result = promote_temporary_material(
                 cursor,
                 material_id,
+                data.get("batches"),
                 user,
                 request.headers.get("X-Forwarded-For", request.remote_addr or ""),
             )

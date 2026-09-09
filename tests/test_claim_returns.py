@@ -52,7 +52,7 @@ def test_partial_return_duplicate_and_full_return(client, db, source):
     response = client.post(url, json=payload)
     assert response.status_code == 200, response.get_json()
     assert client.post(url, json=payload).get_json()["idempotent"] is True
-    expected_original_after_partial = 6 if source == "temporary" else 4
+    expected_original_after_partial = 4
     assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == expected_original_after_partial
     assert db.execute("SELECT COUNT(*) FROM claim_returns").fetchone()[0] == 1
     response = client.post(url, json={"quantity": 5, "operation_key": "too-many"})
@@ -62,7 +62,7 @@ def test_partial_return_duplicate_and_full_return(client, db, source):
     row = client.get("/api/my-claims").get_json()["items"][0]
     assert row["issued_quantity"] == row["returned_quantity"] == 6
     assert row["returnable_quantity"] == 0
-    expected_original_after_full = 10 if source == "temporary" else 4
+    expected_original_after_full = 4
     assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == expected_original_after_full
     temporary_quantity = db.execute(
         "SELECT COALESCE(SUM(quantity), 0) FROM material_batches WHERE material_id=? AND stock_source='temporary'",
@@ -112,7 +112,12 @@ def test_return_after_temporary_promotion_enters_temporary_stock(client, db):
     outbound_id, batch_id, material_id = seed_issue(db, "temporary")
     from warehouse_suit.temporary_inventory_service import promote_temporary_material
     user = dict(db.execute("SELECT * FROM users WHERE username='warehouse'").fetchone())
-    promote_temporary_material(db.cursor(), material_id, user)
+    batch_version = db.execute(
+        "SELECT version FROM material_batches WHERE id=?", (batch_id,)
+    ).fetchone()[0]
+    promote_temporary_material(
+        db.cursor(), material_id, [{"id": batch_id, "version": batch_version}], user
+    )
     db.commit()
     _login(client, "testuser", "test")
     response = client.post(f"/api/my-claims/{outbound_id}/return",
@@ -126,7 +131,22 @@ def test_return_after_temporary_promotion_enters_temporary_stock(client, db):
     ).fetchone()[0] == 2
     assert tuple(
         db.execute("SELECT issued_quantity, returned_quantity, status FROM temporary_issue_obligations").fetchone()
-    ) == (6, 2, "pending")
+    ) == (6, 0, "settled")
+    return_batch = db.execute(
+        """
+        SELECT id, version, transfer_blocked, transfer_block_reason
+        FROM material_batches
+        WHERE material_id=? AND stock_source='temporary'
+        """,
+        (material_id,),
+    ).fetchone()
+    assert tuple(return_batch)[2:] == (1, "claim_return")
+    with pytest.raises(ValueError, match="领用退库批次不可转入正式库"):
+        promote_temporary_material(
+            db.cursor(), material_id,
+            [{"id": return_batch["id"], "version": return_batch["version"]}], user,
+        )
+    db.rollback()
 
 
 def test_missing_batch_stays_visible_but_cannot_be_returned(client, db):

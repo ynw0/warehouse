@@ -14,6 +14,7 @@ from .v2026083101_batch_warehouse_alignment import MIGRATION as BATCH_WAREHOUSE_
 from .v2026090701_claim_returns import MIGRATION as CLAIM_RETURNS
 from .v2026090801_defective_borrow_quantities import MIGRATION as DEFECTIVE_BORROW_QUANTITIES
 from .v2026090802_partial_claim_outbound import MIGRATION as PARTIAL_CLAIM_OUTBOUND
+from .v2026090803_batch_transfer_controls import MIGRATION as BATCH_TRANSFER_CONTROLS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ def available_migrations():
         CLAIM_RETURNS,
         DEFECTIVE_BORROW_QUANTITIES,
         PARTIAL_CLAIM_OUTBOUND,
+        BATCH_TRANSFER_CONTROLS,
     ]
 
 

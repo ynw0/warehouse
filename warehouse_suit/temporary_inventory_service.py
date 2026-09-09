@@ -471,25 +471,29 @@ def delete_temporary_material(cursor, material_id, user, ip_address=""):
                     "删除临时库物料", {"material_code": material["material_code"], "name": material["name"]}, ip_address)
 
 
-def _promote_source_data(value):
-    if isinstance(value, dict):
-        updated = {}
-        for key, item in value.items():
-            if key in {"stock_source", "outbound_stock_source"} and item == STOCK_SOURCE_TEMPORARY:
-                updated[key] = STOCK_SOURCE_FORMAL
-            else:
-                updated[key] = _promote_source_data(item)
-        return updated
-    if isinstance(value, list):
-        return [_promote_source_data(item) for item in value]
-    return value
-
-
-def promote_temporary_material(cursor, material_id, user, ip_address=""):
-    """Convert one material's temporary inventory and source-linked documents to formal."""
+def promote_temporary_material(cursor, material_id, selected_batches, user, ip_address=""):
+    """Convert selected transferable temporary batches to formal inventory."""
     material_id = int(material_id or 0)
+    selections = selected_batches if isinstance(selected_batches, list) else []
+    normalized = []
+    selected_ids = set()
+    for selection in selections:
+        if not isinstance(selection, dict):
+            raise ValueError("转移批次参数无效")
+        batch_id = positive_int_value(selection.get("id") or selection.get("batch_id"), "批次")
+        try:
+            version = int(selection.get("version"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("批次版本不能为空") from exc
+        if batch_id in selected_ids:
+            raise ValueError("转移批次不能重复")
+        selected_ids.add(batch_id)
+        normalized.append({"id": batch_id, "version": version})
     if not material_id:
         raise ValueError("物料不存在")
+    if not normalized:
+        raise ValueError("请至少选择一个可转移批次")
+
     require_temporary_inventory_enabled(cursor)
     begin_inventory_transaction(cursor.connection)
     cursor.execute("SELECT id, material_code, name FROM materials WHERE id = ?", (material_id,))
@@ -497,116 +501,62 @@ def promote_temporary_material(cursor, material_id, user, ip_address=""):
     if not material:
         raise ValueError("物料不存在")
     material = dict(material)
-
-
+    batch_ids = [item["id"] for item in normalized]
+    placeholders = ",".join("?" for _ in batch_ids)
     cursor.execute(
-        "SELECT COUNT(*) FROM material_batches WHERE material_id = ? AND stock_source = ?",
-        (material_id, STOCK_SOURCE_TEMPORARY),
-    )
-    temporary_batch_count = int(cursor.fetchone()[0] or 0)
-    if temporary_batch_count <= 0:
-        raise ValueError("该物料没有可转移的临时库批次")
-
-    cursor.execute(
-        """
-        SELECT DISTINCT form_id
-        FROM workflow_items
-        WHERE material_id = ? AND stock_source = ?
-        ORDER BY form_id
+        f"""
+        SELECT id, version, quantity, inventory_status, transfer_blocked,
+               transfer_block_reason
+        FROM material_batches
+        WHERE material_id = ? AND stock_source = ? AND id IN ({placeholders})
+        ORDER BY id
         """,
-        (material_id, STOCK_SOURCE_TEMPORARY),
+        [material_id, STOCK_SOURCE_TEMPORARY, *batch_ids],
     )
-    form_ids = [int(row[0]) for row in cursor.fetchall()]
+    batch_rows = {int(row["id"]): dict(row) for row in cursor.fetchall()}
+    if len(batch_rows) != len(batch_ids):
+        raise ValueError("所选批次不存在或已转入正式库，请刷新后重试")
+    for selection in normalized:
+        batch = batch_rows[selection["id"]]
+        if int(batch.get("version") or 0) != selection["version"]:
+            raise ValueError("批次库存已变化，请刷新批次详情后重试")
+        if batch.get("transfer_blocked"):
+            reason = "领用退库批次" if batch.get("transfer_block_reason") == "claim_return" else "受限批次"
+            raise ValueError(f"{reason}不可转入正式库")
+        if batch.get("inventory_status") != INVENTORY_STATUS_AVAILABLE:
+            raise ValueError("所选批次当前不可转移")
+        if float(batch.get("quantity") or 0) <= 0:
+            raise ValueError("零库存批次不能转入正式库")
+
     timestamp = now_text()
     date_value = today_text()
-
     cursor.execute(
-        """
-        SELECT id, data_json
-        FROM workflow_items
-        WHERE material_id = ? AND stock_source = ?
-        """,
-        (material_id, STOCK_SOURCE_TEMPORARY),
-    )
-    item_rows = [dict(row) for row in cursor.fetchall()]
-    for item in item_rows:
-        item_data = _promote_source_data(json.loads(item.get("data_json") or "{}"))
-        cursor.execute(
-            "UPDATE workflow_items SET stock_source = ?, data_json = ? WHERE id = ?",
-            (STOCK_SOURCE_FORMAL, json.dumps(item_data, ensure_ascii=False), int(item["id"])),
-        )
-
-    for form_id in form_ids:
-        cursor.execute("SELECT data_json, origin_type FROM workflow_forms WHERE id = ?", (form_id,))
-        form = cursor.fetchone()
-        if not form:
-            continue
-        form_data = _promote_source_data(json.loads(form["data_json"] or "{}"))
-        form_data["converted_from_temporary"] = True
-        form_data["converted_at"] = timestamp
-        origin_type = "manual" if form["origin_type"] in {"temporary", "temporary_inventory"} else form["origin_type"]
-        cursor.execute(
-            """
-            UPDATE workflow_forms
-            SET origin_type = ?, data_json = ?, created_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (origin_type, json.dumps(form_data, ensure_ascii=False), timestamp, timestamp, form_id),
-        )
-        cursor.execute(
-            """
-            UPDATE workflow_tasks
-            SET signed_at = CASE WHEN COALESCE(signed_at, '') <> '' THEN ? ELSE '' END,
-                created_at = ?, updated_at = ?
-            WHERE form_id = ?
-            """,
-            (date_value, timestamp, timestamp, form_id),
-        )
-
-    cursor.execute(
-        """
-        SELECT id, data_json
-        FROM borrow_records
-        WHERE material_id = ? AND stock_source = ?
-        """,
-        (material_id, STOCK_SOURCE_TEMPORARY),
-    )
-    borrow_rows = [dict(row) for row in cursor.fetchall()]
-    for record in borrow_rows:
-        record_data = _promote_source_data(json.loads(record.get("data_json") or "{}"))
-        cursor.execute(
-            """
-            UPDATE borrow_records
-            SET stock_source = ?, outbound_date = ?,
-                return_date = CASE WHEN COALESCE(return_date, '') <> '' THEN ? ELSE '' END,
-                data_json = ?, created_at = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (STOCK_SOURCE_FORMAL, date_value, date_value, json.dumps(record_data, ensure_ascii=False), timestamp, timestamp, int(record["id"])),
-        )
-
-    cursor.execute(
-        """
+        f"""
         UPDATE temporary_issue_obligations
-        SET settled_quantity = issued_quantity - returned_quantity, status = 'settled', settled_at = ?,
-            updated_at = ?, error_message = ''
-        WHERE material_id = ? AND status IN ('pending', 'reserved', 'processing', 'exception')
+        SET settled_quantity = issued_quantity - returned_quantity,
+            status = 'settled', settled_at = ?, updated_at = ?, error_message = ''
+        WHERE status IN ('pending', 'reserved', 'processing', 'exception')
+          AND stock_record_id IN (
+              SELECT id FROM stock_records WHERE batch_id IN ({placeholders})
+          )
         """,
-        (timestamp, timestamp, material_id),
+        [timestamp, timestamp, *batch_ids],
     )
     settled_obligations = int(cursor.rowcount or 0)
-
     cursor.execute(
-        """
+        f"""
         UPDATE material_batches
         SET stock_source = ?, received_date = ?, version = version + 1, updated_at = ?
-        WHERE material_id = ? AND stock_source = ?
+        WHERE material_id = ? AND stock_source = ? AND id IN ({placeholders})
+          AND transfer_blocked = 0
         """,
-        (STOCK_SOURCE_FORMAL, date_value, timestamp, material_id, STOCK_SOURCE_TEMPORARY),
+        [STOCK_SOURCE_FORMAL, date_value, timestamp, material_id, STOCK_SOURCE_TEMPORARY, *batch_ids],
     )
     converted_batches = int(cursor.rowcount or 0)
+    if converted_batches != len(batch_ids):
+        raise ValueError("批次状态已变化，请刷新后重试")
     cursor.execute(
-        """
+        f"""
         UPDATE stock_records
         SET stock_source = ?, operation_date = ?, created_at = ?,
             business_type = CASE
@@ -615,26 +565,25 @@ def promote_temporary_material(cursor, material_id, user, ip_address=""):
                 THEN 'manual'
                 ELSE business_type
             END
-        WHERE material_id = ? AND stock_source = ?
+        WHERE stock_source = ? AND batch_id IN ({placeholders})
         """,
-        (STOCK_SOURCE_FORMAL, date_value, timestamp, material_id, STOCK_SOURCE_TEMPORARY),
+        [STOCK_SOURCE_FORMAL, date_value, timestamp, STOCK_SOURCE_TEMPORARY, *batch_ids],
     )
     converted_records = int(cursor.rowcount or 0)
     formal_quantity, _ = update_inventory_total(cursor, material_id, STOCK_SOURCE_FORMAL)
     write_audit_log(
         cursor,
         user,
-        "temporary_inventory.promoted",
+        "temporary_inventory.batches_promoted",
         "material",
         material_id,
-        "临时库物料转正式库",
+        "临时库批次转正式库",
         {
             "material_code": material["material_code"],
             "material_name": material["name"],
+            "batch_ids": batch_ids,
             "converted_batches": converted_batches,
             "converted_stock_records": converted_records,
-            "converted_forms": len(form_ids),
-            "converted_borrow_records": len(borrow_rows),
             "settled_obligations": settled_obligations,
             "converted_date": date_value,
         },
@@ -642,10 +591,9 @@ def promote_temporary_material(cursor, material_id, user, ip_address=""):
     )
     return {
         "material_id": material_id,
+        "batch_ids": batch_ids,
         "converted_batches": converted_batches,
         "converted_stock_records": converted_records,
-        "converted_forms": len(form_ids),
-        "converted_borrow_records": len(borrow_rows),
         "settled_obligations": settled_obligations,
         "formal_quantity": formal_quantity,
         "converted_date": date_value,

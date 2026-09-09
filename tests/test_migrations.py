@@ -112,10 +112,11 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026090701",
         "2026090801",
         "2026090802",
+        "2026090803",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 10
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 11
     assert {"stock_source", "inventory_status", "version"} <= _column_names(conn, "material_batches")
     assert {
         "stock_source",
@@ -185,6 +186,12 @@ def test_new_database_is_created_at_latest_schema(db):
     assert {
         "operation_key", "form_id", "task_id", "operator_id"
     } <= _column_names(db, "claim_outbound_operations")
+    assert {
+        "transfer_blocked", "transfer_block_reason"
+    } <= _column_names(db, "material_batches")
+    assert db.execute(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026090803'"
+    ).fetchone()[0] == 1
     assert {"origin_type", "origin_ref_id"} <= _column_names(db, "workflow_forms")
     assert {"workflow_item_id"} <= _column_names(db, "stock_records")
     assert {"operation_key", "issued_quantity", "status"} <= _column_names(

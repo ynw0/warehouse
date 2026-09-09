@@ -7,7 +7,6 @@ from warehouse_suit.inventory_constants import (
 )
 from warehouse_suit.inventory_service import (
     add_inventory_batch,
-    adjust_inventory_batch,
     begin_inventory_transaction,
 )
 from warehouse_suit.settings import temporary_inventory_enabled
@@ -92,40 +91,42 @@ def return_claim(cursor, user_id, outbound_record_id, quantity, operation_key):
         raise ValueError("原批次正在处理，暂不能退库")
     cursor.execute("SELECT * FROM temporary_issue_obligations WHERE stock_record_id = ?", (outbound_record_id,))
     obligation = cursor.fetchone()
-    if obligation:
-        if obligation["status"] != "pending" or obligation["settled_quantity"] > 0:
+    if obligation and obligation["status"] not in {"pending", "settled"}:
+        raise ValueError("该临时领用正在结算，请完成结算后退库")
+    if obligation and obligation["status"] == "pending":
+        if obligation["settled_quantity"] > 0:
             raise ValueError("该临时领用正在结算，请完成结算后退库")
 
     record_key = "claim-return:" + operation_key
-    if row["stock_source"] == STOCK_SOURCE_TEMPORARY:
-        adjust_inventory_batch(
-            cursor, row["batch_id"], quantity, "领用退库 " + row["form_no"],
-            stock_source=STOCK_SOURCE_TEMPORARY,
-            business_type=BUSINESS_TYPE_CLAIM_RETURN_INBOUND,
-            operation_key=record_key,
-            operator_id=user_id,
-        )
-    else:
-        # 正式库领用退回后先进入临时库，后续由库管按转正式库流程处理。
-        add_inventory_batch(
-            cursor,
-            row["material_id"],
-            quantity,
-            row["unit_price"],
-            {
-                "warehouse_type": row["warehouse_type"] or "office",
-                "shelf_id": row["shelf_id"],
-                "layer_number": row["layer_number"] or 1,
-                "zone_name": row["zone_name"] or "A",
-                "received_date": now_text()[:10],
-                "remark": "领用退库 " + row["form_no"],
-            },
-            row["form_no"],
-            stock_source=STOCK_SOURCE_TEMPORARY,
-            business_type=BUSINESS_TYPE_CLAIM_RETURN_INBOUND,
-            operation_key=record_key,
-            operator_id=user_id,
-        )
+    # 退库独立成批，避免与可转正式库的普通临时库存混合。
+    return_batch_id = add_inventory_batch(
+        cursor,
+        row["material_id"],
+        quantity,
+        row["unit_price"],
+        {
+            "warehouse_type": row["warehouse_type"] or "office",
+            "shelf_id": row["shelf_id"],
+            "layer_number": row["layer_number"] or 1,
+            "zone_name": row["zone_name"] or "A",
+            "received_date": now_text()[:10],
+            "remark": "领用退库 " + row["form_no"],
+        },
+        row["form_no"],
+        stock_source=STOCK_SOURCE_TEMPORARY,
+        business_type=BUSINESS_TYPE_CLAIM_RETURN_INBOUND,
+        operation_key=record_key,
+        operator_id=user_id,
+    )
+    cursor.execute(
+        """
+        UPDATE material_batches
+        SET transfer_blocked = 1, transfer_block_reason = 'claim_return',
+            version = version + 1, updated_at = ?
+        WHERE id = ?
+        """,
+        (now_text(), return_batch_id),
+    )
     cursor.execute("""
         UPDATE stock_records SET form_no = ?, workflow_item_id = ?, unit_price = ?, amount = ?
         WHERE operation_key = ?
@@ -139,7 +140,7 @@ def return_claim(cursor, user_id, outbound_record_id, quantity, operation_key):
         VALUES (?, ?, ?, ?, ?, ?)
     """, (outbound_record_id, inbound_id, user_id, quantity, operation_key, now_text()))
     return_id = cursor.lastrowid
-    if obligation:
+    if obligation and obligation["status"] == "pending":
         cursor.execute("""
             UPDATE temporary_issue_obligations
             SET returned_quantity = returned_quantity + ?,
