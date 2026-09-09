@@ -216,7 +216,7 @@ def register_claim_routes(app, *, get_db, current_user_provider):
                 )
 
             form = dict(require_form_status(cursor, form_id, "claim", "outbound"))
-            task = require_task_assignee(cursor, user, form_id, "outbound")
+            task = dict(require_task_assignee(cursor, user, form_id, "outbound"))
             submitted_items = data.get("items") or []
             if not submitted_items:
                 raise ValueError("请填写本次出库物料")
