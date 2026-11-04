@@ -39,8 +39,8 @@ def _seed_batch(
         """
         INSERT INTO material_batches
             (material_id, batch_no, quantity, unit_price, received_date, stock_source,
-             inventory_status, version, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+             inventory_status, version, purchase_project, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, '办公', ?, ?)
         """,
         (
             material_id,
@@ -350,13 +350,14 @@ def _seed_workflow(cursor, form_no, form_type, status, user_id, material_id, cod
         """
         INSERT INTO workflow_items
             (form_id, material_id, material_code, material_name, unit, request_quantity,
-             qualified_quantity, unit_price, data_json)
-        VALUES (?, ?, ?, 'Workflow material', 'pc', ?, ?, 2, ?)
+             qualified_quantity, arrival_quantity, unit_price, purchase_project, data_json)
+        VALUES (?, ?, ?, 'Workflow material', 'pc', ?, ?, ?, 2, '办公', ?)
         """,
         (
             form_id,
             material_id,
             code,
+            quantity,
             quantity,
             quantity,
             json.dumps(item_data or {}, ensure_ascii=False),

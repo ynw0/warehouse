@@ -41,10 +41,10 @@ def seed_material(db, formal=0, temporary_batches=()):
     if formal:
         cursor.execute(
             """
-            INSERT INTO material_batches
-                (material_id, batch_no, quantity, unit_price, warehouse_type, received_date,
-                 stock_source, inventory_status, version, created_at, updated_at)
-            VALUES (?, ?, ?, 1, 'office', '2026-01-01', ?, 'available', 0, ?, ?)
+                INSERT INTO material_batches
+                    (material_id, batch_no, quantity, unit_price, warehouse_type, received_date,
+                     stock_source, inventory_status, version, purchase_project, created_at, updated_at)
+                VALUES (?, ?, ?, 1, 'office', '2026-01-01', ?, 'available', 0, '办公', ?, ?)
             """,
             (
                 material_id,
@@ -59,10 +59,10 @@ def seed_material(db, formal=0, temporary_batches=()):
     for index, quantity in enumerate(temporary_batches):
         cursor.execute(
             """
-            INSERT INTO material_batches
-                (material_id, batch_no, quantity, unit_price, warehouse_type, received_date,
-                 stock_source, inventory_status, version, created_at, updated_at)
-            VALUES (?, ?, ?, 2, 'office', ?, ?, 'available', 0, ?, ?)
+                INSERT INTO material_batches
+                    (material_id, batch_no, quantity, unit_price, warehouse_type, received_date,
+                     stock_source, inventory_status, version, purchase_project, created_at, updated_at)
+                VALUES (?, ?, ?, 2, 'office', ?, ?, 'available', 0, '办公', ?, ?)
             """,
             (
                 material_id,
@@ -83,9 +83,13 @@ def seed_material(db, formal=0, temporary_batches=()):
 def create_claim(client, db, items):
     warehouse = login(client)
     admin_id = db.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    payload_items = [
+        {**item, "purchase_project": item.get("purchase_project") or "办公"}
+        for item in items
+    ]
     response = client.post(
         "/api/claims",
-        json={"leader_id": admin_id, "items": items},
+        json={"leader_id": admin_id, "purpose": "办公", "items": payload_items},
     )
     assert response.status_code == 200, response.get_data(as_text=True)
     return response.get_json()["form"], warehouse
@@ -129,37 +133,34 @@ def source_quantities(form):
     return [(item["stock_source"], float(item["request_quantity"])) for item in form["items"]]
 
 
-def test_server_allocates_formal_first_and_splits_multiple_materials(client, db):
+def test_server_allocates_formal_first_and_keeps_temporary_claim_to_one_material(client, db):
     enable_temporary(client)
     formal_id, _, _ = seed_material(db, formal=10, temporary_batches=(8,))
     temporary_id, _, _ = seed_material(db, temporary_batches=(9,))
     mixed_id, _, _ = seed_material(db, formal=3, temporary_batches=(10,))
 
-    form, _ = create_claim(
-        client,
-        db,
-        [
-            {"material_id": formal_id, "request_quantity": 4, "stock_source": "temporary"},
-            {"material_id": temporary_id, "request_quantity": 5, "formal_quantity": 5},
-            {"material_id": mixed_id, "request_quantity": 7, "temporary_quantity": 0},
-        ],
-    )
-    by_material = {}
-    for item in form["items"]:
-        by_material.setdefault(item["material_id"], []).append(
-            (item["stock_source"], float(item["request_quantity"]))
-        )
-    assert by_material[formal_id] == [(STOCK_SOURCE_FORMAL, 4)]
-    assert by_material[temporary_id] == [(STOCK_SOURCE_TEMPORARY, 5)]
-    assert by_material[mixed_id] == [
-        (STOCK_SOURCE_FORMAL, 3),
-        (STOCK_SOURCE_TEMPORARY, 4),
-    ]
-    assert sum(qty for _, qty in by_material[mixed_id]) == 7
-    assert db.execute("SELECT COUNT(*) FROM stock_records").fetchone()[0] == 0
-    assert db.execute("SELECT COUNT(*) FROM temporary_issue_obligations").fetchone()[0] == 0
+    formal_form, _ = create_claim(client, db, [{"material_id": formal_id, "request_quantity": 4}])
+    assert source_quantities(formal_form) == [(STOCK_SOURCE_FORMAL, 4)]
+    temporary_form, _ = create_claim(client, db, [{"material_id": temporary_id, "request_quantity": 5}])
+    assert source_quantities(temporary_form) == [(STOCK_SOURCE_TEMPORARY, 5)]
+    # 正式库不够时整笔改从临时库扣，不用正式库补差。
+    temporary_only, _ = create_claim(client, db, [{"material_id": mixed_id, "request_quantity": 7}])
+    assert source_quantities(temporary_only) == [(STOCK_SOURCE_TEMPORARY, 7)]
     assert material_stock_total(db.cursor(), mixed_id) == 3
     assert material_stock_total(db.cursor(), mixed_id, STOCK_SOURCE_TEMPORARY) == 10
+
+    warehouse = login(client)
+    admin_id = db.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    response = client.post("/api/claims", json={
+        "leader_id": admin_id,
+        "purpose": "办公",
+        "items": [
+            {"material_id": formal_id, "request_quantity": 1, "purchase_project": "办公"},
+            {"material_id": temporary_id, "request_quantity": 1, "purchase_project": "办公"},
+        ],
+    })
+    assert response.status_code == 400
+    assert "单次只能领用一种物料" in response.get_json()["error"]
 
 
 def test_closed_feature_hides_temporary_quantity_and_rejects_shortfall(client, db):
@@ -180,6 +181,7 @@ def test_closed_feature_hides_temporary_quantity_and_rejects_shortfall(client, d
                 {
                     "material_id": material_id,
                     "request_quantity": 3,
+                    "purchase_project": "办公",
                     "stock_source": "temporary",
                     "temporary_quantity": 3,
                 }
@@ -191,7 +193,7 @@ def test_closed_feature_hides_temporary_quantity_and_rejects_shortfall(client, d
         "/api/claims",
         json={
             "leader_id": admin_id,
-            "items": [{"material_id": material_id, "request_quantity": 2, "stock_source": "temporary"}],
+            "items": [{"material_id": material_id, "request_quantity": 2, "purchase_project": "办公", "stock_source": "temporary"}],
         },
     )
     assert response.status_code == 200
@@ -353,8 +355,8 @@ def test_formal_outbound_never_creates_obligation_or_consumes_temporary(client, 
 
 def test_mixed_outbound_is_one_transaction_when_obligation_insert_fails(client, db):
     enable_temporary(client)
-    material_id, _, _ = seed_material(db, formal=3, temporary_batches=(2,))
-    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 5}])
+    material_id, _, _ = seed_material(db, temporary_batches=(2,))
+    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 2}])
     approved = approve_claim(client, db, form["id"])
     db.execute(
         """
@@ -369,7 +371,7 @@ def test_mixed_outbound_is_one_transaction_when_obligation_insert_fails(client, 
 
     response = outbound_claim(client, approved)
     assert response.status_code == 400
-    assert material_stock_total(db.cursor(), material_id) == 3
+    assert material_stock_total(db.cursor(), material_id) == 0
     assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 2
     assert db.execute(
         "SELECT COUNT(*) FROM stock_records WHERE form_no = ?", (form["form_no"],)
@@ -383,15 +385,15 @@ def test_mixed_outbound_is_one_transaction_when_obligation_insert_fails(client, 
 
 def test_mixed_outbound_rolls_back_when_temporary_stock_changes(client, db):
     enable_temporary(client)
-    material_id, _, batch_ids = seed_material(db, formal=3, temporary_batches=(2,))
-    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 5}])
+    material_id, _, batch_ids = seed_material(db, temporary_batches=(2,))
+    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 2}])
     approved = approve_claim(client, db, form["id"])
     db.execute("UPDATE material_batches SET quantity = 1 WHERE id = ?", (batch_ids[0],))
     db.commit()
 
     response = outbound_claim(client, approved)
     assert response.status_code == 400
-    assert material_stock_total(db.cursor(), material_id) == 3
+    assert material_stock_total(db.cursor(), material_id) == 0
     assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 1
     assert db.execute(
         "SELECT COUNT(*) FROM stock_records WHERE form_no = ?", (form["form_no"],)
@@ -403,7 +405,7 @@ def test_rejected_claim_reallocates_sources_on_resubmit(client, db):
     enable_temporary(client)
     material_id, _, _ = seed_material(db, formal=2, temporary_batches=(5,))
     form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 4}])
-    assert source_quantities(form) == [(STOCK_SOURCE_FORMAL, 2), (STOCK_SOURCE_TEMPORARY, 2)]
+    assert source_quantities(form) == [(STOCK_SOURCE_TEMPORARY, 4)]
 
     login(client, "admin", "admin")
     response = client.post(
@@ -447,8 +449,8 @@ def test_rejected_claim_reallocates_sources_on_resubmit(client, db):
 def test_mixed_claim_is_hidden_as_a_whole_when_feature_is_closed(client, db):
     enable_temporary(client)
     material_id, _, _ = seed_material(db, formal=2, temporary_batches=(3,))
-    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 4}])
-    assert len(form["items"]) == 2
+    form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 3}])
+    assert len(form["items"]) == 1
 
     enable_temporary(client, False)
     login(client)
@@ -456,7 +458,7 @@ def test_mixed_claim_is_hidden_as_a_whole_when_feature_is_closed(client, db):
     assert form["id"] not in {row["id"] for row in rows}
     assert db.execute(
         "SELECT COUNT(*) FROM workflow_items WHERE form_id = ?", (form["id"],)
-    ).fetchone()[0] == 2
+    ).fetchone()[0] == 1
 
     enable_temporary(client, True)
     login(client)
@@ -466,7 +468,7 @@ def test_mixed_claim_is_hidden_as_a_whole_when_feature_is_closed(client, db):
 
 def test_obligation_and_ledger_failure_leave_no_partial_outbound(client, db):
     enable_temporary(client)
-    material_id, _, _ = seed_material(db, formal=2, temporary_batches=(2,))
+    material_id, _, _ = seed_material(db, temporary_batches=(4,))
     form, _ = create_claim(client, db, [{"material_id": material_id, "request_quantity": 4}])
     approved = approve_claim(client, db, form["id"])
     db.execute(
@@ -483,8 +485,8 @@ def test_obligation_and_ledger_failure_leave_no_partial_outbound(client, db):
 
     response = outbound_claim(client, approved)
     assert response.status_code == 400
-    assert material_stock_total(db.cursor(), material_id) == 2
-    assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 2
+    assert material_stock_total(db.cursor(), material_id) == 0
+    assert material_stock_total(db.cursor(), material_id, STOCK_SOURCE_TEMPORARY) == 4
     assert db.execute("SELECT COUNT(*) FROM stock_records WHERE form_no = ?", (form["form_no"],)).fetchone()[0] == 0
     assert db.execute("SELECT COUNT(*) FROM temporary_issue_obligations").fetchone()[0] == 0
 

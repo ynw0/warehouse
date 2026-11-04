@@ -3,7 +3,8 @@
 
 from warehouse_suit.borrow_service import list_active_borrows
 from warehouse_suit.db import now_text, row_to_dict, today_text
-from warehouse_suit.inventory_constants import INVENTORY_STATUS_AVAILABLE, STOCK_SOURCE_FORMAL
+from warehouse_suit.recycle import recycle_material
+from warehouse_suit.inventory_constants import INVENTORY_STATUS_AVAILABLE, STOCK_SOURCE_FORMAL, validate_stock_source
 from warehouse_suit.inventory_service import update_inventory_total
 from warehouse_suit.material_repository import fetch_material
 from warehouse_suit.material_utils import (
@@ -14,6 +15,7 @@ from warehouse_suit.material_utils import (
 )
 from warehouse_suit.validation import (
     payload_int_or_none,
+    price_value,
     quantity_value,
     unit_price_from_total_amount,
     validate_batch_no,
@@ -35,7 +37,7 @@ def material_delete_blocker(cursor, material_id):
         FROM workflow_items wi
         JOIN workflow_forms f ON f.id = wi.form_id
         WHERE wi.material_id = ?
-          AND f.status NOT IN ('completed', 'cancelled', 'rejected')
+          AND f.status NOT IN ('completed', 'cancelled', 'rejected', 'draft')
         ORDER BY f.id LIMIT 1
         """,
         (material_id,),
@@ -58,6 +60,31 @@ def material_delete_blocker(cursor, material_id):
     if cursor.fetchone():
         return "该物料仍有未完成的临时领用义务，不能删除"
     return ""
+
+
+def delete_material_record(cursor, material_id, user_id):
+    """删除物料主数据。调用方负责提交事务。"""
+    material_id = int(material_id)
+    cursor.execute("SELECT id, material_code, name FROM materials WHERE id = ?", (material_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError("物料不存在")
+    blocker = material_delete_blocker(cursor, material_id)
+    if blocker:
+        raise ValueError(blocker)
+    cursor.execute(
+        "SELECT COUNT(*) FROM material_attachments WHERE material_id = ? AND material_batch_id IS NOT NULL",
+        (material_id,),
+    )
+    if int(cursor.fetchone()[0] or 0) > 0:
+        raise ValueError("该物料已有需永久留存的批次附件，不能删除")
+    recycle_material(cursor, material_id, user_id)
+    cursor.execute("DELETE FROM material_batches WHERE material_id = ?", (material_id,))
+    cursor.execute("DELETE FROM stock_records WHERE material_id = ?", (material_id,))
+    cursor.execute("DELETE FROM material_positions WHERE material_id = ?", (material_id,))
+    cursor.execute("DELETE FROM inventory WHERE material_id = ?", (material_id,))
+    cursor.execute("DELETE FROM materials WHERE id = ?", (material_id,))
+    return {"id": material_id, "material_code": row["material_code"] or "", "name": row["name"] or ""}
 
 
 def next_material_code(cursor, warehouse_code, major_code, middle_code, small_code, name="", brand_model="", spec=""):
@@ -134,8 +161,9 @@ def upsert_material_master(cursor, data):
         INSERT INTO materials
             (material_code, brand_model, spec, name, category, sub_category, unit, icon,
              warehouse_code, major_code, middle_code, small_code, detail_code,
-             category_name, material_type, purchase_applicant, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             category_name, material_type, purchase_applicant,
+             group_category_code, group_service_code, group_standard_description, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(material_code) DO UPDATE SET
             brand_model = excluded.brand_model,
             spec = excluded.spec,
@@ -152,6 +180,18 @@ def upsert_material_master(cursor, data):
             category_name = excluded.category_name,
             material_type = excluded.material_type,
             purchase_applicant = excluded.purchase_applicant,
+            group_category_code = CASE
+                WHEN excluded.group_category_code != '' THEN excluded.group_category_code
+                ELSE materials.group_category_code
+            END,
+            group_service_code = CASE
+                WHEN excluded.group_category_code != '' THEN excluded.group_service_code
+                ELSE materials.group_service_code
+            END,
+            group_standard_description = CASE
+                WHEN excluded.group_category_code != '' THEN excluded.group_standard_description
+                ELSE materials.group_standard_description
+            END,
             updated_at = excluded.updated_at
         """,
         (
@@ -171,6 +211,9 @@ def upsert_material_master(cursor, data):
             data.get("category_name") or "",
             data.get("material_type") or data.get("type") or "",
             data.get("purchase_applicant") or "",
+            data.get("group_category_code") or "",
+            data.get("group_service_code") or "",
+            data.get("group_standard_description") or "",
             now_text(),
         ),
     )
@@ -283,9 +326,10 @@ def write_material_position(cursor, material_id, data):
     )
 
 
-def save_material_batches_from_payload(cursor, material_id, material_code, old_material_code, data):
+def save_material_batches_from_payload(cursor, material_id, material_code, old_material_code, data, stock_source=STOCK_SOURCE_FORMAL):
     if "batches" not in data:
         return
+    stock_source = validate_stock_source(stock_source)
     batches = data.get("batches") or []
     if not isinstance(batches, list):
         raise ValueError("batches must be a list")
@@ -301,7 +345,7 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
     material = row_to_dict(cursor.fetchone()) or {}
     cursor.execute(
         "SELECT * FROM material_batches WHERE material_id = ? AND stock_source = ?",
-        (material_id, STOCK_SOURCE_FORMAL),
+        (material_id, stock_source),
     )
     existing = {row["id"]: dict(row) for row in cursor.fetchall()}
 
@@ -320,10 +364,18 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
         if not current and not has_payload:
             continue
         quantity = quantity_value(item.get("quantity"), "批次数量", current.get("quantity") if current else 0)
-        total_amount = item.get("total_amount")
-        if total_amount in (None, ""):
-            raise ValueError("批次总金额不能为空")
-        unit_price = unit_price_from_total_amount(total_amount, quantity, "批次总金额", "批次数量")
+        book_quantity = quantity_value(
+            item.get("book_quantity") if item.get("book_quantity") not in (None, "") else (current or {}).get("book_quantity") or 0,
+            "账面数量",
+        )
+        raw_price = item.get("unit_price")
+        if raw_price not in (None, ""):
+            unit_price = price_value(raw_price, "单价")
+        else:
+            total_amount = item.get("total_amount")
+            if total_amount in (None, ""):
+                raise ValueError("库存总额不能为空")
+            unit_price = unit_price_from_total_amount(total_amount, book_quantity, "库存总额", "账面数量")
         received_date = str(item.get("received_date") or (current or {}).get("received_date") or today_text()).strip()
         batch_no = str(item.get("batch_no") or (current or {}).get("batch_no") or "").strip()
         if old_material_code and material_code != old_material_code and batch_no.endswith(old_material_code):
@@ -341,19 +393,44 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
         warehouse_type = str(item.get("warehouse_type") or (current or {}).get("warehouse_type") or "").strip()
         warehouse_type = material_warehouse_type(cursor, shelf_id, material.get("warehouse_code"), warehouse_type or "office")
         source_form_no = str(item.get("source_form_no") if item.get("source_form_no") is not None else (current or {}).get("source_form_no") or "MANUAL").strip()
+        from warehouse_suit.purchase_project import validate_purchase_project
+        from warehouse_suit.usage_kind import USAGE_RD, pack_quantity_value, validate_usage_kind
+
+        pack_quantity = pack_quantity_value(
+            item.get("pack_quantity") if item.get("pack_quantity") not in (None, "") else (current or {}).get("pack_quantity") or 1
+        )
+
+        purchase_project = str(
+            item.get("purchase_project")
+            if item.get("purchase_project") is not None
+            else (current or {}).get("purchase_project") or ""
+        ).strip()
+        if purchase_project:
+            purchase_project = validate_purchase_project(cursor, purchase_project)
+        usage_kind = validate_usage_kind(
+            item.get("usage_kind") if item.get("usage_kind") not in (None, "") else (current or {}).get("usage_kind") or USAGE_RD
+        )
+        purchase_applicant = str(
+            item.get("purchase_applicant")
+            if item.get("purchase_applicant") is not None
+            else (current or {}).get("purchase_applicant") or ""
+        ).strip()
 
         if current:
             cursor.execute(
                 """
                 UPDATE material_batches
-                SET batch_no = ?, quantity = ?, unit_price = ?, warehouse_type = ?,
+                SET batch_no = ?, quantity = ?, book_quantity = ?, pack_quantity = ?, unit_price = ?, warehouse_type = ?,
                     shelf_id = ?, layer_number = ?, zone_name = ?, source_form_no = ?,
-                    received_date = ?, version = version + 1, updated_at = ?
+                    received_date = ?, purchase_project = ?, usage_kind = ?, purchase_applicant = ?,
+                    version = version + 1, updated_at = ?
                 WHERE id = ? AND material_id = ? AND stock_source = ? AND inventory_status = ? AND version = ?
                 """,
                 (
                     batch_no,
                     quantity,
+                    book_quantity,
+                    pack_quantity,
                     unit_price,
                     warehouse_type,
                     shelf_id,
@@ -361,10 +438,13 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                     zone_name,
                     source_form_no,
                     received_date,
+                    purchase_project,
+                    usage_kind,
+                    purchase_applicant,
                     now_text(),
                     batch_id,
                     material_id,
-                    STOCK_SOURCE_FORMAL,
+                    stock_source,
                     INVENTORY_STATUS_AVAILABLE,
                     expected_version,
                 ),
@@ -375,15 +455,17 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
             cursor.execute(
                 """
                 INSERT INTO material_batches
-                    (material_id, batch_no, quantity, unit_price, warehouse_type,
+                    (material_id, batch_no, quantity, book_quantity, unit_price, warehouse_type,
                      shelf_id, layer_number, zone_name, source_form_no, received_date,
-                     stock_source, inventory_status, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                     stock_source, inventory_status, version, purchase_project, usage_kind,
+                     pack_quantity, purchase_applicant, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     material_id,
                     batch_no,
                     quantity,
+                    book_quantity,
                     unit_price,
                     warehouse_type,
                     shelf_id,
@@ -391,8 +473,12 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
                     zone_name,
                     source_form_no,
                     received_date,
-                    STOCK_SOURCE_FORMAL,
+                    stock_source,
                     INVENTORY_STATUS_AVAILABLE,
+                    purchase_project,
+                    usage_kind,
+                    pack_quantity,
+                    purchase_applicant,
                     now_text(),
                     now_text(),
                 ),
@@ -417,8 +503,8 @@ def save_material_batches_from_payload(cursor, material_id, material_code, old_m
             DELETE FROM material_batches
             WHERE id = ? AND material_id = ? AND stock_source = ? AND version = ?
             """,
-            (batch_id, material_id, STOCK_SOURCE_FORMAL, expected_version),
+            (batch_id, material_id, stock_source, expected_version),
         )
         if cursor.rowcount != 1:
             raise ValueError("批次状态已变化，不能删除")
-    update_inventory_total(cursor, material_id)
+    update_inventory_total(cursor, material_id, stock_source)

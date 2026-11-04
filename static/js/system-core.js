@@ -10,14 +10,17 @@
     }
     if (!response.ok) {
       let message = "请求失败";
+      let payload = {};
       try {
-        const data = await response.json();
-        if (data.must_change_password) {
+        payload = await response.json();
+        if (payload.must_change_password) {
           window.location.href = "/change-password";
         }
-        message = data.error || message;
+        message = payload.error || message;
       } catch (error) {}
-      throw new Error(message);
+      const failure = new Error(message);
+      failure.payload = payload;
+      throw failure;
     }
     const type = response.headers.get("content-type") || "";
     return type.includes("application/json") ? response.json() : response.text();

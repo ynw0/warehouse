@@ -8,6 +8,9 @@ from warehouse_suit.attachments import list_material_attachments
 
 from warehouse_suit.db import now_text, today_text
 from warehouse_suit.inventory_constants import (
+    BUSINESS_TYPE_BORROW_OUTBOUND,
+    BUSINESS_TYPE_BORROW_RETURN_INBOUND,
+    BUSINESS_TYPE_CLAIM_OUTBOUND,
     BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_IN,
     BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_OUT,
     BUSINESS_TYPE_TEMPORARY_MANUAL_INBOUND,
@@ -122,6 +125,8 @@ def temporary_inventory_rows(
                 GROUP_CONCAT(DISTINCT COALESCE(s.warehouse_type, b.warehouse_type)) AS warehouse_types,
                 GROUP_CONCAT(DISTINCT COALESCE(s.name, '')) AS shelf_names,
                 GROUP_CONCAT(DISTINCT COALESCE(b.zone_name, '')) AS zone_names,
+                GROUP_CONCAT(DISTINCT TRIM(COALESCE(b.usage_kind, ''))) AS usage_kinds,
+                GROUP_CONCAT(DISTINCT TRIM(COALESCE(b.purchase_project, ''))) AS purchase_projects,
                 MAX(b.updated_at) AS updated_at
             FROM material_batches b
             LEFT JOIN shelves s ON s.id = b.shelf_id
@@ -148,6 +153,8 @@ def temporary_inventory_rows(
             ts.amount,
             ts.batch_count,
             ts.warehouse_types AS warehouse_type,
+            ts.usage_kinds,
+            ts.purchase_projects,
             ? AS inventory_status,
             TRIM(COALESCE(ts.shelf_names, '') || ' ' || COALESCE(ts.zone_names, '')) AS location,
             ts.updated_at,
@@ -471,7 +478,163 @@ def delete_temporary_material(cursor, material_id, user, ip_address=""):
                     "删除临时库物料", {"material_code": material["material_code"], "name": material["name"]}, ip_address)
 
 
-def promote_temporary_material(cursor, material_id, selected_batches, user, ip_address=""):
+# 借用出库和归还不跟随临时库转正式库改来源、改日期。
+_BORROW_BUSINESS_TYPES = (BUSINESS_TYPE_BORROW_OUTBOUND, BUSINESS_TYPE_BORROW_RETURN_INBOUND)
+
+
+def _follow_unissued_promoted_lines(cursor, batch_ids):
+    """这批临时库转空后，还没出库的借用和领用改从正式库出。
+
+    出库前流程行只记下库别，没有批次号。该项目、该用料形式的临时库已经没有剩余时，
+    再按临时库出库一定会失败，所以把来源改成正式库。临时库还有剩余时不动。
+    """
+    ids = [int(item) for item in batch_ids]
+    if not ids:
+        return
+    placeholders = ",".join("?" for _ in ids)
+    cursor.execute(
+        f"""
+        SELECT DISTINCT
+            material_id,
+            TRIM(COALESCE(purchase_project, '')) AS purchase_project,
+            TRIM(COALESCE(usage_kind, '')) AS usage_kind
+        FROM material_batches
+        WHERE id IN ({placeholders})
+        """,
+        ids,
+    )
+    pools = [dict(row) for row in cursor.fetchall()]
+    for pool in pools:
+        cursor.execute(
+            """
+            SELECT COALESCE(SUM(
+                CASE WHEN inventory_status = ? THEN quantity ELSE 0 END
+            ), 0)
+            FROM material_batches
+            WHERE material_id = ? AND stock_source = ?
+              AND TRIM(COALESCE(purchase_project, '')) = ?
+              AND TRIM(COALESCE(usage_kind, '')) = ?
+            """,
+            (
+                INVENTORY_STATUS_AVAILABLE,
+                pool["material_id"],
+                STOCK_SOURCE_TEMPORARY,
+                pool["purchase_project"],
+                pool["usage_kind"],
+            ),
+        )
+        if float(cursor.fetchone()[0] or 0) > 1e-9:
+            continue
+        cursor.execute(
+            """
+            UPDATE workflow_items
+            SET stock_source = ?
+            WHERE id IN (
+                SELECT wi.id
+                FROM workflow_items wi
+                JOIN workflow_forms f ON f.id = wi.form_id
+                WHERE f.form_type IN ('borrow', 'claim')
+                  AND f.status NOT IN ('completed', 'rejected', 'cancelled')
+                  AND wi.material_id = ?
+                  AND TRIM(COALESCE(wi.stock_source, '')) = ?
+                  AND TRIM(COALESCE(wi.purchase_project, '')) = ?
+                  AND TRIM(COALESCE(json_extract(wi.data_json, '$.usage_kind'), '')) = ?
+                  AND (
+                        f.form_type <> 'borrow'
+                        OR COALESCE(json_extract(wi.data_json, '$.borrow_item_type'), 'material') = 'material'
+                  )
+            )
+            """,
+            (
+                STOCK_SOURCE_FORMAL,
+                pool["material_id"],
+                STOCK_SOURCE_TEMPORARY,
+                pool["purchase_project"],
+                pool["usage_kind"],
+            ),
+        )
+
+
+def _sync_promoted_borrow_sources(cursor, batch_ids):
+    """临时批次转入正式库后，未归还借用改记这个正式批次，未出库的单改从来源出库。"""
+    ids = {int(item) for item in batch_ids}
+    if not ids:
+        return
+    cursor.execute(
+        """
+        SELECT id, data_json, stock_source, workflow_item_id
+        FROM borrow_records
+        WHERE item_type = 'material' AND status = 'borrowed'
+        """
+    )
+    for record in cursor.fetchall():
+        record = dict(record)
+        try:
+            data = json.loads(record.get("data_json") or "{}")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        batches = [batch for batch in (data.get("consumed_batches") or []) if isinstance(batch, dict)]
+        touched = False
+        all_formal = bool(batches)
+        for batch in batches:
+            batch_id = int(batch.get("batch_id") or batch.get("id") or 0)
+            if batch_id in ids:
+                batch["stock_source"] = STOCK_SOURCE_FORMAL
+                touched = True
+            if not batch_id:
+                all_formal = False
+                continue
+            cursor.execute("SELECT stock_source FROM material_batches WHERE id = ?", (batch_id,))
+            row = cursor.fetchone()
+            if not row or row["stock_source"] != STOCK_SOURCE_FORMAL:
+                all_formal = False
+        if not touched:
+            continue
+        data["consumed_batches"] = batches
+        stock_source = STOCK_SOURCE_FORMAL if all_formal else (record.get("stock_source") or STOCK_SOURCE_TEMPORARY)
+        cursor.execute(
+            "UPDATE borrow_records SET stock_source = ?, data_json = ?, updated_at = ? WHERE id = ?",
+            (stock_source, json.dumps(data, ensure_ascii=False), now_text(), record["id"]),
+        )
+        item_id = int(record.get("workflow_item_id") or 0)
+        if item_id and all_formal:
+            cursor.execute("SELECT data_json FROM workflow_items WHERE id = ?", (item_id,))
+            item = cursor.fetchone()
+            item_data = {}
+            if item and item["data_json"]:
+                try:
+                    item_data = json.loads(item["data_json"] or "{}")
+                except (TypeError, ValueError):
+                    item_data = {}
+            if not isinstance(item_data, dict):
+                item_data = {}
+            item_data["outbound_stock_source"] = STOCK_SOURCE_FORMAL
+            cursor.execute(
+                "UPDATE workflow_items SET stock_source = ?, data_json = ? WHERE id = ?",
+                (STOCK_SOURCE_FORMAL, json.dumps(item_data, ensure_ascii=False), item_id),
+            )
+    placeholders = ",".join("?" for _ in ids)
+    cursor.execute(
+        f"""
+        UPDATE stock_records
+        SET stock_source = ?
+        WHERE stock_source = ? AND batch_id IN ({placeholders})
+          AND business_type IN (?, ?)
+        """,
+        [
+            STOCK_SOURCE_FORMAL,
+            STOCK_SOURCE_TEMPORARY,
+            *ids,
+            BUSINESS_TYPE_BORROW_OUTBOUND,
+            BUSINESS_TYPE_BORROW_RETURN_INBOUND,
+        ],
+    )
+    _follow_unissued_promoted_lines(cursor, ids)
+
+
+def promote_temporary_material(cursor, material_id, selected_batches, user, ip_address="", allow_zero=False):
     """Convert selected transferable temporary batches to formal inventory."""
     material_id = int(material_id or 0)
     selections = selected_batches if isinstance(selected_batches, list) else []
@@ -525,7 +688,7 @@ def promote_temporary_material(cursor, material_id, selected_batches, user, ip_a
             raise ValueError(f"{reason}不可转入正式库")
         if batch.get("inventory_status") != INVENTORY_STATUS_AVAILABLE:
             raise ValueError("所选批次当前不可转移")
-        if float(batch.get("quantity") or 0) <= 0:
+        if not allow_zero and float(batch.get("quantity") or 0) <= 0:
             raise ValueError("零库存批次不能转入正式库")
 
     timestamp = now_text()
@@ -566,10 +729,12 @@ def promote_temporary_material(cursor, material_id, selected_batches, user, ip_a
                 ELSE business_type
             END
         WHERE stock_source = ? AND batch_id IN ({placeholders})
+          AND business_type NOT IN (?, ?)
         """,
-        [STOCK_SOURCE_FORMAL, date_value, timestamp, STOCK_SOURCE_TEMPORARY, *batch_ids],
+        [STOCK_SOURCE_FORMAL, date_value, timestamp, STOCK_SOURCE_TEMPORARY, *batch_ids, *_BORROW_BUSINESS_TYPES],
     )
     converted_records = int(cursor.rowcount or 0)
+    _sync_promoted_borrow_sources(cursor, batch_ids)
     formal_quantity, _ = update_inventory_total(cursor, material_id, STOCK_SOURCE_FORMAL)
     write_audit_log(
         cursor,
@@ -598,3 +763,246 @@ def promote_temporary_material(cursor, material_id, selected_batches, user, ip_a
         "formal_quantity": formal_quantity,
         "converted_date": date_value,
     }
+
+
+def _load_json(text):
+    try:
+        data = json.loads(text or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def list_temporary_acceptance_forms(cursor):
+    """没有采购订单的验收单。转正式库之后仍留在这张列表里。"""
+    require_temporary_inventory_enabled(cursor)
+    cursor.execute(
+        """
+        SELECT f.id, f.form_no, f.title, f.status, f.created_at, f.data_json,
+               u.display_name AS applicant_name
+        FROM workflow_forms f
+        LEFT JOIN users u ON u.id = f.applicant_id
+        WHERE f.form_type = 'acceptance'
+          AND COALESCE(json_extract(f.data_json, '$.has_purchase_order'), 1) = 0
+        ORDER BY f.id DESC
+        """
+    )
+    forms = []
+    for form in cursor.fetchall():
+        data = _load_json(form["data_json"])
+        cursor.execute(
+            "SELECT material_name, qualified_quantity, data_json FROM workflow_items WHERE form_id = ? ORDER BY id",
+            (form["id"],),
+        )
+        items = [dict(row) for row in cursor.fetchall()]
+        pending = False
+        for item in items:
+            item_data = _load_json(item["data_json"])
+            if float(item["qualified_quantity"] or 0) > 0 and not item_data.get("inbound_done"):
+                pending = True
+        forms.append({
+            "id": form["id"],
+            "form_no": form["form_no"],
+            "title": form["title"] or "",
+            "status": form["status"] or "",
+            "applicant_name": form["applicant_name"] or "",
+            "created_at": form["created_at"] or "",
+            "materials": [item["material_name"] for item in items if item["material_name"]],
+            "inbound_ready": not pending and bool(items),
+            "promoted": bool(data.get("promoted_to_formal")),
+            "promoted_at": data.get("promoted_at") or "",
+        })
+    return forms
+
+
+def promote_acceptance_form(cursor, form_id, user, ip_address=""):
+    """把一张没有采购订单的验收单下的临时批次全部转到正式库。"""
+    require_temporary_inventory_enabled(cursor)
+    cursor.execute("SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'acceptance'", (int(form_id),))
+    form = cursor.fetchone()
+    if not form:
+        raise ValueError("验收单不存在")
+    form = dict(form)
+    data = _load_json(form["data_json"])
+    if data.get("has_purchase_order") is not False:
+        raise ValueError("只有没有采购订单的验收单可以转移到正式库")
+    if data.get("promoted_to_formal"):
+        raise ValueError("该验收单已转移到正式库")
+    batch_ids, pending = _acceptance_batch_ids(cursor, form["id"])
+    if pending:
+        raise ValueError("还有未入库物料，不能整单转移")
+    if not batch_ids:
+        raise ValueError("没有可转移的临时批次")
+    placeholders = ",".join("?" for _ in batch_ids)
+    cursor.execute(
+        f"""
+        SELECT id, material_id, version, quantity, inventory_status, transfer_blocked,
+               transfer_block_reason, stock_source
+        FROM material_batches
+        WHERE id IN ({placeholders})
+        ORDER BY id
+        """,
+        batch_ids,
+    )
+    batches = [dict(row) for row in cursor.fetchall()]
+    temporary_batches = [batch for batch in batches if batch["stock_source"] == STOCK_SOURCE_TEMPORARY]
+    if not temporary_batches:
+        raise ValueError("没有可转移的临时批次")
+    for batch in temporary_batches:
+        if batch.get("transfer_blocked"):
+            reason = "领用退库批次" if batch.get("transfer_block_reason") == "claim_return" else "受限批次"
+            raise ValueError(f"{reason}不可转入正式库")
+        if batch.get("inventory_status") != INVENTORY_STATUS_AVAILABLE:
+            raise ValueError("所选批次当前不可转移")
+    material_ids = {int(batch["material_id"]) for batch in temporary_batches}
+    _reject_blocking_claims(cursor, [int(batch["id"]) for batch in temporary_batches], material_ids)
+    begin_inventory_transaction(cursor.connection)
+    grouped = {}
+    for batch in temporary_batches:
+        grouped.setdefault(int(batch["material_id"]), []).append(
+            {"id": int(batch["id"]), "version": int(batch["version"] or 0)}
+        )
+    converted = []
+    for material_id, selections in grouped.items():
+        converted.append(promote_temporary_material(
+            cursor, material_id, selections, user, ip_address, allow_zero=True,
+        ))
+    date_value = today_text()
+    timestamp = now_text()
+    _shift_related_claim_times(cursor, [int(batch["id"]) for batch in temporary_batches], date_value, timestamp)
+    _shift_workflow_times(cursor, form["id"], date_value, timestamp)
+    data["promoted_to_formal"] = True
+    data["promoted_at"] = date_value
+    cursor.execute(
+        "UPDATE workflow_forms SET data_json = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(data, ensure_ascii=False), timestamp, form["id"]),
+    )
+    return {
+        "form_id": form["id"],
+        "form_no": form["form_no"],
+        "converted_date": date_value,
+        "materials": converted,
+    }
+
+
+def _acceptance_batch_ids(cursor, form_id):
+    cursor.execute(
+        "SELECT id, qualified_quantity, data_json FROM workflow_items WHERE form_id = ? ORDER BY id",
+        (int(form_id),),
+    )
+    batch_ids = []
+    pending = False
+    for item in cursor.fetchall():
+        item_data = _load_json(item["data_json"])
+        if float(item["qualified_quantity"] or 0) > 0 and not item_data.get("inbound_done"):
+            pending = True
+        if item_data.get("inbound_batch_id"):
+            batch_ids.append(int(item_data["inbound_batch_id"]))
+        for batch in item_data.get("inbound_batches") or []:
+            if isinstance(batch, dict) and batch.get("batch_id"):
+                batch_ids.append(int(batch["batch_id"]))
+    cursor.execute(
+        """
+        SELECT batch_id, operation_key FROM stock_records
+        WHERE batch_id IS NOT NULL AND operation_key GLOB ?
+        """,
+        (f"acceptance:{int(form_id)}:*:inbound",),
+    )
+    for row in cursor.fetchall():
+        if row["batch_id"]:
+            batch_ids.append(int(row["batch_id"]))
+    unique = []
+    seen = set()
+    for batch_id in batch_ids:
+        if batch_id in seen:
+            continue
+        seen.add(batch_id)
+        unique.append(batch_id)
+    return unique, pending
+
+
+def split_acceptance_form_claims(cursor, form_id, user, ip_address=""):
+    """拆开挡住这张验收单的申领单。不改库存数量，也不直接转到正式库。"""
+    require_temporary_inventory_enabled(cursor)
+    cursor.execute(
+        "SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'acceptance'",
+        (int(form_id),),
+    )
+    form = cursor.fetchone()
+    if not form:
+        raise ValueError("验收单不存在")
+    form = dict(form)
+    data = _load_json(form["data_json"])
+    if data.get("has_purchase_order") is not False:
+        raise ValueError("只有没有采购订单的验收单可以拆分申领单")
+    batch_ids, _pending = _acceptance_batch_ids(cursor, form["id"])
+    if not batch_ids:
+        raise ValueError("没有可转移的临时批次")
+    placeholders = ",".join("?" for _ in batch_ids)
+    cursor.execute(
+        f"SELECT DISTINCT material_id FROM material_batches WHERE id IN ({placeholders})",
+        batch_ids,
+    )
+    material_ids = {int(row["material_id"]) for row in cursor.fetchall() if row["material_id"]}
+    from warehouse_suit.claim_split_service import split_blocking_claims
+
+    return split_blocking_claims(cursor, batch_ids, material_ids, user, ip_address)
+
+
+def _reject_blocking_claims(cursor, batch_ids, material_ids):
+    """未完成的申领单不能转。混合、两种临时物料或跨两张验收单的，要先拆开。"""
+    from warehouse_suit.claim_split_service import raise_blocking_claims
+
+    raise_blocking_claims(cursor, batch_ids, material_ids)
+
+
+def _shift_related_claim_times(cursor, batch_ids, date_value, timestamp):
+    if not batch_ids:
+        return
+    marks = ",".join("?" for _ in batch_ids)
+    cursor.execute(
+        f"""
+        SELECT DISTINCT wi.form_id
+        FROM stock_records sr
+        JOIN workflow_items wi ON wi.id = sr.workflow_item_id
+        JOIN workflow_forms f ON f.id = wi.form_id
+        WHERE f.form_type = 'claim'
+          AND sr.business_type = ?
+          AND sr.batch_id IN ({marks})
+        """,
+        [BUSINESS_TYPE_CLAIM_OUTBOUND, *batch_ids],
+    )
+    for row in cursor.fetchall():
+        form_id = int(row["form_id"])
+        _shift_workflow_times(cursor, form_id, date_value, timestamp)
+        cursor.execute(
+            "UPDATE claim_outbound_operations SET created_at = ? WHERE form_id = ?",
+            (timestamp, form_id),
+        )
+        cursor.execute(
+            """
+            UPDATE temporary_issue_obligations
+            SET created_at = ?, updated_at = ?,
+                settled_at = CASE WHEN COALESCE(settled_at, '') <> '' THEN ? ELSE settled_at END
+            WHERE claim_form_id = ?
+            """,
+            (timestamp, timestamp, timestamp, form_id),
+        )
+
+
+def _shift_workflow_times(cursor, form_id, date_value, timestamp):
+    """验收或申领的发起、签字和更新时间改成转移当天。不改借用单。"""
+    cursor.execute(
+        "UPDATE workflow_forms SET created_at = ?, updated_at = ? WHERE id = ? AND form_type <> 'borrow'",
+        (timestamp, timestamp, int(form_id)),
+    )
+    cursor.execute(
+        """
+        UPDATE workflow_tasks
+        SET created_at = ?, updated_at = ?,
+            signed_at = CASE WHEN COALESCE(signed_at, '') <> '' THEN ? ELSE signed_at END
+        WHERE form_id = ?
+          AND step_code NOT IN ('leader_borrow', 'borrow_outbound', 'return_inbound')
+        """,
+        (timestamp, timestamp, date_value, int(form_id)),
+    )

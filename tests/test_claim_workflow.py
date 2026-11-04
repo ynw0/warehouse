@@ -14,7 +14,7 @@ def _create_material_with_stock(client):
     )
     assert resp.status_code == 200, resp.get_data(as_text=True)
     material = resp.get_json()["material"]
-    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": 10, "total_amount": 10})
+    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": 10, "total_amount": 10, "purchase_project": "办公"})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     return material
 
@@ -39,7 +39,7 @@ def test_claim_rejection_uses_applicant_revision_and_resubmits_to_leader(client,
         json={
             "leader_id": admin_id,
             "purpose": "办公",
-            "items": [{"material_id": material["id"], "request_quantity": 3}],
+            "items": [{"material_id": material["id"], "request_quantity": 3, "purchase_project": "办公"}],
         },
     )
     assert resp.status_code == 200, resp.get_data(as_text=True)

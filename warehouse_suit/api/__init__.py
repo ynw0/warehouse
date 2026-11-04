@@ -8,10 +8,15 @@ from warehouse_suit.api.backup import register_backup_routes
 from warehouse_suit.api.borrow import register_borrow_routes
 from warehouse_suit.api.claim import register_claim_routes
 from warehouse_suit.api.claim_returns import register_claim_return_routes
+from warehouse_suit.api.semifinished_claims import register_semifinished_claim_routes
+from warehouse_suit.api.drafts import register_draft_routes
 from warehouse_suit.api.history import register_history_routes
 from warehouse_suit.api.materials import register_material_routes
 from warehouse_suit.api.notifications import register_notification_routes
 from warehouse_suit.api.production import register_production_routes
+from warehouse_suit.api.projects import register_project_routes
+from warehouse_suit.api.purchase_requests import register_purchase_request_routes
+from warehouse_suit.api.special_claims import register_special_claim_routes
 from warehouse_suit.api.recycle import register_recycle_routes
 from warehouse_suit.api.shelves import register_shelf_routes
 from warehouse_suit.api.stock import register_stock_routes
@@ -32,10 +37,15 @@ __all__ = [
     "register_borrow_routes",
     "register_claim_routes",
     "register_claim_return_routes",
+    "register_semifinished_claim_routes",
+    "register_draft_routes",
     "register_history_routes",
     "register_material_routes",
     "register_notification_routes",
     "register_production_routes",
+    "register_project_routes",
+    "register_purchase_request_routes",
+    "register_special_claim_routes",
     "register_recycle_routes",
     "register_shelf_routes",
     "register_stock_routes",

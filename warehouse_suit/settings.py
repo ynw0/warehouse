@@ -84,14 +84,21 @@ def validate_password_policy(password, policy):
 WORKFLOW_STEP_DEFINITIONS = {
     "acceptance": ["acceptance", "leader_acceptance", "inbound"],
     "claim": ["leader_claim", "outbound"],
+    "semifinished_claim": ["leader_semifinished_claim", "semifinished_outbound"],
+    "claim_return": ["return_inbound"],
     "borrow": ["leader_borrow", "borrow_outbound"],
-    "borrow_return": ["return_inbound"],
+    "borrow_return": ["return_inbound", "damage_claim"],
+    "borrow_claim": [],
     "common_material": ["leader_common_material"],
-    "supply": ["leader_supply", "supply_outbound"],
-    "supply_return": ["supply_return_inbound"],
+    # 打印、上传、查阅的实际办理人在流程里固定，这里列出是为了保存设置时不丢掉步骤。
+    "supply": ["leader_supply", "supply_handover_print", "supply_outbound", "supply_voucher_upload", "supply_voucher_review"],
+    "supply_return": ["supply_return_acceptance", "supply_return_inbound"],
     "supply_extension": ["leader_supply_extension"],
     "semifinished": ["acceptance", "leader_acceptance", "inbound"],
     "finished": ["acceptance", "leader_acceptance", "inbound"],
+    "purchase_request": [],
+    "purchase_summary": ["purchase_register"],
+    "special_claim": ["project_owner", "leader_special_claim", "special_outbound"],
 }
 
 

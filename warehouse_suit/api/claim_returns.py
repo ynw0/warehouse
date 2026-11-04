@@ -2,7 +2,7 @@
 
 from flask import jsonify, request
 
-from warehouse_suit.claim_return_service import my_claims, return_claim
+from warehouse_suit.claim_return_service import complete_claim_return, my_claims, request_claim_return
 
 
 def register_claim_return_routes(app, *, get_db, current_user_provider):
@@ -34,8 +34,35 @@ def register_claim_return_routes(app, *, get_db, current_user_provider):
             cursor = conn.cursor()
             user = require_user(cursor)
             data = request.get_json() or {}
-            result = return_claim(cursor, user["id"], outbound_record_id,
-                                  data.get("quantity"), data.get("operation_key"))
+            payload = dict(data)
+            payload.setdefault("source_kind", "claim_outbound")
+            payload.setdefault("source_id", outbound_record_id)
+            result = request_claim_return(cursor, user, payload)
+            conn.commit()
+            return jsonify({"success": True, **result})
+        except PermissionError as exc:
+            conn.rollback()
+            return jsonify({"error": str(exc)}), 403
+        except ValueError as exc:
+            conn.rollback()
+            return jsonify({"error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/claim-returns/<int:form_id>/inbound")
+    def inbound_claim_return(form_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = require_user(cursor)
+            data = request.get_json() or {}
+            result = complete_claim_return(
+                cursor,
+                user,
+                form_id,
+                data.get("decision") or "同意",
+                data.get("remark") or "",
+            )
             conn.commit()
             return jsonify({"success": True, **result})
         except PermissionError as exc:

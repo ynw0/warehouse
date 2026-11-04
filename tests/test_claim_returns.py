@@ -10,6 +10,21 @@ from warehouse_suit.settings import set_setting
 from tests.test_claim_workflow import _login
 
 
+def _warehouse_id(db):
+    return db.execute("SELECT id FROM users WHERE username='warehouse'").fetchone()[0]
+
+
+def _request_return(client, outbound_id, payload, warehouse_id):
+    body = dict(payload)
+    body["warehouse_user_id"] = warehouse_id
+    return client.post(f"/api/my-claims/{outbound_id}/return", json=body)
+
+
+def _inbound_return(client, form_id):
+    _login(client, "warehouse", "test")
+    return client.post(f"/api/claim-returns/{form_id}/inbound", json={"decision": "同意"})
+
+
 def seed_issue(db, source="formal"):
     cursor = db.cursor()
     user_id = cursor.execute("SELECT id FROM users WHERE username='testuser'").fetchone()[0]
@@ -40,25 +55,107 @@ def seed_issue(db, source="formal"):
     return consumed[0]["stock_record_id"], batch_id, material_id
 
 
+def test_claim_edit_updates_issued_quantity_not_batch_stock(client, db):
+    outbound_id, batch_id, material_id = seed_issue(db, "formal")
+    cursor = db.cursor()
+    cursor.execute("SELECT id, form_id FROM workflow_items WHERE material_id = ?", (material_id,))
+    item = cursor.fetchone()
+    _login(client, "warehouse", "test")
+    response = client.put(
+        f"/api/workflows/{item['form_id']}",
+        json={
+            "items": [{
+                "id": item["id"],
+                "qualified_quantity": 9,
+                "outbound_lines": [{
+                    "stock_record_id": outbound_id,
+                    "batch_id": batch_id,
+                    "actual_quantity": 24,
+                    "pack_quantity": 4,
+                    "book_quantity": 6,
+                }],
+            }]
+        },
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    record = db.execute("SELECT quantity, amount FROM stock_records WHERE id = ?", (outbound_id,)).fetchone()
+    assert record["quantity"] == 24
+    assert db.execute("SELECT quantity FROM material_batches WHERE id = ?", (batch_id,)).fetchone()[0] == 4
+    saved = db.execute("SELECT outbound_quantity, qualified_quantity, data_json FROM workflow_items WHERE id = ?", (item["id"],)).fetchone()
+    assert saved["outbound_quantity"] == 24
+    assert not saved["qualified_quantity"]
+    payload = json.loads(saved["data_json"])
+    assert payload["consumed_batches"][0]["pack_quantity"] == 4
+    assert payload["consumed_batches"][0]["book_quantity"] == 6
+    _login(client, "testuser", "test")
+    issued = client.get("/api/my-claims").get_json()["items"][0]
+    assert issued["issued_quantity"] == 24
+    assert issued["returnable_quantity"] == 24
+
+
+def test_claim_edit_rejects_actual_below_consumed(client, db):
+    outbound_id, batch_id, material_id = seed_issue(db, "formal")
+    from warehouse_suit.production_service import (
+        insert_material_consumptions,
+        prepare_material_component_consumptions,
+    )
+
+    cursor = db.cursor()
+    prepared = prepare_material_component_consumptions(
+        cursor,
+        [{"material_id": material_id, "per_unit_quantity": 1, "batch_ids": [batch_id]}],
+        6,
+    )
+    insert_material_consumptions(cursor, "semifinished", 1, prepared)
+    db.commit()
+    cursor.execute("SELECT id, form_id FROM workflow_items WHERE material_id = ?", (material_id,))
+    item = cursor.fetchone()
+    _login(client, "warehouse", "test")
+    response = client.put(
+        f"/api/workflows/{item['form_id']}",
+        json={
+            "items": [{
+                "id": item["id"],
+                "outbound_lines": [{
+                    "stock_record_id": outbound_id,
+                    "batch_id": batch_id,
+                    "actual_quantity": 5,
+                    "pack_quantity": 1,
+                    "book_quantity": 5,
+                }],
+            }]
+        },
+    )
+    assert response.status_code == 400
+    assert "已占用" in response.get_json()["error"]
+    assert db.execute("SELECT quantity FROM stock_records WHERE id = ?", (outbound_id,)).fetchone()[0] == 6
+
+
 @pytest.mark.parametrize("source", ["formal", "temporary"])
 def test_partial_return_duplicate_and_full_return(client, db, source):
     outbound_id, batch_id, material_id = seed_issue(db, source)
+    warehouse_id = _warehouse_id(db)
     _login(client, "testuser", "test")
     listing = client.get("/api/my-claims").get_json()
     assert listing["total"] == 1
     assert listing["items"][0]["returnable_quantity"] == 6
-    url = f"/api/my-claims/{outbound_id}/return"
     payload = {"quantity": 2, "operation_key": "return-one"}
-    response = client.post(url, json=payload)
+    response = _request_return(client, outbound_id, payload, warehouse_id)
     assert response.status_code == 200, response.get_json()
-    assert client.post(url, json=payload).get_json()["idempotent"] is True
-    expected_original_after_partial = 4
-    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == expected_original_after_partial
-    assert db.execute("SELECT COUNT(*) FROM claim_returns").fetchone()[0] == 1
-    response = client.post(url, json={"quantity": 5, "operation_key": "too-many"})
+    first_form_id = response.get_json()["form_id"]
+    _login(client, "testuser", "test")
+    assert _request_return(client, outbound_id, payload, warehouse_id).get_json()["idempotent"] is True
+    assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 4
+    assert db.execute("SELECT COUNT(*) FROM claim_returns").fetchone()[0] == 0
+    assert db.execute("SELECT status FROM issued_return_requests WHERE form_id=?", (first_form_id,)).fetchone()[0] == "pending"
+    response = _request_return(client, outbound_id, {"quantity": 5, "operation_key": "too-many"}, warehouse_id)
     assert response.status_code == 400
-    response = client.post(url, json={"quantity": 4, "operation_key": "return-two"})
+    response = _request_return(client, outbound_id, {"quantity": 4, "operation_key": "return-two"}, warehouse_id)
     assert response.status_code == 200, response.get_json()
+    second_form_id = response.get_json()["form_id"]
+    assert _inbound_return(client, first_form_id).status_code == 200
+    assert _inbound_return(client, second_form_id).status_code == 200
+    _login(client, "testuser", "test")
     row = client.get("/api/my-claims").get_json()["items"][0]
     assert row["issued_quantity"] == row["returned_quantity"] == 6
     assert row["returnable_quantity"] == 0
@@ -82,30 +179,36 @@ def test_partial_return_duplicate_and_full_return(client, db, source):
 
 def test_other_user_cannot_view_or_return_and_invalid_quantity_is_rejected(client, db):
     outbound_id, batch_id, _ = seed_issue(db)
+    warehouse_id = _warehouse_id(db)
     _login(client, "warehouse", "test")
     assert client.get("/api/my-claims").get_json()["total"] == 0
-    url = f"/api/my-claims/{outbound_id}/return"
-    assert client.post(url, json={"quantity": 1, "operation_key": "wrong-user"}).status_code == 403
+    assert _request_return(client, outbound_id, {"quantity": 1, "operation_key": "wrong-user"}, warehouse_id).status_code == 403
     _login(client, "testuser", "test")
     for value in (0, -1, "NaN", "Infinity", None):
-        assert client.post(url, json={"quantity": value, "operation_key": "bad-quantity"}).status_code == 400
+        assert _request_return(
+            client, outbound_id, {"quantity": value, "operation_key": "bad-quantity"}, warehouse_id
+        ).status_code == 400
     assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 4
     assert db.execute("SELECT COUNT(*) FROM claim_returns").fetchone()[0] == 0
 
 
 def test_ledger_failure_rolls_back_batch_and_return(client, db):
     outbound_id, batch_id, _ = seed_issue(db)
+    warehouse_id = _warehouse_id(db)
     _login(client, "testuser", "test")
+    requested = _request_return(client, outbound_id, {"quantity": 1, "operation_key": "rollback"}, warehouse_id)
+    assert requested.status_code == 200, requested.get_json()
+    form_id = requested.get_json()["form_id"]
     db.execute("""
         CREATE TRIGGER fail_return BEFORE INSERT ON claim_returns
         BEGIN SELECT RAISE(ABORT, 'forced return failure'); END
     """)
     db.commit()
     with pytest.raises(Exception, match="forced return failure"):
-        client.post(f"/api/my-claims/{outbound_id}/return",
-                    json={"quantity": 1, "operation_key": "rollback"})
+        _inbound_return(client, form_id)
     assert db.execute("SELECT quantity FROM material_batches WHERE id=?", (batch_id,)).fetchone()[0] == 4
     assert db.execute("SELECT COUNT(*) FROM stock_records WHERE business_type='claim_return_inbound'").fetchone()[0] == 0
+    assert db.execute("SELECT status FROM issued_return_requests WHERE form_id=?", (form_id,)).fetchone()[0] == "pending"
 
 
 def test_return_after_temporary_promotion_enters_temporary_stock(client, db):
@@ -119,10 +222,15 @@ def test_return_after_temporary_promotion_enters_temporary_stock(client, db):
         db.cursor(), material_id, [{"id": batch_id, "version": batch_version}], user
     )
     db.commit()
+    warehouse_id = _warehouse_id(db)
     _login(client, "testuser", "test")
-    response = client.post(f"/api/my-claims/{outbound_id}/return",
-                           json={"quantity": 2, "operation_key": "promoted-return"})
+    response = _request_return(
+        client, outbound_id, {"quantity": 2, "operation_key": "promoted-return"}, warehouse_id
+    )
     assert response.status_code == 200, response.get_json()
+    inbound = _inbound_return(client, response.get_json()["form_id"])
+    assert inbound.status_code == 200, inbound.get_json()
+    _login(client, "testuser", "test")
     assert client.get("/api/my-claims").get_json()["items"][0]["stock_source"] == "formal"
     assert db.execute("SELECT quantity FROM inventory WHERE material_id=?", (material_id,)).fetchone()[0] == 4
     assert db.execute(

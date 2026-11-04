@@ -8,6 +8,7 @@ from .db import row_to_dict
 from .inventory_constants import (
     INVENTORY_STATUS_AVAILABLE,
     STOCK_SOURCE_FORMAL,
+    STOCK_SOURCE_TEMPORARY,
     validate_stock_source,
 )
 from .material_utils import stock_record_display_type
@@ -46,6 +47,7 @@ def material_query(where="", params=(), stock_source=STOCK_SOURCE_FORMAL):
                 WHEN COALESCE(fs.batch_count, 0) > 0 THEN COALESCE(fs.quantity, 0)
                 ELSE COALESCE(i.quantity, 0)
             END AS quantity,
+            COALESCE(fs.book_quantity, 0) AS book_quantity,
             CASE
                 WHEN COALESCE(fs.batch_count, 0) > 0 THEN COALESCE(fs.amount, 0)
                 ELSE COALESCE(i.amount, 0)
@@ -56,7 +58,12 @@ def material_query(where="", params=(), stock_source=STOCK_SOURCE_FORMAL):
             mp.slot_index,
             s.name AS shelf_name,
             s.warehouse_type,
-            fs.batch_summary
+            fs.batch_summary,
+            COALESCE(ts.quantity, 0) AS temporary_quantity,
+            COALESCE(ts.book_quantity, 0) AS temporary_book_quantity,
+            COALESCE(tags.usage_kinds, '') AS usage_kinds,
+            COALESCE(tags.purchase_projects, '') AS purchase_projects,
+            COALESCE(tags.purchase_applicants, '') AS purchase_applicants
         FROM materials m
         LEFT JOIN inventory i ON i.material_id = m.id
         LEFT JOIN (
@@ -74,6 +81,11 @@ def material_query(where="", params=(), stock_source=STOCK_SOURCE_FORMAL):
                               * b.unit_price
                          ELSE 0 END
                 ) AS amount,
+                SUM(
+                    CASE WHEN b.inventory_status = ?
+                         THEN COALESCE(b.book_quantity, 0)
+                         ELSE 0 END
+                ) AS book_quantity,
                 GROUP_CONCAT(
                     CASE
                         WHEN b.inventory_status = ?
@@ -89,6 +101,32 @@ def material_query(where="", params=(), stock_source=STOCK_SOURCE_FORMAL):
             WHERE b.stock_source = ?
             GROUP BY b.material_id
         ) fs ON fs.material_id = m.id
+        LEFT JOIN (
+            SELECT
+                b.material_id,
+                SUM(
+                    CASE WHEN b.inventory_status = ?
+                         THEN b.quantity
+                         ELSE 0 END
+                ) AS quantity,
+                SUM(
+                    CASE WHEN b.inventory_status = ?
+                         THEN COALESCE(b.book_quantity, 0)
+                         ELSE 0 END
+                ) AS book_quantity
+            FROM material_batches b
+            WHERE b.stock_source = ?
+            GROUP BY b.material_id
+        ) ts ON ts.material_id = m.id
+        LEFT JOIN (
+            SELECT
+                b.material_id,
+                GROUP_CONCAT(DISTINCT TRIM(COALESCE(b.usage_kind, ''))) AS usage_kinds,
+                GROUP_CONCAT(DISTINCT TRIM(COALESCE(b.purchase_project, ''))) AS purchase_projects,
+                GROUP_CONCAT(DISTINCT CASE WHEN TRIM(COALESCE(b.purchase_applicant, '')) <> '' THEN TRIM(b.purchase_applicant) END) AS purchase_applicants
+            FROM material_batches b
+            GROUP BY b.material_id
+        ) tags ON tags.material_id = m.id
         LEFT JOIN common_material_profiles cmp ON cmp.material_id = m.id AND cmp.active = 1
         LEFT JOIN material_positions mp ON mp.material_id = m.id
         LEFT JOIN shelves s ON s.id = mp.shelf_id
@@ -97,7 +135,11 @@ def material_query(where="", params=(), stock_source=STOCK_SOURCE_FORMAL):
         INVENTORY_STATUS_AVAILABLE,
         INVENTORY_STATUS_AVAILABLE,
         INVENTORY_STATUS_AVAILABLE,
+        INVENTORY_STATUS_AVAILABLE,
         stock_source,
+        INVENTORY_STATUS_AVAILABLE,
+        INVENTORY_STATUS_AVAILABLE,
+        STOCK_SOURCE_TEMPORARY,
     ) + tuple(params)
     if where:
         base += f" WHERE {where}"
@@ -154,6 +196,17 @@ def fetch_material(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
         (material_id, stock_source),
     )
     material["batches"] = [dict(row) for row in cursor.fetchall()]
+    cursor.execute(
+        """
+        SELECT b.*, s.name AS shelf_name
+        FROM material_batches b
+        LEFT JOIN shelves s ON s.id = b.shelf_id
+        WHERE b.material_id = ? AND b.stock_source = ?
+        ORDER BY b.received_date ASC, b.id ASC
+        """,
+        (material_id, STOCK_SOURCE_TEMPORARY),
+    )
+    material["temporary_batches"] = [dict(row) for row in cursor.fetchall()]
     return material
 
 
@@ -176,10 +229,9 @@ def material_snapshot(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
     }
 
 
-def material_batch_rows(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
+def material_batch_rows(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL, purchase_project=None, usage_kind=None):
     stock_source = validate_stock_source(stock_source)
-    cursor.execute(
-        """
+    sql = """
         SELECT b.*, b.quantity AS physical_quantity,
                0 AS reserved_quantity,
                b.quantity AS quantity,
@@ -191,17 +243,22 @@ def material_batch_rows(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
           AND b.stock_source = ?
           AND b.inventory_status = ?
           AND b.quantity > 0
-        ORDER BY b.received_date ASC, b.id ASC
-        """,
-        (material_id, stock_source, INVENTORY_STATUS_AVAILABLE),
-    )
+    """
+    params = [material_id, stock_source, INVENTORY_STATUS_AVAILABLE]
+    if purchase_project is not None:
+        sql += " AND TRIM(COALESCE(b.purchase_project, '')) = ?"
+        params.append(str(purchase_project or "").strip())
+    if usage_kind is not None:
+        sql += " AND TRIM(COALESCE(b.usage_kind, '')) = ?"
+        params.append(str(usage_kind or "").strip())
+    sql += " ORDER BY b.received_date ASC, b.id ASC"
+    cursor.execute(sql, params)
     return [dict(row) for row in cursor.fetchall()]
 
 
-def material_stock_total(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
+def material_stock_total(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL, purchase_project=None, usage_kind=None):
     stock_source = validate_stock_source(stock_source)
-    cursor.execute(
-        """
+    sql = """
         SELECT
             COUNT(*),
             COALESCE(SUM(
@@ -211,12 +268,21 @@ def material_stock_total(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
             ), 0)
         FROM material_batches b
         WHERE b.material_id = ? AND b.stock_source = ?
-        """,
-        (INVENTORY_STATUS_AVAILABLE, material_id, stock_source),
-    )
+    """
+    params = [INVENTORY_STATUS_AVAILABLE, material_id, stock_source]
+    if purchase_project is not None:
+        sql += " AND TRIM(COALESCE(b.purchase_project, '')) = ?"
+        params.append(str(purchase_project or "").strip())
+    if usage_kind is not None:
+        sql += " AND TRIM(COALESCE(b.usage_kind, '')) = ?"
+        params.append(str(usage_kind or "").strip())
+    cursor.execute(sql, params)
     batch_count, batch_total = cursor.fetchone()
     if int(batch_count or 0) > 0:
         return float(batch_total or 0)
+    # 按项目或用料形式汇总时，不回落到未分项目的库存总量
+    if purchase_project is not None or usage_kind is not None:
+        return 0.0
     if stock_source != STOCK_SOURCE_FORMAL:
         return 0.0
     cursor.execute("SELECT COALESCE(quantity, 0) FROM inventory WHERE material_id = ?", (material_id,))
@@ -224,10 +290,12 @@ def material_stock_total(cursor, material_id, stock_source=STOCK_SOURCE_FORMAL):
     return float(row[0] if row else 0)
 
 
-def build_fifo_plan(cursor, material_id, quantity, stock_source=STOCK_SOURCE_FORMAL):
+def build_fifo_plan(cursor, material_id, quantity, stock_source=STOCK_SOURCE_FORMAL, purchase_project=None):
     remain = float(quantity or 0)
     plan = []
-    for batch in material_batch_rows(cursor, material_id, stock_source=stock_source):
+    for batch in material_batch_rows(
+        cursor, material_id, stock_source=stock_source, purchase_project=purchase_project
+    ):
         if remain <= 0:
             suggested = 0
         else:

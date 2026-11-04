@@ -4,33 +4,43 @@ from __future__ import annotations
 
 import json
 
-from flask import jsonify, request
+from flask import jsonify, request, send_file
 
 from warehouse_suit.db import now_text
 from warehouse_suit.extended_service import (
     approve_common_material_application,
     approve_supply,
     create_common_material_application,
+    close_common_material,
+    delete_common_material,
     update_common_material_threshold,
+    confirm_supply_handover_print,
     create_supply_order,
+    accept_supply_return,
     create_supply_return,
     create_supply_extension,
     approve_supply_extension,
     evaluate_supply_due_alerts,
     finish_supply_shipping,
     reopen_supply,
+    review_supply_handover_voucher,
+    settle_supply_payment,
     dispose_defective_inventory,
     evaluate_common_material_alerts,
     inbound_supply_return,
     list_common_materials,
     list_defective_inventory,
+    list_supply_handover_vouchers,
     ship_supply,
+    supply_handover_receipt,
+    supply_handover_voucher_file,
     supply_item_choices,
     transfer_material_to_defective,
+    upload_supply_handover_vouchers,
 )
 from warehouse_suit.settings import get_setting, set_setting, parse_json
 from warehouse_suit.validation import positive_int_value, quantity_value
-from warehouse_suit.workflow_service import require_permission
+from warehouse_suit.workflow_service import require_any_permission, require_permission
 
 
 def register_extended_routes(app, *, get_db, current_user_provider, notify_todos_changed):
@@ -90,6 +100,40 @@ def register_extended_routes(app, *, get_db, current_user_provider, notify_todos
         conn.close()
         return jsonify({"items": rows})
 
+    @app.post("/api/common-materials/<int:profile_id>/close")
+    def common_material_close(profile_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = current_user_provider(cursor)
+            if not user:
+                raise PermissionError("请先登录")
+            result = close_common_material(cursor, user, profile_id)
+            conn.commit()
+            return jsonify({"success": True, "profile": result})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.delete("/api/common-materials/<int:profile_id>")
+    def common_material_delete(profile_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = current_user_provider(cursor)
+            if not user:
+                raise PermissionError("请先登录")
+            result = delete_common_material(cursor, user, profile_id)
+            conn.commit()
+            return jsonify({"success": True, "profile": result})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
     @app.post("/api/common-material-applications")
     def common_material_application_create():
         data = request.get_json(force=True) or {}
@@ -145,7 +189,7 @@ def register_extended_routes(app, *, get_db, current_user_provider, notify_todos
     def supply_list():
         conn = get_db()
         cursor = conn.cursor()
-        require_permission(cursor, "view_supply")
+        require_any_permission(cursor, "view_supply", "view_flow")
         evaluate_supply_due_alerts(cursor)
         conn.commit()
         cursor.execute(
@@ -172,7 +216,7 @@ def register_extended_routes(app, *, get_db, current_user_provider, notify_todos
         conn = get_db()
         try:
             cursor = conn.cursor()
-            require_permission(cursor, "start_supply")
+            require_permission(cursor, "view_supply")
             rows = supply_item_choices(cursor, request.args.get("q", ""), request.args.get("item_type", ""))
             return jsonify({"items": rows})
         finally:
@@ -247,6 +291,93 @@ def register_extended_routes(app, *, get_db, current_user_provider, notify_todos
         finally:
             conn.close()
 
+    @app.get("/api/supplies/<int:form_id>/handover-receipt")
+    def supply_handover_receipt_route(form_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            require_any_permission(cursor, "view_supply", "view_flow")
+            return jsonify(supply_handover_receipt(cursor, form_id))
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/supplies/<int:form_id>/handover-print")
+    def supply_handover_print_route(form_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = current_user(cursor)
+            form = confirm_supply_handover_print(cursor, user, form_id)
+            conn.commit()
+            notify_todos_changed()
+            return jsonify({"success": True, "form": form})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.get("/api/supplies/<int:form_id>/handover-vouchers")
+    def supply_handover_voucher_list(form_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            require_any_permission(cursor, "view_supply", "view_flow")
+            return jsonify({"items": list_supply_handover_vouchers(cursor, form_id)})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/supplies/<int:form_id>/handover-vouchers")
+    def supply_handover_voucher_upload(form_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = current_user(cursor)
+            files = request.files.getlist("files")
+            form = upload_supply_handover_vouchers(cursor, user, form_id, files)
+            conn.commit()
+            notify_todos_changed()
+            return jsonify({"success": True, "form": form})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/supplies/<int:form_id>/voucher-review")
+    def supply_handover_voucher_review(form_id):
+        data = request.get_json(force=True) or {}
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = current_user(cursor)
+            form = review_supply_handover_voucher(cursor, user, form_id, data.get("decision"), data.get("remark"))
+            conn.commit()
+            notify_todos_changed()
+            return jsonify({"success": True, "form": form})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.get("/api/supply-handover-vouchers/<int:voucher_id>/file")
+    def supply_handover_voucher_download(voucher_id):
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            require_any_permission(cursor, "view_supply", "view_flow")
+            row, path = supply_handover_voucher_file(cursor, voucher_id)
+            return send_file(path, mimetype=row.get("content_type") or None, as_attachment=False, download_name=row.get("original_name") or "voucher")
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
     @app.post('/api/supplies/<int:form_id>/extensions')
     def supply_extension_create(form_id):
         data = request.get_json(force=True) or {}
@@ -298,6 +429,23 @@ def register_extended_routes(app, *, get_db, current_user_provider, notify_todos
         finally:
             conn.close()
 
+    @app.post('/api/supplies/<int:form_id>/payment-settlement')
+    def supply_payment_settlement(form_id):
+        data = request.get_json(force=True) or {}
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = require_permission(cursor, 'view_supply')
+            form = settle_supply_payment(cursor, user, form_id, data)
+            conn.commit()
+            notify_todos_changed()
+            return jsonify({'success': True, 'form': form})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({'success': False, 'error': str(exc)}), 400
+        finally:
+            conn.close()
+
     @app.post("/api/supplies/<int:form_id>/returns")
     def supply_return_create(form_id):
         data = request.get_json(force=True) or {}
@@ -306,6 +454,23 @@ def register_extended_routes(app, *, get_db, current_user_provider, notify_todos
             cursor = conn.cursor()
             user = require_permission(cursor, "view_supply")
             form = create_supply_return(cursor, user, form_id, data)
+            conn.commit()
+            notify_todos_changed()
+            return jsonify({"success": True, "form": form})
+        except Exception as exc:
+            conn.rollback()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/supply-returns/<int:return_form_id>/accept")
+    def supply_return_accept(return_form_id):
+        data = request.get_json(force=True) or {}
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = require_permission(cursor, "view_supply")
+            form = accept_supply_return(cursor, user, return_form_id, data)
             conn.commit()
             notify_todos_changed()
             return jsonify({"success": True, "form": form})

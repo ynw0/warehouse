@@ -8,18 +8,34 @@ from .db import now_text
 from .settings import workflow_settings
 
 
-def create_notification(cursor, user_id, title, body, data=None):
+NOTIFICATION_CATEGORIES = ("inbound", "stock_warning", "supply", "transfer")
+
+_TITLE_CATEGORIES = {
+    "物料入库通知": "inbound",
+    "常用物料低库存预警": "stock_warning",
+    "供货结清逾期提醒": "supply",
+    "转借请求": "transfer",
+    "转借已接受": "transfer",
+    "转借已拒绝": "transfer",
+}
+
+
+def create_notification(cursor, user_id, title, body, data=None, category=""):
+    category = str(category or "").strip()
+    if category not in NOTIFICATION_CATEGORIES:
+        raise ValueError("通知分类不正确")
     created_at = now_text()
     cursor.execute(
         """
-        INSERT INTO notifications (user_id, title, body, data_json, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO notifications (user_id, title, body, data_json, category, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             int(user_id),
             str(title or ""),
             str(body or ""),
             json.dumps(data or {}, ensure_ascii=False),
+            category,
             created_at,
         ),
     )
@@ -30,6 +46,27 @@ def create_notification(cursor, user_id, title, body, data=None):
         )
     except Exception:
         pass
+
+
+def backfill_notification_categories(cursor):
+    cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'notifications'")
+    if not cursor.fetchone():
+        return
+    cursor.execute('PRAGMA table_info("notifications")')
+    columns = {row[1] for row in cursor.fetchall()}
+    if "category" not in columns or "title" not in columns:
+        return
+    for title, category in _TITLE_CATEGORIES.items():
+        cursor.execute(
+            "UPDATE notifications SET category = ? WHERE title = ? AND COALESCE(category, '') = ''",
+            (category, title),
+        )
+    cursor.execute(
+        "SELECT COUNT(*) FROM notifications WHERE COALESCE(category, '') = '' AND TRIM(COALESCE(title, '')) <> ''"
+    )
+    leftover = int(cursor.fetchone()[0] or 0)
+    if leftover:
+        raise ValueError("存在无法归类的历史通知，不能继续升级")
 
 
 def format_notification_template(template, item):
@@ -74,5 +111,6 @@ def notify_material_inbound(cursor, form_id, item):
             "物料入库通知",
             format_notification_template(template, item),
             {"form_id": form_id, "material_id": item.get("material_id"), "material_code": item.get("material_code")},
+            category="inbound",
         )
 

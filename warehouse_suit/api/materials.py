@@ -6,10 +6,11 @@ from flask import jsonify, request
 from warehouse_suit.attachments import attach_batch_attachments
 
 from warehouse_suit.db import now_text, row_to_dict, today_text
+from warehouse_suit.inventory_constants import STOCK_SOURCE_TEMPORARY, validate_stock_source
 from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.material_repository import fetch_material, material_query
 from warehouse_suit.material_service import (
-    material_delete_blocker,
+    delete_material_record,
     next_material_code,
     save_material_batches_from_payload,
     update_material_master_by_id,
@@ -17,7 +18,7 @@ from warehouse_suit.material_service import (
     write_material_position,
 )
 from warehouse_suit.material_utils import infer_code_parts
-from warehouse_suit.recycle import recycle_material
+from warehouse_suit.temporary_inventory_service import require_temporary_inventory_enabled
 from warehouse_suit.validation import (
     nonnegative_int_value,
     positive_int_value,
@@ -139,7 +140,12 @@ def register_material_routes(app, *, get_db):
         conn = get_db()
         cursor = conn.cursor()
         try:
-            require_permission(cursor, "edit_material")
+            stock_source = validate_stock_source(data.get("stock_source"))
+            if stock_source == STOCK_SOURCE_TEMPORARY:
+                require_temporary_inventory_enabled(cursor)
+                require_permission(cursor, "manage_temporary_inventory")
+            else:
+                require_permission(cursor, "edit_material")
             begin_inventory_transaction(conn)
             cursor.execute("SELECT * FROM materials WHERE id = ?", (material_id,))
             current = row_to_dict(cursor.fetchone())
@@ -197,8 +203,11 @@ def register_material_routes(app, *, get_db):
                 "INSERT OR IGNORE INTO inventory (material_id, quantity, amount, updated_at) VALUES (?, 0, 0, ?)",
                 (material_id, now_text()),
             )
-            write_material_position(cursor, material_id, data)
-            save_material_batches_from_payload(cursor, material_id, material_code, old_material_code, data)
+            if stock_source != STOCK_SOURCE_TEMPORARY:
+                write_material_position(cursor, material_id, data)
+            save_material_batches_from_payload(
+                cursor, material_id, material_code, old_material_code, data, stock_source
+            )
             conn.commit()
             material = fetch_material(cursor, material_id)
         except PermissionError:
@@ -263,18 +272,7 @@ def register_material_routes(app, *, get_db):
             cursor.execute("SELECT id FROM materials WHERE id = ?", (material_id,))
             if not cursor.fetchone():
                 return jsonify({"success": False, "error": "物料不存在"}), 404
-            blocker = material_delete_blocker(cursor, material_id)
-            if blocker:
-                raise ValueError(blocker)
-            cursor.execute("SELECT COUNT(*) FROM material_attachments WHERE material_id = ? AND material_batch_id IS NOT NULL", (material_id,))
-            if int(cursor.fetchone()[0] or 0) > 0:
-                raise ValueError("该物料已有需永久留存的批次附件，不能删除")
-            recycle_material(cursor, material_id, user.get("id"))
-            cursor.execute("DELETE FROM material_batches WHERE material_id = ?", (material_id,))
-            cursor.execute("DELETE FROM stock_records WHERE material_id = ?", (material_id,))
-            cursor.execute("DELETE FROM material_positions WHERE material_id = ?", (material_id,))
-            cursor.execute("DELETE FROM inventory WHERE material_id = ?", (material_id,))
-            cursor.execute("DELETE FROM materials WHERE id = ?", (material_id,))
+            delete_material_record(cursor, material_id, user.get("id"))
             conn.commit()
             return jsonify({"success": True})
         except Exception as exc:

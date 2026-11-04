@@ -5,6 +5,7 @@ import json
 
 from warehouse_suit.db import now_text, row_to_dict
 from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL, STOCK_SOURCE_TEMPORARY
+from warehouse_suit.issued_material_service import claim_outbound_edit_lines
 from warehouse_suit.material_repository import build_fifo_plan, material_batch_rows, material_stock_total
 from warehouse_suit.material_utils import locked_stock_quantity, numeric_or_none
 from warehouse_suit.permissions import canonical_permission, role_permissions
@@ -112,8 +113,14 @@ def configured_step_assignee_ids(cursor, form_type, step_code):
     return ids
 
 
+# 这三步不看设置里的可办理人：打印和上传是申请人，查阅是该单审批领导。
+FIXED_SUPPLY_HANDOVER_STEPS = {"supply_handover_print", "supply_voucher_upload", "supply_voucher_review"}
+
+
 def validate_step_assignees(cursor, form_type, step_code, user_ids):
     ids = validate_users_exist(cursor, user_ids)
+    if step_code in FIXED_SUPPLY_HANDOVER_STEPS:
+        return ids
     allowed = configured_step_assignee_ids(cursor, form_type, step_code)
     if allowed:
         invalid = [user_id for user_id in ids if user_id not in allowed]
@@ -232,6 +239,14 @@ def create_workflow_tasks(cursor, form_id, form_type, step_code, assignee_ids):
             (form_id, step_code, assignee_id, now_text(), now_text()),
         )
     return ids
+
+
+def require_login(cursor):
+    """只要已经登录。办事权限另按该账号原有角色判断。"""
+    user = _current_user(cursor)
+    if not user:
+        raise PermissionError("请先登录")
+    return user
 
 
 def require_permission(cursor, permission):
@@ -394,13 +409,18 @@ def aggregate_acceptance_results(cursor, form_id):
             if item.get("remark"):
                 remarks.append(str(item.get("remark")))
     for item_id, values in aggregate.items():
-        detail = {
-            "package_ok_quantity": values.get("package_ok_quantity", 0),
-            "appearance_ok_quantity": values.get("appearance_ok_quantity", 0),
-            "name_spec_ok_quantity": values.get("name_spec_ok_quantity", 0),
-            "usage_ok_quantity": values.get("usage_ok_quantity", 0),
-            "remark": "；".join(values.get("remarks") or []),
-        }
+        cursor.execute("SELECT data_json FROM workflow_items WHERE id = ? AND form_id = ?", (item_id, form_id))
+        current_row = cursor.fetchone()
+        detail = parse_json(current_row["data_json"] if current_row else "{}", {})
+        detail.update(
+            {
+                "package_ok_quantity": values.get("package_ok_quantity", 0),
+                "appearance_ok_quantity": values.get("appearance_ok_quantity", 0),
+                "name_spec_ok_quantity": values.get("name_spec_ok_quantity", 0),
+                "usage_ok_quantity": values.get("usage_ok_quantity", 0),
+                "remark": "；".join(values.get("remarks") or []),
+            }
+        )
         cursor.execute(
             """
             UPDATE workflow_items
@@ -517,6 +537,42 @@ def is_production_form_type(form_type):
     return form_type in PRODUCTION_FORM_TYPES
 
 
+def admin_workflow_item_fields(form_type):
+    """流程中心修改按单据类型保存明细，领用单不写验收专用列。"""
+    if form_type in {"claim", "special_claim"}:
+        return []
+    if form_type == "acceptance":
+        return [
+            "request_quantity",
+            "arrival_quantity",
+            "qualified_quantity",
+            "unqualified_quantity",
+            "approved_quantity",
+            "unit_price",
+            "purchase_project",
+        ]
+    if form_type in {"semifinished", "finished"}:
+        return ["arrival_quantity", "qualified_quantity", "unqualified_quantity"]
+    if form_type == "borrow":
+        return ["request_quantity", "outbound_quantity"]
+    return [
+        "material_code",
+        "material_name",
+        "brand_model",
+        "spec",
+        "purchase_applicant",
+        "purchase_project",
+        "unit",
+        "request_quantity",
+        "arrival_quantity",
+        "unit_price",
+        "qualified_quantity",
+        "unqualified_quantity",
+        "approved_quantity",
+        "outbound_quantity",
+    ]
+
+
 def workflow_edit_permission(form):
     if form["form_type"] == "acceptance" or is_production_form_type(form["form_type"]):
         return "edit_acceptance"
@@ -524,7 +580,7 @@ def workflow_edit_permission(form):
         if form.get("status") in {"outbound", "completed"} or form.get("current_step") in {"outbound", "completed"}:
             return "edit_outbound"
         return "edit_claim"
-    if form["form_type"] in {"borrow", "borrow_return"}:
+    if form["form_type"] in {"borrow", "borrow_return", "borrow_claim"}:
         return "edit_borrow"
     return "edit_claim"
 
@@ -558,6 +614,23 @@ def workflow_step_codes(form_type):
     return WORKFLOW_STEP_DEFINITIONS.get(form_type) or WORKFLOW_STEP_DEFINITIONS.get("acceptance", [])
 
 
+def workflow_step_codes_for_form(form):
+    """退回可选步骤。没有交接标记的旧供货单仍只有审批和出库。"""
+    form = form or {}
+    if form.get("form_type") != "supply":
+        return workflow_step_codes(form.get("form_type"))
+    data = form.get("data") if isinstance(form.get("data"), dict) else parse_json(form.get("data_json"), {})
+    if int((data or {}).get("handover_required") or 0):
+        return [
+            "leader_supply",
+            "supply_handover_print",
+            "supply_outbound",
+            "supply_voucher_upload",
+            "supply_voucher_review",
+        ]
+    return ["leader_supply", "supply_outbound"]
+
+
 def workflow_return_assignees(cursor, form, target_step):
     if target_step == "applicant_revision":
         return validate_users_exist(cursor, [int(form["applicant_id"])])
@@ -577,13 +650,18 @@ def workflow_return_assignees(cursor, form, target_step):
             ids = [int(value) for value in form_data.get("validator_ids") or [] if int(value)]
         elif target_step in {"leader_acceptance", "leader_claim", "leader_borrow"} and form.get("leader_id"):
             ids = [int(form["leader_id"])]
-        elif target_step in {"inbound", "outbound", "borrow_outbound", "return_inbound"} and form.get("warehouse_user_id"):
+        elif target_step in {"inbound", "outbound", "borrow_outbound", "return_inbound", "supply_outbound"} and form.get("warehouse_user_id"):
             ids = [int(form["warehouse_user_id"])]
+        elif target_step in {"supply_handover_print", "supply_voucher_upload"} and form.get("applicant_id"):
+            ids = [int(form["applicant_id"])]
+        elif target_step == "supply_voucher_review" and form.get("leader_id"):
+            ids = [int(form["leader_id"])]
     if not ids and form.get("applicant_id"):
         ids = [int(form["applicant_id"])]
-    allowed = configured_step_assignee_ids(cursor, form["form_type"], target_step)
-    if allowed:
-        ids = [user_id for user_id in ids if user_id in allowed] or allowed[:]
+    if target_step not in FIXED_SUPPLY_HANDOVER_STEPS:
+        allowed = configured_step_assignee_ids(cursor, form["form_type"], target_step)
+        if allowed:
+            ids = [user_id for user_id in ids if user_id in allowed] or allowed[:]
     return validate_users_exist(cursor, ids)
 
 
@@ -644,13 +722,24 @@ def serialize_form(cursor, form_id):
     for row in cursor.fetchall():
         item = dict(row)
         item["data"] = parse_json(item.pop("data_json", "{}"), {})
+        if form.get("form_type") == "borrow":
+            item["claimed_quantity"] = float(item["data"].get("claimed_quantity") or 0)
         if item.get("material_id"):
             stock_source = item.get("stock_source") or STOCK_SOURCE_FORMAL
-            current_stock_quantity = material_stock_total(
-                cursor,
-                item["material_id"],
-                stock_source=stock_source,
-            )
+            item_project = str(item.get("purchase_project") or item["data"].get("purchase_project") or "").strip() or None
+            if form.get("form_type") in {"claim", "borrow"}:
+                current_stock_quantity = material_stock_total(
+                    cursor,
+                    item["material_id"],
+                    stock_source=stock_source,
+                    purchase_project=item_project,
+                )
+            else:
+                current_stock_quantity = material_stock_total(
+                    cursor,
+                    item["material_id"],
+                    stock_source=stock_source,
+                )
             plan_quantity = float(item.get("request_quantity") or 0)
             if form.get("form_type") == "claim":
                 item["remaining_outbound_quantity"] = max(
@@ -665,13 +754,19 @@ def serialize_form(cursor, form_id):
             item["stock_quantity"] = locked_stock_quantity(item["data"], current_stock_quantity)
             item["current_stock_quantity"] = current_stock_quantity
             item["stock_quantity_locked"] = numeric_or_none(item["data"].get("stock_quantity_snapshot")) is not None or numeric_or_none(item["data"].get("available_quantity_snapshot")) is not None
-            batches = material_batch_rows(cursor, item["material_id"], stock_source=stock_source)
+            batches = material_batch_rows(
+                cursor,
+                item["material_id"],
+                stock_source=stock_source,
+                purchase_project=item_project if form.get("form_type") in {"claim", "borrow"} else None,
+            )
             item["batches"] = batches
             plan, shortage = build_fifo_plan(
                 cursor,
                 item["material_id"],
                 plan_quantity,
                 stock_source=stock_source,
+                purchase_project=item_project if form.get("form_type") in {"claim", "borrow"} else None,
             )
             item["suggested_batches"] = [
                 {
@@ -688,6 +783,8 @@ def serialize_form(cursor, form_id):
                 if float(batch.get("suggested_quantity") or 0) > 0
             ]
             item["stock_shortage"] = max(0, shortage)
+        if form.get("form_type") in {"claim", "special_claim"}:
+            item["outbound_lines"] = claim_outbound_edit_lines(cursor, form.get("form_no") or "", item)
         form["items"].append(item)
     cursor.execute(
         """

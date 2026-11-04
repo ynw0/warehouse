@@ -21,7 +21,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET_PYTHON = (3, 8)
-BANNED_PARTS = {".git", ".env", "data", "uploads", "attachments", "logs", "backups", "__pycache__", ".pytest_cache", "node_modules", "codex_work"}
+# 任意层级都排除的目录。运行时数据库、上传文件只在被复制树的根上排除，
+# 否则集团编码目录 warehouse_suit/group_coding/data 进不了离线包。
+BANNED_PARTS = {".git", ".env", "__pycache__", ".pytest_cache", "node_modules", "codex_work"}
+ROOT_ONLY_PARTS = {"data", "uploads", "attachments", "logs", "backups"}
 BANNED_SUFFIXES = {".db", ".db-wal", ".db-shm", ".orig", ".rej", ".pyc", ".pyo"}
 
 
@@ -34,8 +37,10 @@ def sha256(path):
 
 
 def excluded(path):
-    lowered = {part.lower() for part in path.parts}
-    if lowered & BANNED_PARTS:
+    parts = [part.lower() for part in path.parts]
+    if any(part in BANNED_PARTS for part in parts):
+        return True
+    if parts and parts[0] in ROOT_ONLY_PARTS:
         return True
     name = path.name.lower()
     return name.endswith(".identifier") or "zone.identifier" in name or any(name.endswith(suffix) for suffix in BANNED_SUFFIXES)

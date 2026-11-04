@@ -5,7 +5,7 @@ import json
 
 from flask import jsonify, request
 
-from warehouse_suit.acceptance_service import create_acceptance_workflow
+from warehouse_suit.acceptance_service import execute_create_acceptance
 from warehouse_suit.attachments import bind_material_attachments, bind_workflow_item_attachments_to_batch
 from warehouse_suit.db import now_text, today_text
 from warehouse_suit.inventory_service import add_inventory_batch, begin_inventory_transaction, ensure_material_from_payload
@@ -35,6 +35,43 @@ from warehouse_suit.workflow_service import (
 
 def register_acceptance_routes(app, *, get_db, current_user_provider):
     current_user = current_user_provider
+
+    @app.get("/api/acceptance/import-template")
+    def acceptance_import_template_download():
+        from flask import Response
+
+        from warehouse_suit.acceptance_import import acceptance_import_template
+
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            require_permission(cursor, "start_acceptance")
+            body = acceptance_import_template()
+            return Response(
+                "\ufeff" + body,
+                mimetype="text/csv",
+                headers={"Content-Disposition": "attachment; filename=acceptance-import.csv"},
+            )
+        finally:
+            conn.close()
+
+    @app.post("/api/acceptance/import")
+    def acceptance_import_fill():
+        from warehouse_suit.acceptance_import import parse_acceptance_import
+
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            require_permission(cursor, "start_acceptance")
+            upload = request.files.get("file")
+            text = upload.read().decode("utf-8-sig") if upload else (request.get_json(silent=True) or {}).get("text") or ""
+            rows = parse_acceptance_import(cursor, text)
+            return jsonify({"items": rows})
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
     @app.post("/api/acceptance")
     def create_acceptance():
         data = request.get_json(force=True)
@@ -42,23 +79,7 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_acceptance")
-            temporary_enabled = bool(workflow_settings(cursor).get("temporary_inventory_enabled"))
-            has_purchase_order = data.get("has_purchase_order")
-            if temporary_enabled:
-                if has_purchase_order not in {True, False}:
-                    raise ValueError("请选择是否有采购订单")
-            else:
-                has_purchase_order = True
-            stock_source = STOCK_SOURCE_FORMAL if has_purchase_order else STOCK_SOURCE_TEMPORARY
-            created = create_acceptance_workflow(
-                cursor,
-                user,
-                data.get("items") or [],
-                validator_ids=data.get("validator_ids") or [],
-                form_data={"has_purchase_order": has_purchase_order},
-                stock_source=stock_source,
-            )
-            form_id = created["form_id"]
+            form_id = execute_create_acceptance(cursor, user, data)
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:
@@ -251,11 +272,19 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                 if item_data.get("inbound_done"):
                     continue
                 patch = items_by_id.get(item["id"], {})
-                approved_qty = quantity_value(patch.get("approved_quantity") if patch.get("approved_quantity") is not None else item["qualified_quantity"], "入库数量")
+                approved_qty = quantity_value(patch.get("approved_quantity") if patch.get("approved_quantity") is not None else item["qualified_quantity"], "账面入库数量")
                 if validation_rule_enabled("workflow_bounds") and approved_qty > float(item["qualified_quantity"] or 0) + 1e-9:
-                    raise ValueError(f"{item['material_name']} 入库数量不能大于合格数量")
+                    raise ValueError(f"{item['material_name']} 账面入库数量不能大于合格数量")
                 if approved_qty <= 0:
                     continue
+                from warehouse_suit.usage_kind import USAGE_RD, pack_quantity_value, validate_usage_kind
+
+                pack_quantity = pack_quantity_value(patch.get("pack_quantity") or item_data.get("pack_quantity") or 1)
+                arrival_quantity = float(item.get("arrival_quantity") or 0)
+                if patch.get("actual_quantity") not in (None, ""):
+                    actual_quantity = quantity_value(patch.get("actual_quantity"), "实际数量")
+                else:
+                    actual_quantity = quantity_value(arrival_quantity * pack_quantity, "实际数量")
                 location = {
                     "warehouse_type": patch.get("warehouse_type"),
                     "shelf_id": patch.get("shelf_id") or data.get("shelf_id"),
@@ -263,11 +292,19 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                     "zone_name": patch.get("zone_name") or data.get("zone_name") or "A",
                     "received_date": data.get("inbound_date") or today_text(),
                     "remark": f"验收单 {form['form_no']} 入库",
+                    "purchase_project": str(item.get("purchase_project") or "").strip(),
+                    "pack_quantity": pack_quantity,
+                    "arrival_unit": str(item_data.get("arrival_unit") or "").strip(),
+                    "usage_kind": validate_usage_kind(item_data.get("usage_kind") or USAGE_RD),
+                    "book_quantity": approved_qty,
+                    "purchase_applicant": str(item.get("purchase_applicant") or "").strip(),
                 }
+                if not location["purchase_project"]:
+                    raise ValueError(f"{item['material_name']} 缺少采购申请项目，不能入库")
                 batch_id = add_inventory_batch(
                     cursor,
                     item["material_id"],
-                    approved_qty,
+                    actual_quantity,
                     item["unit_price"],
                     location,
                     inbound_no,
@@ -290,7 +327,7 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                 cursor.execute("SELECT batch_no FROM material_batches WHERE id = ?", (batch_id,))
                 batch_row = cursor.fetchone()
                 inbound_batches = item_data.get("inbound_batches") or []
-                inbound_batches.append({"batch_id": batch_id, "batch_no": batch_row["batch_no"] if batch_row else "", "quantity": approved_qty})
+                inbound_batches.append({"batch_id": batch_id, "batch_no": batch_row["batch_no"] if batch_row else "", "quantity": actual_quantity, "book_quantity": approved_qty, "pack_quantity": pack_quantity})
                 item_data.update(
                     {
                         "inbound_done": True,
@@ -345,3 +382,43 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
             return jsonify({"success": False, "error": str(exc)}), 400
         conn.close()
         return jsonify({"success": True, "form": form_data})
+
+    @app.get("/api/acceptance/<int:form_id>/unit-price-correction")
+    def acceptance_unit_price_correction_preview(form_id):
+        """更正单价弹窗：当前单价、能否更正，以及受影响的出库单和制作单。"""
+        from warehouse_suit.price_correction_service import acceptance_price_correction_preview
+
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            require_permission(cursor, "edit_acceptance")
+            return jsonify(acceptance_price_correction_preview(cursor, form_id))
+        except Exception as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/acceptance/<int:form_id>/correct-unit-price")
+    def correct_acceptance_unit_price(form_id):
+        """按验收入库批次更正单价，并重算相关半成品、成品成本。"""
+        from warehouse_suit.price_correction_service import correct_acceptance_unit_prices
+
+        data = request.get_json(force=True)
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            user = require_permission(cursor, "edit_acceptance")
+            result = correct_acceptance_unit_prices(
+                cursor,
+                form_id,
+                data.get("items") or [],
+                user,
+                request.remote_addr or "",
+            )
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            conn.close()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        conn.close()
+        return jsonify({"success": True, **result})

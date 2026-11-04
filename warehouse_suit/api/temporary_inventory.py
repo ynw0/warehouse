@@ -3,14 +3,18 @@
 
 from flask import jsonify, request
 
+from warehouse_suit.claim_split_service import ClaimSplitRequired
 from warehouse_suit.temporary_inventory_service import (
     TemporaryInventoryDisabled,
     adjust_temporary_batch,
     create_temporary_batch,
     create_temporary_material,
     delete_temporary_material,
+    list_temporary_acceptance_forms,
+    promote_acceptance_form,
     promote_temporary_material,
     require_temporary_inventory_enabled,
+    split_acceptance_form_claims,
     temporary_batch_rows,
     temporary_material_choices,
     temporary_inventory_rows,
@@ -21,6 +25,13 @@ from warehouse_suit.workflow_service import require_permission
 
 
 def _error_response(exc):
+    if isinstance(exc, ClaimSplitRequired):
+        return jsonify({
+            "success": False,
+            "error": str(exc),
+            "splittable": True,
+            "claims": exc.claims,
+        }), 400
     if isinstance(exc, TemporaryInventoryDisabled):
         return jsonify({"success": False, "error": str(exc)}), 409
     if isinstance(exc, PermissionError):
@@ -46,6 +57,58 @@ def register_temporary_inventory_routes(app, *, get_db, current_user_provider):
                 cursor,
                 material_id,
                 data.get("batches"),
+                user,
+                request.headers.get("X-Forwarded-For", request.remote_addr or ""),
+            )
+            conn.commit()
+            return jsonify({"success": True, **result})
+        except Exception as exc:
+            conn.rollback()
+            return _error_response(exc)
+        finally:
+            conn.close()
+
+    @app.get("/api/temporary-inventory/acceptance-forms")
+    def list_temporary_acceptance_flow():
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            require_access(cursor, "view_temporary_inventory")
+            return jsonify({"success": True, "items": list_temporary_acceptance_forms(cursor)})
+        except Exception as exc:
+            return _error_response(exc)
+        finally:
+            conn.close()
+
+    @app.post("/api/temporary-inventory/acceptance-forms/<int:form_id>/promote")
+    def promote_temporary_acceptance_flow(form_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            user = require_access(cursor, "transfer_temporary_inventory")
+            result = promote_acceptance_form(
+                cursor,
+                form_id,
+                user,
+                request.headers.get("X-Forwarded-For", request.remote_addr or ""),
+            )
+            conn.commit()
+            return jsonify({"success": True, **result})
+        except Exception as exc:
+            conn.rollback()
+            return _error_response(exc)
+        finally:
+            conn.close()
+
+    @app.post("/api/temporary-inventory/acceptance-forms/<int:form_id>/split-claims")
+    def split_temporary_acceptance_claims(form_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            user = require_access(cursor, "transfer_temporary_inventory")
+            result = split_acceptance_form_claims(
+                cursor,
+                form_id,
                 user,
                 request.headers.get("X-Forwarded-For", request.remote_addr or ""),
             )

@@ -35,9 +35,12 @@ def register_history_routes(app, *, get_db, current_user_provider):
 
         try:
             result = get_item_change_history(cursor, item_type, item_ref_id, page, limit)
-        except ValueError:
+        except ValueError as exc:
             conn.close()
-            return jsonify({"error": "物品不存在"}), 404
+            message = str(exc)
+            if "not found" in message:
+                return jsonify({"error": "物品不存在"}), 404
+            return jsonify({"error": message}), 400
 
         conn.close()
         return jsonify(result)

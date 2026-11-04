@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from warehouse_suit.db import now_text
+from warehouse_suit.notifications import NOTIFICATION_CATEGORIES
 from warehouse_suit.settings import parse_json, temporary_inventory_enabled, workflow_settings
 from warehouse_suit.workflow_service import user_has_permission
 from warehouse_suit.temporary_inventory_visibility import (
@@ -157,10 +158,16 @@ def unread_notification_count(cursor, user_id):
     return int(cursor.fetchone()[0] or 0)
 
 
-def notification_rows(cursor, user_id, read=False, limit=100):
+def notification_rows(cursor, user_id, read=False, limit=100, category=""):
     where = ["n.user_id = ?", "n.is_read = ?"]
     params = [user_id, 1 if read else 0]
     append_notification_visibility(cursor, where, params, "n")
+    category = str(category or "").strip()
+    if category:
+        if category not in NOTIFICATION_CATEGORIES:
+            raise ValueError("通知分类不正确")
+        where.append("n.category = ?")
+        params.append(category)
     cursor.execute(
         f"""
         SELECT n.*

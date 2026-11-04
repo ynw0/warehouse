@@ -25,7 +25,7 @@ def _create_material_with_stock(client, code="10200100017777", quantity=10):
     )
     assert resp.status_code == 200, resp.get_data(as_text=True)
     material = resp.get_json()["material"]
-    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": quantity, "unit_price": 1})
+    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": quantity, "total_amount": quantity, "purchase_project": "办公"})
     assert resp.status_code == 200, resp.get_data(as_text=True)
     return resp.get_json()["material"]
 
@@ -79,7 +79,7 @@ def test_workflow_stock_quantity_is_locked_to_form_snapshot(client):
         "/api/claims",
         json={
             "purpose": "办公",
-            "items": [{"material_id": material["id"], "request_quantity": 2}],
+            "items": [{"material_id": material["id"], "request_quantity": 2, "purchase_project": "办公"}],
         },
     )
     assert resp.status_code == 200, resp.get_data(as_text=True)
@@ -113,7 +113,7 @@ def test_material_master_rejects_negative_initial_quantity(client):
 def test_stock_change_rejects_invalid_number(client):
     _login_admin(client)
     material = _create_material(client)
-    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": "nan", "unit_price": 1})
+    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": "nan", "total_amount": 1, "purchase_project": "办公"})
     assert resp.status_code == 400
     assert "有效数字" in resp.get_json()["error"]
 
@@ -121,9 +121,9 @@ def test_stock_change_rejects_invalid_number(client):
 def test_stock_in_rejects_negative_price(client):
     _login_admin(client)
     material = _create_material(client)
-    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": 1, "unit_price": -1})
+    resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": 1, "total_amount": -1, "purchase_project": "办公"})
     assert resp.status_code == 400
-    assert "入库单价" in resp.get_json()["error"]
+    assert "入库总金额" in resp.get_json()["error"]
 
 
 def test_serial_count_rejects_invalid_number(client):

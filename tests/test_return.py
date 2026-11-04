@@ -370,7 +370,7 @@ def test_return_admin_reject(client, db):
     assert inv["borrowed_quantity"] == 5
 
 
-# 11. Scrapped item returned完好 → moves to qualified inventory
+# 11. 完好归还只减少借用，不把报废记录搬回合格库
 def test_return_scrapped_to_qualified(client, db):
     testuser_id = _get_user_id(db, "testuser")
     warehouse_id = _get_user_id(db, "warehouse")
@@ -404,11 +404,11 @@ def test_return_scrapped_to_qualified(client, db):
 
     cursor = db.cursor()
     cursor.execute("SELECT * FROM scrapped_semifinished_goods WHERE serial_no = ?", ("SF-QUAL-11",))
-    assert cursor.fetchone() is None
+    assert cursor.fetchone() is not None
 
     cursor.execute("SELECT * FROM semifinished_inventory WHERE id = ?", (sf_id,))
     inv = cursor.fetchone()
-    assert inv["quantity"] == 5
+    assert inv["quantity"] == 0
     assert inv["borrowed_quantity"] == 0
 
 
@@ -490,10 +490,20 @@ def test_return_partial(client, db):
 
 # 15. Material return without change fields → 200
 def test_return_material_no_changes(client, db):
+    import json
+
+    from warehouse_suit.inventory_service import add_inventory_batch
+
     testuser_id = _get_user_id(db, "testuser")
     warehouse_id = _get_user_id(db, "warehouse")
     mat_id = _create_material(db)
+    batch_id = add_inventory_batch(db.cursor(), mat_id, 10, 1, {}, "MAT-RETURN-BATCH", stock_source="formal")
     record_id = _create_borrow_record(db, testuser_id, "material", mat_id, material_id=mat_id, qty=5, item_code="MAT-001", item_name="Test Material")
+    db.execute(
+        "UPDATE borrow_records SET data_json = ? WHERE id = ?",
+        (json.dumps({"consumed_batches": [{"batch_id": batch_id, "quantity": 5, "unit_price": 1}]}), record_id),
+    )
+    db.commit()
 
     _login(client, "testuser", "test")
     resp = _create_return(
@@ -514,3 +524,4 @@ def test_return_material_no_changes(client, db):
     record = cursor.fetchone()
     assert record["status"] == "returned"
     assert record["returned_quantity"] == 5
+    assert db.execute("SELECT quantity FROM material_batches WHERE id = ?", (batch_id,)).fetchone()[0] == 15

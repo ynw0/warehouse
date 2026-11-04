@@ -50,9 +50,10 @@ def test_dashboard_route_requires_login_and_renders_live_screen(client, db):
 
 
 def test_dashboard_realtime_refresh_keeps_compact_todo_rows():
+    dashboard_js = Path("static/js/dashboard.js").read_text()
     system_js = Path("static/system.js").read_text()
-    assert "The dashboard owns #todoList" in system_js
-    assert 'if (system.view !== "dashboard")' in system_js
+    assert 'dashboardRoot?.querySelector("#todoList")' in dashboard_js
+    assert 'if (system.view === "todo")' in system_js
 
 
 def test_dashboard_overview_empty_database_is_safe(client, db):

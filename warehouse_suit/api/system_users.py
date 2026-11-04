@@ -8,8 +8,8 @@ from flask import Response, jsonify, request
 from werkzeug.security import generate_password_hash
 
 from warehouse_suit.db import now_text
-from warehouse_suit.recycle import recycle_table_row
 from warehouse_suit.settings import password_policy, validate_password_policy
+from warehouse_suit.user_admin import remove_department, reset_user_password, save_user_account, set_user_active, write_department, delete_user_account
 from warehouse_suit.workflow_service import require_permission
 
 
@@ -53,23 +53,12 @@ def register_system_user_routes(app, *, get_db, require_admin):
         conn = get_db()
         cursor = conn.cursor()
         try:
-            name = str(data.get("name") or "").strip()
-            if not name:
-                raise ValueError("部门名称不能为空")
             department_id = int(data.get("id") or 0)
             if department_id:
                 require_permission(cursor, "edit_department")
-                cursor.execute(
-                    "UPDATE departments SET name = ?, description = ?, updated_at = ? WHERE id = ?",
-                    (name, data.get("description") or "", now_text(), department_id),
-                )
             else:
                 require_admin(cursor, "admin")
-                cursor.execute(
-                    "INSERT INTO departments (name, description, updated_at) VALUES (?, ?, ?)",
-                    (name, data.get("description") or "", now_text()),
-                )
-                department_id = cursor.lastrowid
+            department_id = write_department(cursor, data)
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -83,13 +72,7 @@ def register_system_user_routes(app, *, get_db, require_admin):
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "edit_department")
-            cursor.execute("SELECT name FROM departments WHERE id = ?", (department_id,))
-            row = cursor.fetchone()
-            if not row:
-                raise ValueError("部门不存在")
-            recycle_table_row(cursor, "department", "departments", department_id, ["name"], user.get("id"))
-            cursor.execute("UPDATE users SET department = ?, updated_at = ? WHERE department = ?", ("", now_text(), row["name"]))
-            cursor.execute("DELETE FROM departments WHERE id = ?", (department_id,))
+            remove_department(cursor, user, department_id)
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -104,47 +87,7 @@ def register_system_user_routes(app, *, get_db, require_admin):
         cursor = conn.cursor()
         try:
             require_admin(cursor, "admin")
-            user_id = int(data.get("id") or 0)
-            username = str(data.get("username") or "").strip()
-            display_name = str(data.get("display_name") or username).strip()
-            if not username or not display_name:
-                raise ValueError("账号和姓名不能为空")
-            if user_id:
-                cursor.execute(
-                    """
-                    UPDATE users
-                    SET username = ?, display_name = ?, department = ?, is_active = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (username, display_name, data.get("department") or "", 1 if data.get("is_active", True) else 0, now_text(), user_id),
-                )
-                if data.get("password"):
-                    policy = password_policy(cursor)
-                    validate_password_policy(data.get("password"), policy)
-                    cursor.execute(
-                        "UPDATE users SET password = ?, must_change_password = ?, updated_at = ? WHERE id = ?",
-                        (generate_password_hash(data.get("password")), 1 if policy.get("force_change_on_first_login") else 0, now_text(), user_id),
-                    )
-            else:
-                policy = password_policy(cursor)
-                supplied_password = str(data.get("password") or "")
-                raw_password = supplied_password or "123456"
-                if supplied_password:
-                    validate_password_policy(raw_password, policy)
-                cursor.execute(
-                    """
-                    INSERT INTO users (username, display_name, department, password, must_change_password, is_active, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 1, ?)
-                    """,
-                    (username, display_name, data.get("department") or "", generate_password_hash(raw_password), 1 if policy.get("force_change_on_first_login") else 0, now_text()),
-                )
-                user_id = cursor.lastrowid
-            cursor.execute("DELETE FROM user_roles WHERE user_id = ?", (user_id,))
-            for code in data.get("roles") or ["user"]:
-                cursor.execute("SELECT id FROM roles WHERE code = ?", (code,))
-                role = cursor.fetchone()
-                if role:
-                    cursor.execute("INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)", (user_id, role[0]))
+            user_id = save_user_account(cursor, data)
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -159,18 +102,7 @@ def register_system_user_routes(app, *, get_db, require_admin):
         cursor = conn.cursor()
         try:
             require_admin(cursor, "admin")
-            password = str(data.get("password") or "").strip()
-            if not password:
-                raise ValueError("请输入新密码")
-            policy = password_policy(cursor)
-            validate_password_policy(password, policy)
-            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-            if not cursor.fetchone():
-                raise ValueError("用户不存在")
-            cursor.execute(
-                "UPDATE users SET password = ?, must_change_password = ?, updated_at = ? WHERE id = ?",
-                (generate_password_hash(password), 1 if policy.get("force_change_on_first_login") else 0, now_text(), user_id),
-            )
+            reset_user_password(cursor, user_id, data.get("password"))
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -277,9 +209,7 @@ def register_system_user_routes(app, *, get_db, require_admin):
         cursor = conn.cursor()
         try:
             user = require_admin(cursor, "admin")
-            if user_id == user["id"]:
-                raise ValueError("不能删除当前登录账号")
-            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            delete_user_account(cursor, user, user_id)
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -294,12 +224,7 @@ def register_system_user_routes(app, *, get_db, require_admin):
         cursor = conn.cursor()
         try:
             user = require_admin(cursor, "admin")
-            if user_id == user["id"] and not data.get("is_active", True):
-                raise ValueError("不能停用当前登录账号")
-            cursor.execute(
-                "UPDATE users SET is_active = ?, updated_at = ? WHERE id = ?",
-                (1 if data.get("is_active", True) else 0, now_text(), user_id),
-            )
+            set_user_active(cursor, user, user_id, data.get("is_active", True))
             conn.commit()
         except Exception as exc:
             conn.rollback()

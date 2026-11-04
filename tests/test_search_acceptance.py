@@ -158,7 +158,7 @@ def _seed_semifinished_acceptance(db, name, project_code="", maker_id=None):
 
 def _next_finished_acceptance_no(cursor):
     today = app_module.today_text().replace("-", "")
-    like = f"CY{today}%"
+    like = f"CP{today}%"
     cursor.execute(
         "SELECT acceptance_no FROM finished_acceptances WHERE acceptance_no LIKE ? ORDER BY acceptance_no DESC LIMIT 1",
         (like,),
@@ -168,7 +168,7 @@ def _next_finished_acceptance_no(cursor):
         serial = int(str(row[0])[-2:]) + 1
     else:
         serial = 1
-    return f"CY{today}{serial:02d}"
+    return f"CP{today}{serial:02d}"
 
 
 def _seed_finished_acceptance(db, product_name, project_code="", maker_id=None):
@@ -276,8 +276,8 @@ def _seed_borrow_workflow(db, material_name, spec=""):
 
 
 def test_acceptance_with_project_code(client, db):
-    _login(client)
-    _seed_claimed_material(db)
+    user = _login(client)
+    material_id, batch_id = _seed_claimed_material(db)
     resp = client.post(
         "/api/production/semifinished-acceptance",
         json={
@@ -289,11 +289,12 @@ def test_acceptance_with_project_code(client, db):
             "function_ok_quantity": 1,
             "performance_ok_quantity": 1,
             "project_code": "TEST-001",
-            "components": [{"material_id": 1, "batch_id": 1, "per_unit_quantity": 1}],
+            "maker_id": user["id"],
+            "components": [{"material_id": material_id, "batch_id": batch_id, "per_unit_quantity": 1}],
             "serials": [{"serial_no": "BY2026010101", "qualified": True}],
         },
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.get_data(as_text=True)
     data = resp.get_json()
     assert data["success"] is True
 
@@ -320,24 +321,19 @@ def test_acceptance_without_project_code(client, db):
             "serials": [{"serial_no": "BY2026010102", "qualified": True}],
         },
     )
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data["success"] is True
-
-    cursor = db.cursor()
-    cursor.execute("SELECT project_code FROM semifinished_acceptances WHERE id = ?", (data["acceptance"]["id"],))
-    row = cursor.fetchone()
-    assert row[0] == ""
+    assert resp.status_code == 400
+    assert "请先选择项目代号" in resp.get_json()["error"]
 
 
 def test_acceptance_with_maker_id(client, db):
     _login(client)
-    _seed_claimed_material(db)
+    material_id, batch_id = _seed_claimed_material(db)
     maker_id = _seed_maker(db, "制造者A")
     resp = client.post(
         "/api/production/finished-acceptance",
         json={
             "product_name": "成品A",
+            "project_code": "TEST-001",
             "acceptance_quantity": 1,
             "qualified_quantity": 1,
             "unqualified_quantity": 0,
@@ -345,7 +341,7 @@ def test_acceptance_with_maker_id(client, db):
             "function_ok_quantity": 1,
             "performance_ok_quantity": 1,
             "maker_id": maker_id,
-            "material_components": [{"material_id": 1, "batch_id": 1, "per_unit_quantity": 1}],
+            "material_components": [{"material_id": material_id, "batch_id": batch_id, "per_unit_quantity": 1}],
             "serials": [{"serial_no": "CY2026010101", "qualified": True}],
         },
     )

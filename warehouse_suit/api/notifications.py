@@ -9,6 +9,7 @@ from flask import Response, jsonify, request, stream_with_context
 
 from warehouse_suit.db import now_text
 from warehouse_suit.temporary_inventory_visibility import append_notification_visibility
+from warehouse_suit.notifications import NOTIFICATION_CATEGORIES
 from warehouse_suit.todo_service import (
     cleanup_notifications,
     latest_workflow_event_id,
@@ -38,7 +39,11 @@ def register_notification_routes(app, *, get_db, current_user_provider, sse_lock
             return jsonify({"success": False, "error": "请先登录"}), 401
         cleanup_notifications(cursor)
         read = str(request.args.get("read") or "0").lower() in {"1", "true", "yes"}
-        rows = notification_rows(cursor, user["id"], read=read)
+        category = str(request.args.get("category") or "").strip()
+        if category and category not in NOTIFICATION_CATEGORIES:
+            conn.close()
+            return jsonify({"success": False, "error": "通知分类不正确"}), 400
+        rows = notification_rows(cursor, user["id"], read=read, category=category)
         unread_count = unread_notification_count(cursor, user["id"])
         conn.commit()
         conn.close()

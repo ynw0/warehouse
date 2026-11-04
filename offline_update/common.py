@@ -239,6 +239,12 @@ def database_metrics(path):
                 metrics["batch_status_count.available"] = int(scalar(conn, "SELECT COUNT(*) FROM material_batches"))
         if table_exists(conn, "inventory"):
             metrics["inventory.quantity"] = float(scalar(conn, "SELECT COALESCE(SUM(quantity), 0) FROM inventory"))
+        if table_exists(conn, "workflow_forms") and column_exists(conn, "workflow_forms", "form_type"):
+            metrics["count.borrow_claim_forms"] = int(
+                scalar(conn, "SELECT COUNT(*) FROM workflow_forms WHERE form_type = 'borrow_claim'")
+            )
+        else:
+            metrics["count.borrow_claim_forms"] = 0
         if table_exists(conn, "temporary_issue_obligations"):
             metrics["obligation.issued"] = float(scalar(conn, "SELECT COALESCE(SUM(issued_quantity), 0) FROM temporary_issue_obligations"))
             metrics["obligation.settled"] = float(scalar(conn, "SELECT COALESCE(SUM(settled_quantity), 0) FROM temporary_issue_obligations"))
@@ -248,11 +254,28 @@ def database_metrics(path):
 
 
 def assert_business_metrics_unchanged(before, after):
+    """数量必须一致。借用转领用补单只允许按新增单据数增加表行数。"""
     ignored_prefixes = (
         "count.temporary_issue_obligations",
     )
+    document_keys = (
+        "count.workflow_forms",
+        "count.workflow_items",
+        "count.borrow_claim_forms",
+    )
     differences = {}
+    form_delta = int(after.get("count.workflow_forms") or 0) - int(before.get("count.workflow_forms") or 0)
+    item_delta = int(after.get("count.workflow_items") or 0) - int(before.get("count.workflow_items") or 0)
+    claim_delta = int(after.get("count.borrow_claim_forms") or 0) - int(before.get("count.borrow_claim_forms") or 0)
+    if form_delta != claim_delta or item_delta != claim_delta or claim_delta < 0:
+        differences["borrow_claim_documents"] = {
+            "forms": form_delta,
+            "items": item_delta,
+            "borrow_claim_forms": claim_delta,
+        }
     for key, value in before.items():
+        if key in document_keys:
+            continue
         if key.startswith(ignored_prefixes) and value == 0:
             continue
         if after.get(key) != value:
@@ -351,8 +374,9 @@ def migrate_database_copy(source_db, work_dir):
     checks = database_checks(copy_path)
     if checks["integrity_check"] != "ok" or checks["foreign_key_check"]:
         raise UpgradeError("数据库副本迁移后的完整性检查失败")
-    if sorted(first["expected"]) != sorted(checks["migrations"]):
-        raise UpgradeError("数据库副本没有包含全部目标迁移")
+    missing = sorted(set(first["expected"]) - set(checks["migrations"]))
+    if missing:
+        raise UpgradeError("数据库副本没有包含全部目标迁移: %s" % ", ".join(missing))
     return {
         "copy": str(copy_path),
         "backup": backup_info,

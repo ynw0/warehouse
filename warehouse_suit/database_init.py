@@ -353,6 +353,27 @@ def init_db():
 
     cursor.execute(
         """
+        CREATE TABLE IF NOT EXISTS workflow_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            applicant_id INTEGER NOT NULL,
+            form_type TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (applicant_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_drafts_applicant_updated
+        ON workflow_drafts (applicant_id, updated_at DESC)
+        """
+    )
+
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS workflow_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             form_id INTEGER NOT NULL,
@@ -497,6 +518,25 @@ def init_db():
             FOREIGN KEY (batch_id) REFERENCES material_batches(id) ON DELETE SET NULL
         )
         """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS claim_consumptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_kind TEXT NOT NULL,
+            source_id INTEGER NOT NULL,
+            batch_id INTEGER,
+            production_source_type TEXT NOT NULL,
+            production_source_id INTEGER NOT NULL,
+            material_id INTEGER NOT NULL,
+            quantity REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_claim_consumptions_source ON claim_consumptions(source_kind, source_id, batch_id)"
     )
 
     cursor.execute(
@@ -690,6 +730,7 @@ def init_db():
             body TEXT NOT NULL DEFAULT '',
             is_read INTEGER NOT NULL DEFAULT 0,
             data_json TEXT NOT NULL DEFAULT '{}',
+            category TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             read_at TEXT DEFAULT '',
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -728,6 +769,7 @@ def init_db():
             unit TEXT DEFAULT '',
             quantity REAL NOT NULL DEFAULT 0,
             returned_quantity REAL NOT NULL DEFAULT 0,
+            claimed_quantity REAL NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'borrowed',
             borrower_id INTEGER,
             borrow_form_id INTEGER,
@@ -762,6 +804,10 @@ def init_db():
         ("materials", "category_name", "TEXT DEFAULT ''"),
         ("materials", "material_type", "TEXT DEFAULT ''"),
         ("materials", "purchase_applicant", "TEXT DEFAULT ''"),
+        ("materials", "purchase_project", "TEXT NOT NULL DEFAULT ''"),
+        ("materials", "group_category_code", "TEXT NOT NULL DEFAULT ''"),
+        ("materials", "group_service_code", "TEXT NOT NULL DEFAULT ''"),
+        ("materials", "group_standard_description", "TEXT NOT NULL DEFAULT ''"),
         ("users", "must_change_password", "INTEGER NOT NULL DEFAULT 0"),
         ("users", "password_changed_at", "TEXT DEFAULT ''"),
         ("material_positions", "slot_index", "INTEGER NOT NULL DEFAULT 0"),
@@ -773,6 +819,8 @@ def init_db():
         ("stock_records", "amount", "REAL NOT NULL DEFAULT 0"),
         ("inventory", "amount", "REAL NOT NULL DEFAULT 0"),
         ("workflow_items", "purchase_applicant", "TEXT DEFAULT ''"),
+        ("workflow_items", "purchase_project", "TEXT NOT NULL DEFAULT ''"),
+        ("material_batches", "purchase_project", "TEXT NOT NULL DEFAULT ''"),
         ("production_material_consumptions", "batch_id", "INTEGER"),
         ("semifinished_acceptances", "serials_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("semifinished_inventory", "shelf_id", "INTEGER"),
@@ -790,6 +838,8 @@ def init_db():
         ("finished_good_inventory", "borrowed_quantity", "REAL NOT NULL DEFAULT 0"),
         ("semifinished_acceptances", "project_code", "TEXT NOT NULL DEFAULT ''"),
         ("semifinished_acceptances", "maker_id", "INTEGER"),
+        ("borrow_records", "claimed_quantity", "REAL NOT NULL DEFAULT 0"),
+        ("notifications", "category", "TEXT NOT NULL DEFAULT ''"),
     ]:
         ensure_column(cursor, table, column, definition)
 
@@ -797,6 +847,8 @@ def init_db():
 
     conn.commit()
     run_migrations(conn)
+    from warehouse_suit.coding_agent import fail_stale_coding_jobs
+    fail_stale_coding_jobs(conn)
     cursor = conn.cursor()
 
     seed_users_and_roles(cursor)

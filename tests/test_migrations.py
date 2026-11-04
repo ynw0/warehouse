@@ -113,11 +113,25 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026090801",
         "2026090802",
         "2026090803",
+        "2026091601",
+        "2026091602",
+        "2026092101",
+        "2026092102",
+        "2026092103",
+        "2026092201",
+        "2026092202",
+        "2026092301",
+        "2026100901",
+        "2026100902",
+        "2026101201",
+        "2026101202",
+        "2026101301",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 11
-    assert {"stock_source", "inventory_status", "version"} <= _column_names(conn, "material_batches")
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 24
+    assert conn.execute("SELECT purchase_project FROM material_batches WHERE id = 1").fetchone()[0] == "办公"
+    assert {"stock_source", "inventory_status", "version", "purchase_applicant"} <= _column_names(conn, "material_batches")
     assert {
         "stock_source",
         "business_type",
@@ -153,6 +167,10 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
     assert conn.execute("SELECT stock_source FROM workflow_items").fetchone()[0] == "formal"
     assert conn.execute("SELECT origin_type FROM workflow_forms").fetchone()[0] == "manual"
     assert conn.execute("SELECT stock_source FROM borrow_records").fetchone()[0] == "formal"
+    assert conn.execute("SELECT COUNT(*) FROM category_rules").fetchone()[0] == 433
+    assert conn.execute(
+        "SELECT small_name FROM category_rules WHERE major_code = '03' AND middle_code = '06' AND small_code = '01'"
+    ).fetchone()[0] == "标定板"
     assert {
         "idx_material_batches_source_status_material_fifo",
         "idx_stock_records_source_material_date",
@@ -192,6 +210,29 @@ def test_new_database_is_created_at_latest_schema(db):
     assert db.execute(
         "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026090803'"
     ).fetchone()[0] == 1
+    assert db.execute(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026091602'"
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026092101'"
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026092102'"
+    ).fetchone()[0] == 1
+    assert db.execute(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = '2026092103'"
+    ).fetchone()[0] == 1
+    assert {"purchase_project"} <= _column_names(db, "material_batches")
+    assert {"purchase_project"} <= _column_names(db, "workflow_items")
+    assert {"purchase_project"} <= _column_names(db, "materials")
+    assert {"category"} <= _column_names(db, "notifications")
+    assert {
+        "source_kind",
+        "source_id",
+        "production_source_type",
+        "production_source_id",
+    } <= _column_names(db, "claim_consumptions")
+    assert {"applicant_id", "form_type", "title", "payload_json"} <= _column_names(db, "workflow_drafts")
     assert {"origin_type", "origin_ref_id"} <= _column_names(db, "workflow_forms")
     assert {"workflow_item_id"} <= _column_names(db, "stock_records")
     assert {"operation_key", "issued_quantity", "status"} <= _column_names(

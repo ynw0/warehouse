@@ -27,7 +27,10 @@
     stocktake_supervisor: "待监盘签字",
     leader_common_material: "常用物料审批",
     leader_supply: "供货审批",
+    supply_handover_print: "打印回执单",
     supply_outbound: "供货待出库",
+    supply_voucher_upload: "上传交接凭证",
+    supply_voucher_review: "查阅交接凭证",
     supply_return_inbound: "回寄待验收",
     leader_supply_extension: "供货延期审批",
     external_open: "外部待结清"
@@ -146,7 +149,7 @@
   }
 
   function renderTodos(todos) {
-    const host = document.getElementById("todoList");
+    const host = dashboardRoot?.querySelector("#todoList");
     if (!host) return;
     clear(host);
     if (!Array.isArray(todos) || !todos.length) {

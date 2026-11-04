@@ -50,13 +50,18 @@ def stock_in(client, material_id, quantity, unit_price=10):
         "material_id": material_id,
         "quantity": quantity,
         "unit_price": unit_price,
+        "total_amount": quantity * unit_price,
+        "purchase_project": "办公",
     })
     assert resp.status_code == 200, resp.get_data(as_text=True)
     return resp.get_json()
 
 
 def create_borrow(client, items, leader_id=None):
-    payload = {"items": items}
+    payload = {"items": items, "purpose": "办公"}
+    for item in payload["items"]:
+        if (item.get("item_type") or "material") == "material":
+            item["purchase_project"] = item.get("purchase_project") or "办公"
     if leader_id is not None:
         payload["leader_id"] = leader_id
     resp = client.post("/api/borrows", json=payload)
@@ -475,7 +480,8 @@ class TestAcceptanceSearchPagination:
                 "name": "验收流程测试物料",
                 "purchase_quantity": 10,
                 "arrival_quantity": 10,
-                "unit_price": 50,
+                "total_amount": 500,
+                "purchase_project": "办公",
             }],
             "validator_ids": [get_user_id(db, "warehouse")],
         })
@@ -591,6 +597,7 @@ class TestBackwardCompatAndUntouched:
                 "item_type": "material",
                 "item_ref_id": mat["id"],
                 "request_quantity": 1,
+                "purchase_project": "办公",
             }],
             "leader_id": admin_id,
         })

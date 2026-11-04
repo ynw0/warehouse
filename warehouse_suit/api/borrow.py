@@ -5,7 +5,15 @@ import json
 
 from flask import jsonify, request
 
-from warehouse_suit.borrow_service import allocate_borrow_items, insert_borrow_allocations
+from warehouse_suit.borrow_service import (
+    borrow_remaining_quantity,
+    borrow_settled_status,
+    create_borrow_claim_form,
+    execute_create_borrow,
+    insert_borrow_record,
+    is_full_borrow_transfer,
+    transfer_borrow_batch_slice,
+)
 from warehouse_suit.extended_service import create_defective_inventory
 from warehouse_suit.db import now_text, row_to_dict, today_text
 from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL, validate_stock_source
@@ -14,6 +22,8 @@ from warehouse_suit.inventory_service import (
     borrow_out_item,
     borrowable_item_snapshot,
     borrowable_items,
+    move_borrow_return_to_unqualified,
+    move_to_scrapped,
     return_borrow_item,
     save_borrow_change,
     update_borrow_return_balance,
@@ -59,51 +69,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_borrow")
-            items = data.get("items") or []
-            if not items:
-                raise ValueError("借用申请至少需要一项物料")
-            leader_id = resolve_department_leader(
-                cursor,
-                user,
-                "borrow",
-                "leader_borrow",
-                int(data.get("leader_id") or 0),
-            )
-            begin_inventory_transaction(conn)
-            allocations = allocate_borrow_items(
-                cursor,
-                items,
-                user,
-                include_temporary=temporary_inventory_enabled(cursor),
-            )
-            form_no = next_form_no(cursor, "JY")
-            title = workflow_generated_title(user, form_no)
-            cursor.execute(
-                """
-                INSERT INTO workflow_forms
-                    (form_no, form_type, title, status, current_step, applicant_id, leader_id,
-                     data_json, created_at, updated_at)
-                VALUES (?, 'borrow', ?, 'leader_borrow', 'leader_borrow', ?, ?, ?, ?, ?)
-                """,
-                (
-                    form_no,
-                    title,
-                    user["id"],
-                    leader_id,
-                    json.dumps(
-                        {
-                            "department": user.get("department") or "",
-                            "expected_return_date": data.get("expected_return_date") or "",
-                        },
-                        ensure_ascii=False,
-                    ),
-                    now_text(),
-                    now_text(),
-                ),
-            )
-            form_id = cursor.lastrowid
-            insert_borrow_allocations(cursor, form_id, allocations)
-            create_workflow_tasks(cursor, form_id, "borrow", "leader_borrow", [leader_id])
+            form_id = execute_create_borrow(cursor, user, data)
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:
@@ -256,11 +222,21 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 stock_source = validate_stock_source(
                     wf_item.get("stock_source") or STOCK_SOURCE_FORMAL
                 )
+                purchase_project = str(
+                    wf_item.get("purchase_project") or item_data.get("purchase_project") or ""
+                ).strip()
+                if not purchase_project:
+                    raise ValueError("借用明细缺少采购申请项目")
+                from warehouse_suit.usage_kind import USAGE_RD, validate_usage_kind
+
+                usage_kind = validate_usage_kind(item_data.get("usage_kind") or USAGE_RD)
                 snap = borrowable_item_snapshot(
                     cursor,
                     item_type,
                     item_ref_id,
                     stock_source=stock_source,
+                    purchase_project=purchase_project,
+                    usage_kind=usage_kind,
                 )
                 result = borrow_out_item(
                     cursor,
@@ -273,6 +249,8 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                     operation_key=f"borrow:{form_id}:{wf_item['id']}:outbound",
                     operator_id=user["id"],
                     workflow_item_id=wf_item["id"],
+                    purchase_project=purchase_project,
+                    usage_kind=usage_kind,
                 )
                 item_data.update(
                     {
@@ -380,11 +358,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             row["data"] = parse_json(row.pop("data_json", "{}"), {})
             borrow_form_data = parse_json(row.pop("borrow_form_data_json", "{}"), {})
             row["expected_return_date"] = str(borrow_form_data.get("expected_return_date") or "")
-            row["remaining_quantity"] = max(
-                0,
-                float(row.get("quantity") or 0)
-                - float(row.get("returned_quantity") or 0),
-            )
+            row["remaining_quantity"] = borrow_remaining_quantity(row)
             row["is_overdue"] = bool(
                 row["expected_return_date"]
                 and row["expected_return_date"] < today_text()
@@ -419,17 +393,20 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 raise PermissionError("只能归还自己的借用物料")
             if record.get("status") != "borrowed":
                 raise ValueError("只能归还借用中的物料")
-            remaining = float(record["quantity"] or 0) - float(record["returned_quantity"] or 0)
+            remaining = borrow_remaining_quantity(record)
             qty = quantity_value(data.get("return_quantity") if data.get("return_quantity") is not None else remaining, "归还数量", positive=True)
             if qty <= 0 or (validation_rule_enabled("workflow_bounds") and qty > remaining + 1e-9):
                 raise ValueError("归还数量不正确")
             status = str(data.get("status") or "完好").strip()
-            if status not in ("完好", "报废", "异常"):
-                raise ValueError("归还状态值不正确，请选择 完好/报废/异常")
-            remarks = str(data.get("remarks") or "").strip()
-            if status in ("报废", "异常") and not remarks:
-                raise ValueError("报废/异常需填写备注")
             item_type = str(record.get("item_type") or "").strip()
+            remarks = str(data.get("remarks") or "").strip()
+            if item_type == "material":
+                if status != "完好":
+                    raise ValueError("物料归还只能选择完好，损坏需转为领用")
+            elif status not in ("完好", "报废", "异常"):
+                raise ValueError("归还状态值不正确，请选择 完好/报废/异常")
+            elif status in ("报废", "异常") and not remarks:
+                raise ValueError("报废/异常需填写备注")
             has_changes = str(data.get("has_changes") or "否").strip()
             change_type = str(data.get("change_type") or "").strip()
             change_detail = str(data.get("change_detail") or "").strip()
@@ -555,7 +532,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 record.get("stock_source") or STOCK_SOURCE_FORMAL
             )
 
-            remaining = float(record["quantity"] or 0) - float(record["returned_quantity"] or 0)
+            remaining = borrow_remaining_quantity(record)
             qty = quantity_value(data.get("return_quantity") if data.get("return_quantity") is not None else item.get("request_quantity"), "归还入库数量", positive=True)
             if validation_rule_enabled("workflow_bounds") and qty > remaining + 1e-9:
                 raise ValueError("归还入库数量不能大于未归还数量")
@@ -593,136 +570,84 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             if has_changes == "是" and change_type:
                 save_borrow_change(cursor, borrow_record_id, change_type, change_detail, version_after, normal_use)
 
-            item_serial = str(record.get("item_code") or "").strip()
-
-            if return_status == "完好" and item_serial:
-                scrapped_row = None
-                defective_row = None
-                if record_item_type in ("semifinished", "finished"):
+            if record_item_type == "material" and decision == "同意":
+                verified_status = str(data.get("verified_status") or "完好").strip()
+                if verified_status not in ("完好", "损坏"):
+                    raise ValueError("库房核验状态只能是完好或损坏")
+                if verified_status == "损坏":
+                    form_data["verified_status"] = "损坏"
+                    form_data["warehouse_prompt"] = "借用物料损坏需领用，如后续不留物料可再退库"
                     cursor.execute(
-                        "SELECT id FROM scrapped_finished_goods WHERE serial_no = ? UNION ALL SELECT id FROM scrapped_semifinished_goods WHERE serial_no = ? LIMIT 1",
-                        (item_serial, item_serial),
+                        """
+                        UPDATE workflow_forms
+                        SET status = 'damage_claim', current_step = 'damage_claim', data_json = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (json.dumps(form_data, ensure_ascii=False), now_text(), form_id),
                     )
-                    scrapped_row = cursor.fetchone()
-                    if not scrapped_row:
-                        cursor.execute(
-                            "SELECT id FROM defective_finished_goods WHERE serial_no = ? UNION ALL SELECT id FROM defective_semifinished_goods WHERE serial_no = ? LIMIT 1",
-                            (item_serial, item_serial),
-                        )
-                        defective_row = cursor.fetchone()
-                if scrapped_row or defective_row:
-                    if record_item_type == "semifinished":
-                        cursor.execute("SELECT * FROM semifinished_inventory WHERE id = ?", (int(record.get("item_ref_id") or 0),))
-                    else:
-                        cursor.execute("SELECT * FROM finished_good_inventory WHERE id = ?", (int(record.get("item_ref_id") or 0),))
-                    inv_row = row_to_dict(cursor.fetchone())
-                    if inv_row:
-                        if scrapped_row:
-                            if record_item_type == "semifinished":
-                                cursor.execute("DELETE FROM scrapped_semifinished_goods WHERE id = ?", (scrapped_row[0],))
-                            else:
-                                cursor.execute("DELETE FROM scrapped_finished_goods WHERE id = ?", (scrapped_row[0],))
-                        if defective_row:
-                            if record_item_type == "semifinished":
-                                cursor.execute("DELETE FROM defective_semifinished_goods WHERE id = ?", (defective_row[0],))
-                            else:
-                                cursor.execute("DELETE FROM defective_finished_goods WHERE id = ?", (defective_row[0],))
-                        if record_item_type == "semifinished":
-                            cursor.execute(
-                                "UPDATE semifinished_inventory SET quantity = COALESCE(quantity, 0) + ?, borrowed_quantity = MAX(0, COALESCE(borrowed_quantity, 0) - ?), updated_at = ? WHERE id = ?",
-                                (qty, qty, now_text(), record["item_ref_id"]),
-                            )
-                        else:
-                            cursor.execute(
-                                "UPDATE finished_good_inventory SET quantity = COALESCE(quantity, 0) + ?, borrowed_quantity = MAX(0, COALESCE(borrowed_quantity, 0) - ?), updated_at = ? WHERE id = ?",
-                                (qty, qty, now_text(), record["item_ref_id"]),
-                            )
-                        update_borrow_return_balance(
-                            cursor,
-                            record["id"],
-                            qty,
-                            return_date=data.get("inbound_date") or today_text(),
-                            return_form_id=form_id,
-                        )
-                    else:
-                        location = {
-                            "warehouse_type": data.get("warehouse_type"),
-                            "shelf_id": data.get("shelf_id"),
-                            "layer_number": data.get("layer_number") or 1,
-                            "zone_name": data.get("zone_name") or "A",
-                            "received_date": data.get("inbound_date") or today_text(),
-                            "remark": f"借用单 {record.get('borrow_no') or ''} 归还入库",
-                            "return_form_id": form_id,
-                        }
-                        return_borrow_item(
-                    cursor,
-                    record,
-                    qty,
-                    location,
-                    form["form_no"],
-                    operation_key=f"borrow_return:{form_id}:{record['id']}:{item['id']}",
-                    operator_id=user["id"],
-                )
-                else:
-                    location = {
-                        "warehouse_type": data.get("warehouse_type"),
-                        "shelf_id": data.get("shelf_id"),
-                        "layer_number": data.get("layer_number") or 1,
-                        "zone_name": data.get("zone_name") or "A",
-                        "received_date": data.get("inbound_date") or today_text(),
-                        "remark": f"借用单 {record.get('borrow_no') or ''} 归还入库",
-                        "return_form_id": form_id,
-                    }
-                    return_borrow_item(
-                    cursor,
-                    record,
-                    qty,
-                    location,
-                    form["form_no"],
-                    operation_key=f"borrow_return:{form_id}:{record['id']}:{item['id']}",
-                    operator_id=user["id"],
-                )
-            elif return_status != "\u5b8c\u597d":
-                if record_item_type in ("semifinished", "finished"):
+                    cursor.execute(
+                        """
+                        UPDATE workflow_tasks
+                        SET status = 'completed', decision = '物料损坏', signature = ?, signed_at = ?, data_json = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            data.get("signature") or user["display_name"],
+                            data.get("inbound_date") or today_text(),
+                            json.dumps({"remark": data.get("remark") or "", "verified_status": "损坏"}, ensure_ascii=False),
+                            now_text(),
+                            task["id"],
+                        ),
+                    )
+                    create_workflow_tasks(cursor, form_id, "borrow_return", "damage_claim", [int(form["applicant_id"])])
+                    conn.commit()
+                    form_result = serialize_form(cursor, form_id)
+                    conn.close()
+                    return jsonify({"success": True, "form": form_result, "damage_claim": True})
+
+            if return_status != "完好":
+                if return_status == "报废" and record_item_type in ("semifinished", "finished"):
                     table = "semifinished_inventory" if record_item_type == "semifinished" else "finished_good_inventory"
                     cursor.execute(f"SELECT * FROM {table} WHERE id = ?", (int(record.get("item_ref_id") or 0),))
-                    inv_row = row_to_dict(cursor.fetchone())
-                    if not inv_row:
+                    scrap_row = row_to_dict(cursor.fetchone())
+                    if not scrap_row:
                         raise ValueError("return inventory record not found")
                     cursor.execute(
                         f"UPDATE {table} SET quantity = MAX(0, COALESCE(quantity, 0) - ?), borrowed_quantity = MAX(0, COALESCE(borrowed_quantity, 0) - ?), updated_at = ? WHERE id = ?",
                         (qty, qty, now_text(), record["item_ref_id"]),
                     )
-                    create_defective_inventory(cursor, user, {
-                        "item_type": record_item_type,
-                        "original_inventory_id": record.get("item_ref_id"),
-                        "source_type": "borrow_return",
-                        "source_ref_id": borrow_record_id,
-                        "item_code": record.get("item_code") or "",
-                        "item_name": record.get("item_name") or "",
-                        "brand_model": record.get("brand_model") or "",
-                        "spec": record.get("spec") or "",
-                        "unit": record.get("unit") or "",
-                        "quantity": qty,
-                        "unit_price": inv_row.get("cost_price") or 0,
-                        "reason": form_data.get("remarks") or data.get("remark") or return_status,
-                    })
+                    move_to_scrapped(
+                        cursor,
+                        record_item_type,
+                        {
+                            "acceptance_id": scrap_row.get("acceptance_id"),
+                            "name": scrap_row.get("name") or "",
+                            "product_name": scrap_row.get("product_name") or scrap_row.get("name") or "",
+                            "item_name": record.get("item_name") or "",
+                            "spec": scrap_row.get("spec") or "",
+                            "serial_no": record.get("item_code") or scrap_row.get("serial_no") or "",
+                            "unit": scrap_row.get("unit") or "",
+                            "quantity": qty,
+                            "original_inventory_id": record.get("item_ref_id"),
+                        },
+                        str(form_data.get("remarks") or data.get("remark") or return_status),
+                        adjust_source_quantity=False,
+                    )
+                elif record_item_type in ("semifinished", "finished"):
+                    table = "semifinished_inventory" if record_item_type == "semifinished" else "finished_good_inventory"
+                    cursor.execute(f"SELECT * FROM {table} WHERE id = ?", (int(record.get("item_ref_id") or 0),))
+                    inv_row = row_to_dict(cursor.fetchone())
+                    if not inv_row:
+                        raise ValueError("return inventory record not found")
+                    move_borrow_return_to_unqualified(
+                        cursor,
+                        record,
+                        inv_row,
+                        qty,
+                        str(form_data.get("remarks") or data.get("remark") or return_status),
+                    )
                 else:
-                    record_data = parse_json(record.get("data_json"), {}) or {}
-                    create_defective_inventory(cursor, user, {
-                        "item_type": "material",
-                        "material_id": record.get("material_id") or record.get("item_ref_id"),
-                        "source_type": "borrow_return",
-                        "source_ref_id": borrow_record_id,
-                        "item_code": record.get("item_code") or "",
-                        "item_name": record.get("item_name") or "",
-                        "brand_model": record.get("brand_model") or "",
-                        "spec": record.get("spec") or "",
-                        "unit": record.get("unit") or "",
-                        "quantity": qty,
-                        "unit_price": record_data.get("unit_price") or 0,
-                        "reason": form_data.get("remarks") or data.get("remark") or return_status,
-                    })
+                    raise ValueError("物料损坏需转为领用")
                 update_borrow_return_balance(
                     cursor, record["id"], qty,
                     return_date=data.get("inbound_date") or today_text(),
@@ -773,6 +698,109 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
         return jsonify({"success": True, "form": form_result, "idempotent": False})
 
 
+    @app.post("/api/borrow-returns/<int:form_id>/damage-claim")
+    def confirm_borrow_damage_claim(form_id):
+        """库房核验损坏后，发起人确认转领用。"""
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            user = current_user(cursor)
+            if not user:
+                raise PermissionError("请先登录")
+            begin_inventory_transaction(conn)
+            form = require_form_status(cursor, form_id, "borrow_return", "damage_claim")
+            task = require_task_assignee(cursor, user, form_id, "damage_claim")
+            form_data = parse_json(form["data_json"], {})
+            borrow_record_id = int(form_data.get("borrow_record_id") or 0)
+            cursor.execute(
+                "SELECT * FROM borrow_records WHERE id = ? AND borrower_id = ?",
+                (borrow_record_id, user["id"]),
+            )
+            record = row_to_dict(cursor.fetchone())
+            if not record:
+                raise ValueError("借用记录不存在")
+            if record.get("item_type") != "material" or record.get("status") != "borrowed":
+                raise ValueError("只能将借用中的物料转为已领用")
+            cursor.execute("SELECT * FROM workflow_items WHERE form_id = ? ORDER BY id LIMIT 1", (form_id,))
+            item = row_to_dict(cursor.fetchone())
+            quantity = quantity_value(item.get("request_quantity") if item else None, "转领用数量", positive=True)
+            remaining = borrow_remaining_quantity(record)
+            if quantity > remaining + 1e-9:
+                raise ValueError("转领用数量不能超过未归还数量")
+            cursor.execute(
+                """
+                SELECT 1
+                FROM workflow_forms
+                WHERE form_type = 'borrow_return'
+                  AND status NOT IN ('completed', 'rejected')
+                  AND id != ?
+                  AND json_valid(COALESCE(data_json, '{}'))
+                  AND CAST(json_extract(data_json, '$.borrow_record_id') AS INTEGER) = ?
+                LIMIT 1
+                """,
+                (form_id, borrow_record_id),
+            )
+            if cursor.fetchone():
+                raise ValueError("该物料存在待办理的归还流程，不能转为已领用")
+            claimed_at = now_text()
+            old_claimed = float(record.get("claimed_quantity") or 0)
+            new_claimed = old_claimed + quantity
+            next_status = borrow_settled_status({**record, "claimed_quantity": new_claimed})
+            record_data = parse_json(record.get("data_json"), {})
+            record_data.update(
+                {
+                    "claimed_quantity": new_claimed,
+                    "last_claimed_quantity": quantity,
+                    "claimed_at": claimed_at,
+                    "claimed_by": user["id"],
+                    "damage_claim_form_id": form_id,
+                }
+            )
+            cursor.execute(
+                """
+                UPDATE borrow_records
+                SET claimed_quantity = ?, status = ?, data_json = ?, updated_at = ?
+                WHERE id = ? AND borrower_id = ? AND status = 'borrowed'
+                """,
+                (
+                    new_claimed,
+                    next_status,
+                    json.dumps(record_data, ensure_ascii=False),
+                    claimed_at,
+                    borrow_record_id,
+                    user["id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("借用状态已变化，请刷新后重试")
+            skip_qty = float(record.get("returned_quantity") or 0) + old_claimed
+            claim_form_id = create_borrow_claim_form(cursor, user, record, quantity, claimed_at, skip_qty)
+            cursor.execute(
+                """
+                UPDATE workflow_tasks
+                SET status = 'completed', decision = '物料损坏转领用', signature = ?, signed_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (user.get("display_name") or "", today_text(), now_text(), task["id"]),
+            )
+            cursor.execute(
+                """
+                UPDATE workflow_forms
+                SET status = 'completed', current_step = 'completed', updated_at = ?
+                WHERE id = ?
+                """,
+                (now_text(), form_id),
+            )
+            conn.commit()
+            form_result = serialize_form(cursor, claim_form_id)
+        except Exception as exc:
+            conn.rollback()
+            conn.close()
+            return jsonify({"success": False, "error": str(exc)}), 400
+        conn.close()
+        return jsonify({"success": True, "form": form_result})
+
+
     @app.post("/api/borrows/<int:record_id>/claim")
     def claim_borrow(record_id):
         conn = get_db()
@@ -792,11 +820,16 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                 raise ValueError("只有物料借用记录可以转为已领用")
             if record.get("status") != "borrowed":
                 raise ValueError("只能将借用中的物料转为已领用")
-            remaining = float(record.get("quantity") or 0) - float(
-                record.get("returned_quantity") or 0
-            )
+            remaining = borrow_remaining_quantity(record)
             if remaining <= 1e-9:
                 raise ValueError("该借用记录没有未归还数量")
+            payload = request.get_json(silent=True) or {}
+            if payload.get("quantity") in (None, ""):
+                quantity = remaining
+            else:
+                quantity = quantity_value(payload.get("quantity"), "转领用数量", positive=True)
+            if quantity > remaining + 1e-9:
+                raise ValueError("转领用数量不能超过未归还数量")
             cursor.execute(
                 """
                 SELECT 1
@@ -812,10 +845,19 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             if cursor.fetchone():
                 raise ValueError("该物料存在待办理的归还流程，不能转为已领用")
             claimed_at = now_text()
+            old_claimed = float(record.get("claimed_quantity") or 0)
+            new_claimed = old_claimed + quantity
+            next_status = borrow_settled_status(
+                {
+                    **record,
+                    "claimed_quantity": new_claimed,
+                }
+            )
             record_data = parse_json(record.get("data_json"), {})
             record_data.update(
                 {
-                    "claimed_quantity": remaining,
+                    "claimed_quantity": new_claimed,
+                    "last_claimed_quantity": quantity,
                     "claimed_at": claimed_at,
                     "claimed_by": user["id"],
                 }
@@ -823,10 +865,12 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             cursor.execute(
                 """
                 UPDATE borrow_records
-                SET status = 'claimed', data_json = ?, updated_at = ?
+                SET claimed_quantity = ?, status = ?, data_json = ?, updated_at = ?
                 WHERE id = ? AND borrower_id = ? AND status = 'borrowed'
                 """,
                 (
+                    new_claimed,
+                    next_status,
                     json.dumps(record_data, ensure_ascii=False),
                     claimed_at,
                     record_id,
@@ -835,6 +879,8 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             )
             if cursor.rowcount != 1:
                 raise ValueError("借用状态已变化，请刷新后重试")
+            skip_qty = float(record.get("returned_quantity") or 0) + old_claimed
+            form_id = create_borrow_claim_form(cursor, user, record, quantity, claimed_at, skip_qty)
             write_audit_log(
                 cursor,
                 user,
@@ -847,7 +893,9 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                     "material_id": record.get("material_id"),
                     "material_code": record.get("item_code") or "",
                     "material_name": record.get("item_name") or "",
-                    "claimed_quantity": remaining,
+                    "claimed_quantity": quantity,
+                    "claimed_total": new_claimed,
+                    "form_id": form_id,
                 },
                 request.remote_addr or "",
             )
@@ -857,7 +905,14 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             conn.close()
             return jsonify({"success": False, "error": str(exc)}), 400
         conn.close()
-        return jsonify({"success": True, "status": "claimed"})
+        return jsonify(
+            {
+                "success": True,
+                "status": next_status,
+                "claimed_quantity": quantity,
+                "form_id": form_id,
+            }
+        )
 
 
     @app.post("/api/borrows/<int:record_id>/transfer")
@@ -882,19 +937,69 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             receiver = row_to_dict(cursor.fetchone())
             if not receiver:
                 raise ValueError("接收用户不存在")
-            existing_data = parse_json(record.get("data_json"), {})
-            existing_data["transfer_receiver_id"] = receiver_id
-            existing_data["transfer_initiated_at"] = now_text()
-            cursor.execute(
-                "UPDATE borrow_records SET status = ?, data_json = ?, updated_at = ? WHERE id = ?",
-                ("transferring", json.dumps(existing_data, ensure_ascii=False), now_text(), record_id),
-            )
+            remaining = borrow_remaining_quantity(record)
+            if remaining <= 1e-9:
+                raise ValueError("该借用记录没有可转借数量")
+            if data.get("quantity") in (None, ""):
+                quantity = remaining
+            else:
+                quantity = quantity_value(data.get("quantity"), "转借数量", positive=True)
+            if quantity > remaining + 1e-9:
+                raise ValueError("转借数量不能超过未归还数量")
+            stamp = now_text()
+            transfer_data = {
+                "transfer_receiver_id": receiver_id,
+                "transfer_initiated_at": stamp,
+                "transfer_quantity": quantity,
+            }
+            if is_full_borrow_transfer(record, quantity):
+                existing_data = parse_json(record.get("data_json"), {})
+                existing_data.update(transfer_data)
+                cursor.execute(
+                    "UPDATE borrow_records SET status = ?, data_json = ?, updated_at = ? WHERE id = ?",
+                    ("transferring", json.dumps(existing_data, ensure_ascii=False), stamp, record_id),
+                )
+                notify_record_id = record_id
+            else:
+                source_data = parse_json(record.get("data_json"), {})
+                source_data["last_transfer_out_quantity"] = quantity
+                new_quantity = float(record["quantity"]) - quantity
+                next_status = borrow_settled_status({**record, "quantity": new_quantity})
+                cursor.execute(
+                    """
+                    UPDATE borrow_records
+                    SET quantity = ?, status = ?, data_json = ?, updated_at = ?
+                    WHERE id = ? AND borrower_id = ? AND status = 'borrowed'
+                    """,
+                    (
+                        new_quantity,
+                        next_status,
+                        json.dumps(source_data, ensure_ascii=False),
+                        stamp,
+                        record_id,
+                        user["id"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("借用状态已变化，请刷新后重试")
+                child_data = {**transfer_data, "transfer_from_record_id": record_id}
+                child_batches = transfer_borrow_batch_slice(cursor, record, quantity)
+                if child_batches:
+                    child_data["consumed_batches"] = child_batches
+                notify_record_id = insert_borrow_record(
+                    cursor,
+                    record,
+                    quantity=quantity,
+                    status="transferring",
+                    data=child_data,
+                )
             create_notification(
                 cursor,
                 receiver_id,
                 "转借请求",
                 f'{user.get("display_name") or user.get("username") or ""} 想将 {record.get("item_name") or ""} 转借给您',
-                {"borrow_record_id": record_id},
+                {"borrow_record_id": notify_record_id},
+                category="transfer",
             )
             conn.commit()
         except Exception as exc:
@@ -902,7 +1007,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             conn.close()
             return jsonify({"success": False, "error": str(exc)}), 400
         conn.close()
-        return jsonify({"success": True, "message": "转借请求已发送"})
+        return jsonify({"success": True, "message": "转借请求已发送", "borrow_record_id": notify_record_id})
 
 
     @app.post("/api/transfers/<int:record_id>/accept")
@@ -935,6 +1040,7 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                     "转借已接受",
                     f'{user.get("display_name") or user.get("username") or ""} 已接受 {record.get("item_name") or ""} 的转借',
                     {"borrow_record_id": record_id},
+                    category="transfer",
                 )
             conn.commit()
         except Exception as exc:
@@ -962,11 +1068,57 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
             record_data = parse_json(record.get("data_json"), {})
             if int(record_data.get("transfer_receiver_id") or 0) != int(user["id"]):
                 raise PermissionError("您不是该转借请求的接收人")
-            new_data = {k: v for k, v in record_data.items() if k not in ("transfer_receiver_id", "transfer_initiated_at")}
-            cursor.execute(
-                "UPDATE borrow_records SET status = ?, data_json = ?, updated_at = ? WHERE id = ?",
-                ("borrowed", json.dumps(new_data, ensure_ascii=False), now_text(), record_id),
-            )
+            parent_id = int(record_data.get("transfer_from_record_id") or 0)
+            stamp = now_text()
+            notify_record_id = record_id
+            if parent_id:
+                cursor.execute("SELECT * FROM borrow_records WHERE id = ?", (parent_id,))
+                parent = row_to_dict(cursor.fetchone())
+                transfer_qty = float(record.get("quantity") or 0)
+                if parent and parent.get("status") == "borrowed":
+                    restored = float(parent.get("quantity") or 0) + transfer_qty
+                    parent_data = parse_json(parent.get("data_json"), {})
+                    parent_data.pop("last_transfer_out_quantity", None)
+                    cursor.execute(
+                        """
+                        UPDATE borrow_records
+                        SET quantity = ?, data_json = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (restored, json.dumps(parent_data, ensure_ascii=False), stamp, parent_id),
+                    )
+                    notify_record_id = parent_id
+                else:
+                    restored_data = {
+                        k: v
+                        for k, v in record_data.items()
+                        if k
+                        not in (
+                            "transfer_receiver_id",
+                            "transfer_initiated_at",
+                            "transfer_quantity",
+                            "transfer_from_record_id",
+                        )
+                    }
+                    notify_record_id = insert_borrow_record(
+                        cursor,
+                        parent or record,
+                        quantity=transfer_qty,
+                        status="borrowed",
+                        data=restored_data,
+                        borrower_id=int(record["borrower_id"]),
+                    )
+                cursor.execute("DELETE FROM borrow_records WHERE id = ?", (record_id,))
+            else:
+                new_data = {
+                    k: v
+                    for k, v in record_data.items()
+                    if k not in ("transfer_receiver_id", "transfer_initiated_at", "transfer_quantity")
+                }
+                cursor.execute(
+                    "UPDATE borrow_records SET status = ?, data_json = ?, updated_at = ? WHERE id = ?",
+                    ("borrowed", json.dumps(new_data, ensure_ascii=False), stamp, record_id),
+                )
             original_borrower_id = int(record.get("borrower_id") or 0)
             if original_borrower_id:
                 create_notification(
@@ -974,7 +1126,8 @@ def register_borrow_routes(app, *, get_db, current_user_provider):
                     original_borrower_id,
                     "转借已拒绝",
                     f'{user.get("display_name") or user.get("username") or ""} 拒绝了 {record.get("item_name") or ""} 的转借',
-                    {"borrow_record_id": record_id},
+                    {"borrow_record_id": notify_record_id},
+                    category="transfer",
                 )
             conn.commit()
         except Exception as exc:

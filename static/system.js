@@ -18,11 +18,11 @@
   const VIEW_META = {
     dashboard: { title: "数据大屏", icon: "chart" }, todo: { title: "待办流程", icon: "clipboard-list" }, notifications: { title: "通知", icon: "bell" },
     myClaims: { title: "我已领用", icon: "hand-package" },
-    myInspections: { title: "我的验收", icon: "clipboard-check" }, myStarted: { title: "我的发起", icon: "file-pen" },
+    myInspections: { title: "我的验收", icon: "clipboard-check" }, mySupplies: { title: "我的供货", icon: "package-open" }, myStarted: { title: "我的发起", icon: "file-pen" }, drafts: { title: "草稿箱", icon: "file-pen" },
     acceptance: { title: "物料验收", icon: "shield-check" }, semifinished: { title: "半成品验收", icon: "shield-check" }, finished: { title: "成品验收", icon: "shield-check" },
-    claim: { title: "物料申领", icon: "hand-package" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" },
-    query: { title: "物料查询", icon: "search-file" }, temporaryInventory: { title: "临时库查询", icon: "boxes" }, temporaryLedger: { title: "临时库存流水", icon: "history" }, semifinishedInventory: { title: "半成品库", icon: "boxes" }, finishedInventory: { title: "成品库", icon: "boxes" },
-    flow: { title: "流程中心", icon: "workflow" }, stats: { title: "统计", icon: "chart" }, stocktake: { title: "盘点", icon: "scan" }, logs: { title: "日志中心", icon: "history" }, recycle: { title: "回收站", icon: "trash" }, admin: { title: "系统设置", icon: "settings" },
+    claim: { title: "研发用料申领", icon: "hand-package" }, semifinishedClaim: { title: "半成品领用", icon: "hand-package" }, productionClaim: { title: "生产用料申领", icon: "factory" }, specialClaim: { title: "特殊用料", icon: "spark" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" }, purchaseRequest: { title: "采购申请", icon: "cart" }, purchaseSummary: { title: "汇总采购申请", icon: "clipboard-list" }, purchaseHistory: { title: "历史采购申请", icon: "history" }, purchaseCoding: { title: "申请物料编码", icon: "file-pen" }, projects: { title: "项目设置", icon: "folder" },
+    query: { title: "物料查询", icon: "search-file" }, temporaryInventory: { title: "临时库管理", icon: "boxes" }, temporaryFlows: { title: "临时库流程管理", icon: "workflow" }, temporaryLedger: { title: "临时库存流水", icon: "history" }, semifinishedInventory: { title: "半成品库", icon: "boxes" }, finishedInventory: { title: "成品库", icon: "boxes" },
+    flow: { title: "流程中心", icon: "workflow" }, supplyLedger: { title: "供货台账", icon: "package-open" }, stats: { title: "统计", icon: "chart" }, stocktake: { title: "盘点", icon: "scan" }, logs: { title: "日志中心", icon: "history" }, recycle: { title: "回收站", icon: "trash" }, admin: { title: "系统设置", icon: "settings" },
     defectiveInventory: { title: "不良品物料", icon: "shield-check" }, commonMaterials: { title: "常用物料", icon: "bell" }, supplies: { title: "供货管理", icon: "package-open" },
   };
   const myClaims = window.WarehouseMyClaims.create({ api: systemApi, formatQty: formatInputQty, moduleShell });
@@ -67,6 +67,8 @@
             ])}
             ${navGroup("我的流程", "workflow", [
               ["myInspections", "我的验收", canView("myInspections")],
+              ["mySupplies", "我的供货", canView("mySupplies")],
+              ["drafts", "草稿箱", canView("drafts")],
               ["myStarted", "我的发起", canView("myStarted")],
             ])}
             ${navGroup("验收中心", "shield-check", [
@@ -75,16 +77,28 @@
               ["finished", "成品验收", canView("finished")],
             ])}
             ${navGroup("领用中心", "hand-package", [
-              ["claim", "物料申领", canView("claim")],
+              ["claim", "研发用料申领", canView("claim")],
+              ["semifinishedClaim", "半成品领用", canView("semifinishedClaim")],
+              ["productionClaim", "生产用料申领", canView("productionClaim")],
+              ["specialClaim", "特殊用料", canView("specialClaim")],
               ["myClaims", "我已领用", canView("myClaims")],
               ["borrow", "借用申请", canView("borrow")],
               ["myBorrow", "我的借用", canView("myBorrow")],
               ["outbound", "物料出库", canView("outbound")],
               ["supplies", "供货管理", canView("supplies")],
             ])}
+            ${navGroup("采购中心", "cart", [
+              ["purchaseRequest", "采购申请", canView("purchaseRequest")],
+              ["purchaseSummary", "汇总采购申请", canView("purchaseSummary")],
+              ["purchaseHistory", "历史采购申请", canView("purchaseHistory")],
+              ["purchaseCoding", "申请物料编码", canView("purchaseCoding")],
+            ])}
+            ${navGroup("临时库管理", "boxes", [
+              ["temporaryInventory", "临时库管理", canView("temporaryInventory")],
+              ["temporaryFlows", "临时库流程管理", canView("temporaryFlows")],
+            ])}
             ${navGroup("库存中心", "boxes", [
               ["query", "物料查询", canView("query")],
-              ["temporaryInventory", "临时库查询", canView("temporaryInventory")],
               ["semifinishedInventory", "半成品库", canView("semifinishedInventory")],
               ["finishedInventory", "成品库", canView("finishedInventory")],
               ["defectiveInventory", "不良品物料", canView("defectiveInventory")],
@@ -93,11 +107,13 @@
             ])}
             ${navGroup("审计中心", "search-file", [
               ["flow", "流程中心", canView("flow")],
+              ["supplyLedger", "供货台账", canView("supplyLedger")],
               ["stats", "统计", canView("stats")],
               ["stocktake", "盘点", canView("stocktake")],
               ["logs", "日志中心", canView("logs")],
               ["temporaryLedger", "临时库存流水", canView("temporaryLedger")],
             ])}
+            ${canView("projects") ? navButton("projects", "项目设置") : ""}
             ${canView("recycle") ? navButton("recycle", "回收站") : ""}
             ${canView("admin") ? navButton("admin", "系统设置") : ""}
           </nav>
@@ -144,7 +160,7 @@
     system.todoKeys = new Set((system.boot.todos || []).map(todoKey));
     if (!system.boot.workflow_settings?.temporary_inventory_enabled) {
       temporaryInventory.clear();
-      if (["temporaryInventory", "temporaryLedger"].includes(system.view)) system.view = "query";
+      if (["temporaryInventory", "temporaryFlows", "temporaryLedger"].includes(system.view)) system.view = "query";
     }
   }
 
@@ -208,13 +224,24 @@
       todo: renderTodo,
       notifications: renderNotifications,
       flow: renderFlowCenter,
+      supplyLedger: renderSupplyLedger,
       acceptance: renderAcceptance,
-      claim: renderClaim,
+      claim: main => { system.claimUsageKind = "研发用料"; renderClaim(main); },
+      semifinishedClaim: renderSemifinishedClaim,
+      productionClaim: main => { system.claimUsageKind = "生产用料"; renderClaim(main); },
+      specialClaim: main => window.WarehouseInventoryFlow.renderSpecial(main, { system, api: systemApi, escapeHtml, toast }),
+      purchaseRequest: main => window.WarehouseInventoryFlow.renderPurchase(main, { system, api: systemApi, escapeHtml, toast }),
+      purchaseSummary: main => window.WarehouseInventoryFlow.renderPurchaseSummary(main, { system, api: systemApi, escapeHtml, toast }),
+      purchaseHistory: main => window.WarehouseInventoryFlow.renderPurchaseHistory(main, { system, api: systemApi, escapeHtml, toast, openView: view => { system.view = view; renderSystemMain(); } }),
+      purchaseCoding: main => window.WarehouseInventoryFlow.renderPurchaseCoding(main, { system, api: systemApi, escapeHtml, toast }),
+      mySupplies: renderMySupplies,
+      projects: main => window.WarehouseInventoryFlow.renderProjects(main, { system, api: systemApi, escapeHtml, toast }),
       myClaims: myClaims.render,
       borrow: renderBorrow,
       myBorrow: renderMyBorrow,
       myInspections: renderMyInspections,
       myStarted: renderMyStarted,
+      drafts: renderDrafts,
       outbound: renderOutbound,
       semifinished: renderSemifinished,
       finished: renderFinished,
@@ -222,6 +249,7 @@
       finishedInventory: renderFinishedInventory,
       query: renderQuery,
       temporaryInventory: temporaryInventory.render,
+      temporaryFlows: temporaryInventory.renderFlows,
       temporaryLedger: temporaryInventory.renderLedger,
       stats: renderStats,
       stocktake: renderStocktake,
@@ -240,13 +268,17 @@
   }
 
   function canView(view) {
-    if (view === "myClaims") return Boolean(system.boot?.user);
+    if (view === "myClaims" || view === "mySupplies") return Boolean(system.boot?.user);
     if (view === "acceptance" || view === "semifinished" || view === "finished") {
       return hasPerm("start_acceptance");
     }
-    if (view === "claim") {
+    if (view === "claim" || view === "productionClaim" || view === "semifinishedClaim") {
       return hasPerm("start_claim");
     }
+    if (view === "specialClaim") return hasPerm("start_special_claim");
+    if (view === "purchaseRequest") return hasPerm("start_purchase_request");
+    if (view === "purchaseSummary" || view === "purchaseHistory" || view === "purchaseCoding") return hasPerm("manage_purchase_summary");
+    if (view === "projects") return hasPerm("view_projects") || hasPerm("manage_projects");
     if (view === "borrow") {
       return hasPerm("start_borrow");
     }
@@ -259,10 +291,13 @@
     if (view === "myStarted") {
       return hasRole("admin") || hasPerm("view_my_started");
     }
+    if (view === "drafts") {
+      return hasPerm("start_acceptance") || hasPerm("start_claim") || hasPerm("start_borrow") || hasPerm("start_supply");
+    }
     if (view === "outbound") {
       return hasPerm("view_outbound");
     }
-    if (view === "temporaryInventory") {
+    if (view === "temporaryInventory" || view === "temporaryFlows") {
       return Boolean(
         system.boot?.workflow_settings?.temporary_inventory_enabled
         && hasPerm("view_temporary_inventory")
@@ -271,6 +306,7 @@
     if (view === "temporaryLedger") {
       return Boolean(system.boot?.workflow_settings?.temporary_inventory_enabled && hasPerm("view_temporary_inventory"));
     }
+    if (view === "supplyLedger") return hasRole("admin") || hasPerm("view_supply") || hasPerm("view_flow");
     // Match the backend rule: the admin role has every non-feature-gated permission.
     if (hasRole("admin")) return true;
     if (view === "semifinishedInventory") {
@@ -314,103 +350,16 @@
   }
 
   function aiFloatingHtml() {
-    return `<button class="ai-fab" id="aiFloatBtn" title="\u7269\u6599\u5c0f\u52a9\u624b"><img src="/static/assistant-icon.svg" alt=""></button><div class="ai-chat" id="aiFloatBox"><div class="work-head" id="aiChatHead"><h2>\u7269\u6599\u5c0f\u52a9\u624b</h2><div class="ai-head-actions"><button id="aiThoughtToggle" type="button">\u663e\u793a\u601d\u8003\u8fc7\u7a0b</button><button id="aiClearChat">\u6e05\u7a7a\u5bf9\u8bdd</button><button id="aiFloatClose">\u5173\u95ed</button></div></div><div class="work-body"><div class="chat-log" id="aiChatLog"><div class="chat-msg ai">${escapeHtml(aiWelcomeMessage())}</div></div><textarea id="aiFloatQuestion" placeholder="\u8f93\u5165\u95ee\u9898\uff0c\u4f8b\u5982\uff1a\u5e2e\u6211\u67e5\u8fde\u63a5\u5668\u5e93\u5b58"></textarea><p><button class="primary" id="aiFloatSend">\u53d1\u9001</button></p></div></div>`;
+    return window.WarehouseAssistant.html(aiWelcomeMessage());
   }
 
   function setupAiFloating() {
-    const btn = document.getElementById("aiFloatBtn");
-    const box = document.getElementById("aiFloatBox");
-    if (!btn || !box) return;
-    if (!system.aiSessionId) system.aiSessionId = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    btn.addEventListener("click", () => { if (!system.aiDragging) box.classList.toggle("open"); });
-    document.getElementById("aiFloatClose").addEventListener("click", () => box.classList.remove("open"));
-    document.getElementById("aiClearChat")?.addEventListener("click", () => {
-      system.aiSessionId = "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const log = document.getElementById("aiChatLog");
-      log.innerHTML = `<div class="chat-msg ai">${escapeHtml(aiWelcomeMessage())}</div>`;
+    if (!window.WarehouseAssistant) return;
+    window.WarehouseAssistant.mount({
+      system,
+      applySuggestion: applyAiSuggestion,
+      makeDraggable,
     });
-    document.getElementById("aiThoughtToggle")?.addEventListener("click", () => {
-      system.aiThoughtsVisible = !system.aiThoughtsVisible;
-      updateAiThoughtVisibility();
-    });
-    updateAiThoughtVisibility();
-    makeDraggable(btn);
-    const sendAiQuestion = async () => {
-      const input = document.getElementById("aiFloatQuestion");
-      const question = input.value.trim();
-      if (!question) return;
-      appendChat("user", question);
-      input.value = "";
-      const loading = appendChat("ai", "\u7269\u6599\u5c0f\u52a9\u624b\u56de\u590d\u4e2d...");
-      try {
-        const data = await systemApi("/api/ai/chat", { method: "POST", body: JSON.stringify({ question, session_id: system.aiSessionId }) });
-        renderAiMessage(loading, data.answer || "\u7269\u6599\u5c0f\u52a9\u624b\u672a\u8fd4\u56de\u5185\u5bb9");
-        applyAiSuggestion(data.answer || "");
-      } catch (error) {
-        loading.textContent = `\u7269\u6599\u5c0f\u52a9\u624b\u56de\u590d\u5931\u8d25\uff1a${error.message}`;
-      }
-    };
-    document.getElementById("aiFloatSend").addEventListener("click", sendAiQuestion);
-    document.getElementById("aiFloatQuestion")?.addEventListener("keydown", event => {
-      if (event.key !== "Enter") return;
-      if (event.altKey) return;
-      event.preventDefault();
-      sendAiQuestion();
-    });
-  }
-
-  function appendChat(role, text) {
-    const log = document.getElementById("aiChatLog");
-    const div = document.createElement("div");
-    div.className = `chat-msg ${role}`;
-    div.textContent = text;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
-    return div;
-  }
-
-  function splitAiThought(text) {
-    const thoughts = [];
-    let answer = String(text || "").replace(/<think>([\s\S]*?)<\/think>/gi, (_, thought) => {
-      thoughts.push(thought.trim());
-      return "";
-    }).replace(/<think>([\s\S]*)$/i, (_, thought) => {
-      thoughts.push(thought.trim());
-      return "";
-    }).trim();
-    return { thought: thoughts.join("\n\n").trim(), answer: answer || (thoughts.length ? "" : String(text || "").trim()) };
-  }
-
-  function renderAiMessage(host, text) {
-    const { thought, answer } = splitAiThought(text);
-    host.innerHTML = "";
-    if (thought) {
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "ai-thought-toggle";
-      toggle.textContent = system.aiThoughtsVisible ? "\u9690\u85cf\u601d\u8003" : "\u663e\u793a\u601d\u8003";
-      const thoughtBox = document.createElement("div");
-      thoughtBox.className = `ai-thought${system.aiThoughtsVisible ? " show" : ""}`;
-      thoughtBox.textContent = thought;
-      toggle.addEventListener("click", () => {
-        const visible = thoughtBox.classList.toggle("show");
-        toggle.textContent = visible ? "\u9690\u85cf\u601d\u8003" : "\u663e\u793a\u601d\u8003";
-      });
-      host.append(toggle, thoughtBox);
-    }
-    const answerBox = document.createElement("div");
-    answerBox.textContent = answer || "\u7269\u6599\u5c0f\u52a9\u624b\u672a\u8fd4\u56de\u5185\u5bb9";
-    host.appendChild(answerBox);
-  }
-
-  function updateAiThoughtVisibility() {
-    const visible = Boolean(system.aiThoughtsVisible);
-    document.querySelectorAll(".ai-thought").forEach(box => box.classList.toggle("show", visible));
-    document.querySelectorAll(".ai-thought-toggle").forEach(button => {
-      button.textContent = visible ? "\u9690\u85cf\u601d\u8003" : "\u663e\u793a\u601d\u8003";
-    });
-    const globalToggle = document.getElementById("aiThoughtToggle");
-    if (globalToggle) globalToggle.textContent = visible ? "\u9690\u85cf\u601d\u8003\u8fc7\u7a0b" : "\u663e\u793a\u601d\u8003\u8fc7\u7a0b";
   }
 
   function makeDraggable(el) {
@@ -614,6 +563,8 @@
       if (spec) spec.value = item.spec || "";
       const applicant = row.querySelector("[data-purchase-applicant]");
       if (applicant) applicant.value = item.purchase_applicant || "";
+      const project = row.querySelector("[data-purchase-project]");
+      if (project && item.purchase_project) project.value = item.purchase_project;
       const materialId = row.querySelector("[data-material-id]");
       if (materialId && item.material_id) materialId.value = item.material_id;
       const purchase = row.querySelector("[data-purchase]");
@@ -675,24 +626,49 @@
     }
   }
 
-  function applyRealtimeTodos(data) {
+  let todoReloadTimer = 0;
+
+  function scheduleTodoReload(notify = false) {
+    window.clearTimeout(todoReloadTimer);
+    todoReloadTimer = window.setTimeout(() => {
+      reloadTodoList({ notify }).catch(error => console.warn("todo reload failed", error));
+    }, 200);
+  }
+
+  async function reloadTodoList({ notify = false } = {}) {
+    const data = await systemApi("/api/todos");
     const todos = data.items || [];
     const oldKeys = system.todoKeys || new Set();
     const newItems = todos.filter(item => !oldKeys.has(todoKey(item)));
-    system.boot.todos = todos;
+    if (system.boot) system.boot.todos = todos;
     system.todoKeys = new Set(todos.map(todoKey));
     document.title = todos.length ? `(${todos.length}) 仓库物料系统` : "仓库物料系统";
-    if (newItems.length) {
+    if (notify && newItems.length) {
       newItems.slice(0, 3).forEach(item => showDesktopNotice("待办流程", item.notification_body || `${item.form_no || ""} ${workflowStepLabel(item.step_code || "")}`.trim(), `todo:${todoKey(item)}`));
     }
-    // The dashboard owns #todoList and renders its compact telemetry rows itself.
-    // The workflow table is only valid in the regular business-workbench todo view.
-    if (system.view !== "dashboard") {
+    if (system.view === "todo") {
       const todoList = document.getElementById("todoList");
       if (todoList) {
         todoList.innerHTML = todoTable(todos);
         bindTodoButtons(todoList);
       }
+    }
+    return todos;
+  }
+
+  function applyRealtimeTodos(data) {
+    if (system.view === "todo") {
+      scheduleTodoReload(true);
+      return;
+    }
+    const todos = data.items || [];
+    const oldKeys = system.todoKeys || new Set();
+    const newItems = todos.filter(item => !oldKeys.has(todoKey(item)));
+    if (system.boot) system.boot.todos = todos;
+    system.todoKeys = new Set(todos.map(todoKey));
+    document.title = todos.length ? `(${todos.length}) 仓库物料系统` : "仓库物料系统";
+    if (newItems.length) {
+      newItems.slice(0, 3).forEach(item => showDesktopNotice("待办流程", item.notification_body || `${item.form_no || ""} ${workflowStepLabel(item.step_code || "")}`.trim(), `todo:${todoKey(item)}`));
     }
     if (system.view === "dashboard" && newItems.length) renderSystemMain();
   }
@@ -758,9 +734,7 @@
         newRows.slice(0, 3).forEach(item => showDesktopNotice(item.title || "通知", item.body || item.title || "", `notice:${item.id || item.created_at || ""}`));
       }
       if (system.view === "notifications") {
-        system.notificationRows = rows;
-        const host = document.getElementById("notificationList");
-        if (host && !system.notificationReadView) host.innerHTML = notificationTable(rows, false);
+        await loadNotifications();
       }
     } catch (error) {
       console.warn("notification realtime refresh failed", error);
@@ -808,6 +782,317 @@
     }
   }
 
+  function consumeDraftHydrate(formType) {
+    const pending = system.pendingDraftHydrate;
+    if (!pending) {
+      system.currentDraftId = 0;
+      return null;
+    }
+    if (pending.form_type !== formType) {
+      system.pendingDraftHydrate = null;
+      system.currentDraftId = 0;
+      return null;
+    }
+    system.pendingDraftHydrate = null;
+    system.currentDraftId = Number(pending.id || 0);
+    return pending.payload || {};
+  }
+
+  function draftViewForType(formType) {
+    return ({ acceptance: "acceptance", semifinished: "semifinished", finished: "finished", claim: "claim", borrow: "borrow", supply: "supplies" })[formType] || "";
+  }
+
+  function setDateField(id, value) {
+    const input = document.getElementById(id);
+    if (!input) return;
+    const text = String(value || "").slice(0, 10);
+    input.value = text;
+    const display = document.getElementById(`${id}Text`);
+    if (display) display.value = formatDateCn(text);
+  }
+
+  function claimPayload() {
+    const items = [...document.querySelectorAll("#claimRows .inline-row")].map(row => ({
+      material_id: row.querySelector("[data-material-id]").value,
+      material_code: row.querySelector("[data-code]")?.value || "",
+      material_name: row.querySelector("[data-search]")?.value || "",
+      brand_model: row.querySelector("[data-brand]")?.value || "",
+      spec: row.querySelector("[data-spec]")?.value || "",
+      request_quantity: row.querySelector("[data-qty]").value,
+      purchase_project: row.querySelector("[data-purchase-project]")?.value || "",
+    }));
+    return {
+      title: document.getElementById("claimTitle")?.value || "",
+      leader_id: system.selectedClaimLeaders[0],
+      leader_ids: system.selectedClaimLeaders,
+      flow_attribute: document.getElementById("claimFlowAttribute")?.value || "实物交接",
+      purpose: document.getElementById("claimPurpose")?.value || "",
+      rd_item_kind: document.getElementById("claimRdKind")?.value || "",
+      project_code: document.getElementById("claimProjectCode")?.value || "",
+      purchase_project: items.find(item => item.purchase_project)?.purchase_project || "",
+      usage_kind: system.claimUsageKind || "研发用料",
+      items: items.map(item => ({ ...item, usage_kind: system.claimUsageKind || "研发用料" })),
+    };
+  }
+
+  function borrowPayload() {
+    const items = collectBorrowRows();
+    return {
+      title: document.getElementById("borrowTitle")?.value || "",
+      expected_return_date: document.getElementById("borrowReturnDate")?.value || "",
+      leader_id: system.selectedBorrowLeader,
+      purpose: document.getElementById("borrowPurpose")?.value || "",
+      rd_item_kind: document.getElementById("borrowRdKind")?.value || "",
+      project_code: document.getElementById("borrowProjectCode")?.value || "",
+      purchase_project: items.find(item => item.purchase_project)?.purchase_project || "",
+      usage_kind: document.getElementById("borrowUsageKind")?.value || "研发用料",
+      items: items.map(item => ({ ...item, usage_kind: document.getElementById("borrowUsageKind")?.value || "研发用料" })),
+    };
+  }
+
+  // 供货草稿与提交共用同一报文，额外带展示字段方便回填
+  function supplyPayload() {
+    return {
+      recipient: {
+        company: document.getElementById("supplyCompany")?.value || "",
+        name: document.getElementById("supplyName")?.value || "",
+        phone: document.getElementById("supplyPhone")?.value || "",
+        address: document.getElementById("supplyAddress")?.value || "",
+      },
+      supply_method: document.getElementById("supplyMethod")?.value || "",
+      contact_phone: document.getElementById("supplyContactPhone")?.value || "",
+      goods_status: document.getElementById("supplyGoodsStatus")?.value || "",
+      expected_close_date: document.getElementById("supplyCloseDate")?.value || "",
+      reason: document.getElementById("supplyReason")?.value || "",
+      items: [{
+        item_type: document.getElementById("supplyItemType")?.value || "",
+        item_ref_id: Number(document.getElementById("supplyItemRef")?.value || 0),
+        quantity: document.getElementById("supplyQuantity")?.value || "",
+        goods_status: document.getElementById("supplyGoodsStatus")?.value || "",
+        item_name: document.getElementById("supplyItemSearch")?.value || "",
+        item_code: document.getElementById("supplyItemCode")?.value || "",
+        brand_model: document.getElementById("supplyItemBrand")?.value || "",
+        spec: document.getElementById("supplyItemSpec")?.value || "",
+      }],
+    };
+  }
+
+  function collectDraftPayload(formType) {
+    if (formType === "acceptance") {
+      const { items } = acceptanceItemsWithRows();
+      const purchaseOrderChoice = document.querySelector("input[name='acceptancePurchaseOrder']:checked");
+      return {
+        title: document.getElementById("accTitle")?.value || "",
+        has_purchase_order: purchaseOrderChoice ? purchaseOrderChoice.value === "yes" : true,
+        items,
+      };
+    }
+    if (formType === "claim") return claimPayload();
+    if (formType === "borrow") return borrowPayload();
+    if (formType === "semifinished") return semifinishedPayload();
+    if (formType === "finished") return finishedPayload();
+    if (formType === "supply") return supplyPayload();
+    return {};
+  }
+
+  async function saveCurrentDraft(formType) {
+    const payload = collectDraftPayload(formType);
+    const body = JSON.stringify({ form_type: formType, payload });
+    const id = Number(system.currentDraftId || 0);
+    const data = id
+      ? await systemApi(`/api/drafts/${id}`, { method: "PUT", body })
+      : await systemApi("/api/drafts", { method: "POST", body });
+    system.currentDraftId = Number(data.draft?.id || 0);
+    toast("草稿已保存");
+  }
+
+  async function submitWorkflowPayload(formType, url, payload) {
+    const draftId = Number(system.currentDraftId || 0);
+    if (draftId) {
+      await systemApi(`/api/drafts/${draftId}`, { method: "PUT", body: JSON.stringify({ form_type: formType, payload }) });
+      const result = await systemApi(`/api/drafts/${draftId}/submit`, { method: "POST" });
+      system.currentDraftId = 0;
+      return result;
+    }
+    return systemApi(url, { method: "POST", body: JSON.stringify(payload) });
+  }
+
+  window.WarehouseDrafts = {
+    consumeHydrate: consumeDraftHydrate,
+    saveCurrentDraft,
+    submitWorkflowPayload,
+  };
+
+  function hydrateItemRows(hostId, type, items) {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = "";
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) {
+      addItemRow(host, type);
+      return;
+    }
+    rows.forEach(item => {
+      addItemRow(host, type);
+      const row = host.lastElementChild;
+      applyMaterialSelection(row, {
+        id: item.material_id || "",
+        material_code: item.material_code || "",
+        name: item.material_name || item.name || "",
+        brand_model: item.brand_model || "",
+        spec: item.spec || "",
+        purchase_applicant: item.purchase_applicant || "",
+        purchase_project: item.purchase_project || "",
+        quantity: item.stock_quantity,
+        total_available_quantity: item.total_available_quantity,
+      });
+      if (type === "claim") {
+        const qty = row.querySelector("[data-qty]");
+        if (qty) qty.value = item.request_quantity || "";
+        updateClaimAllocationPreview(row);
+      } else {
+        const purchase = row.querySelector("[data-purchase]");
+        const arrival = row.querySelector("[data-arrival]");
+        const amount = row.querySelector("[data-total-amount]");
+        if (purchase) purchase.value = item.purchase_quantity || item.request_quantity || "";
+        if (arrival) arrival.value = item.arrival_quantity || "";
+        if (amount) amount.value = item.total_amount || "";
+        row._syncAmountInput?.();
+      }
+    });
+  }
+
+  function hydrateAcceptanceForm(payload) {
+    const title = document.getElementById("accTitle");
+    if (title) title.value = payload.title || "";
+    const hasPurchaseOrder = payload.has_purchase_order;
+    if (hasPurchaseOrder === false) {
+      const noOrder = document.querySelector("input[name='acceptancePurchaseOrder'][value='no']");
+      if (noOrder) noOrder.checked = true;
+    } else if (hasPurchaseOrder === true) {
+      const yesOrder = document.querySelector("input[name='acceptancePurchaseOrder'][value='yes']");
+      if (yesOrder) yesOrder.checked = true;
+    }
+    hydrateItemRows("accRows", "acceptance", payload.items || []);
+  }
+
+  function hydrateClaimForm(payload) {
+    const title = document.getElementById("claimTitle");
+    if (title) title.value = payload.title || "";
+    hydrateItemRows("claimRows", "claim", payload.items || []);
+    const flowAttribute = document.getElementById("claimFlowAttribute");
+    if (flowAttribute) flowAttribute.value = payload.flow_attribute === "流程流转" ? "流程流转" : "实物交接";
+    updateClaimFlowAttributeHint();
+    const purpose = document.getElementById("claimPurpose");
+    if (purpose && payload.purpose) purpose.value = payload.purpose;
+    const rdKind = document.getElementById("claimRdKind");
+    if (rdKind && payload.rd_item_kind) rdKind.value = payload.rd_item_kind;
+    const projectCode = document.getElementById("claimProjectCode");
+    if (projectCode && (payload.project_code || payload.purchase_project)) {
+      projectCode.value = payload.project_code || payload.purchase_project || "";
+    }
+    updatePurposeFields("claim");
+  }
+
+  function hydrateBorrowForm(payload) {
+    const title = document.getElementById("borrowTitle");
+    if (title) title.value = payload.title || "";
+    setDateField("borrowReturnDate", payload.expected_return_date || "");
+    if (payload.leader_id) system.selectedBorrowLeader = Number(payload.leader_id || 0);
+    const borrowHost = document.getElementById("borrowRows");
+    if (borrowHost) {
+      borrowHost.innerHTML = "";
+      (payload.items || []).forEach(item => addBorrowRow(item));
+    }
+    const purpose = document.getElementById("borrowPurpose");
+    if (purpose && payload.purpose) purpose.value = payload.purpose;
+    const rdKind = document.getElementById("borrowRdKind");
+    if (rdKind && payload.rd_item_kind) rdKind.value = payload.rd_item_kind;
+    const projectCode = document.getElementById("borrowProjectCode");
+    if (projectCode && (payload.project_code || payload.purchase_project)) {
+      projectCode.value = payload.project_code || payload.purchase_project || "";
+    }
+    updatePurposeFields("borrow");
+  }
+
+  function hydrateMaterialComponents(hostId, components, pool, qtyId, costId, peerHostId = "") {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = "";
+    const rows = Array.isArray(components) ? components : [];
+    if (!rows.length) {
+      addMaterialComponentRow(host, pool, qtyId, costId, peerHostId);
+      return;
+    }
+    rows.forEach(component => {
+      addMaterialComponentRow(host, pool, qtyId, costId, peerHostId);
+      const row = host.lastElementChild;
+      const item = (pool || []).find(entry => Number(entry.material_id) === Number(component.material_id));
+      if (item) applyProductionMaterial(row, item, component.batch_ids);
+      else if (row.querySelector("[data-prod-material]")) row.querySelector("[data-prod-material]").value = component.material_id || "";
+      const perUnit = row.querySelector("[data-prod-per-unit]");
+      if (perUnit) perUnit.value = component.per_unit_quantity || 1;
+    });
+    refreshComponentRows(hostId, qtyId, costId, peerHostId);
+  }
+
+  function hydrateSemifinishedComponents(hostId, components, pool, qtyId, costId, peerHostId = "") {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = "";
+    const rows = Array.isArray(components) ? components : [];
+    if (!rows.length) {
+      addSemifinishedComponentRow(host, pool, qtyId, costId, peerHostId);
+      return;
+    }
+    rows.forEach(component => {
+      addSemifinishedComponentRow(host, pool, qtyId, costId, peerHostId);
+      const row = host.lastElementChild;
+      const item = (pool || []).find(entry => Number(entry.id) === Number(component.semifinished_inventory_id));
+      if (item) applyProductionSemi(row, item);
+      else if (row.querySelector("[data-prod-semi]")) row.querySelector("[data-prod-semi]").value = component.semifinished_inventory_id || "";
+      const perUnit = row.querySelector("[data-prod-per-unit]");
+      if (perUnit) perUnit.value = component.per_unit_quantity || 1;
+    });
+    refreshComponentRows(hostId, qtyId, costId, peerHostId);
+  }
+
+  function hydrateSemifinishedForm(payload) {
+    const title = document.getElementById("semiTitle");
+    if (title) title.value = payload.title || "";
+    const name = document.getElementById("semiName");
+    if (name) name.value = payload.name || "";
+    const spec = document.getElementById("semiSpec");
+    if (spec) spec.value = payload.spec || "";
+    const qty = document.getElementById("semiQty");
+    if (qty) qty.value = payload.acceptance_quantity || "";
+    const unit = document.getElementById("semiUnit");
+    if (unit && payload.unit) unit.value = payload.unit;
+    const maker = document.getElementById("semiMakerId");
+    if (maker && payload.maker_id) maker.value = payload.maker_id;
+    setDateField("semiDate", payload.acceptance_date || "");
+    const project = document.getElementById("semiProjectCode");
+    if (project) project.value = payload.project_code || "";
+  }
+
+  function hydrateFinishedForm(payload) {
+    const title = document.getElementById("finTitle");
+    if (title) title.value = payload.title || "";
+    const name = document.getElementById("finName");
+    if (name) name.value = payload.name || payload.product_name || "";
+    const spec = document.getElementById("finSpec");
+    if (spec) spec.value = payload.spec || "";
+    const qty = document.getElementById("finQty");
+    if (qty) qty.value = payload.acceptance_quantity || "";
+    const unit = document.getElementById("finUnit");
+    if (unit && payload.unit) unit.value = payload.unit;
+    const maker = document.getElementById("finMakerId");
+    if (maker && payload.maker_id) maker.value = payload.maker_id;
+    setDateField("finDate", payload.acceptance_date || "");
+    const project = document.getElementById("finProjectCode");
+    if (project) project.value = payload.project_code || "";
+  }
+
   function workflowTitleFromNo(formNo) {
     const user = currentUser() || {};
     return `${user.department || ""}${user.display_name || ""}${formNo || ""}`.trim();
@@ -841,25 +1126,33 @@
   }
 
   function renderTodo(main) {
-    const todos = system.boot.todos || [];
-    main.innerHTML = moduleShell("待办流程", `<div class="work-panel todo-work-panel"><div class="work-head"><h2>我的待办</h2><button id="refreshTodo" class="refresh-button" type="button">${iconSvg("refresh", "button-icon")}<span>刷新</span></button></div><div class="work-body" id="todoList">${todoTable(todos)}</div></div>`);
-    document.getElementById("refreshTodo").addEventListener("click", async () => {
-      const data = await systemApi("/api/todos");
-      system.boot.todos = data.items || [];
-      document.getElementById("todoList").innerHTML = todoTable(system.boot.todos);
-      bindTodoButtons(document.getElementById("todoList"));
+    main.innerHTML = moduleShell("待办流程", `<div class="work-panel todo-work-panel"><div class="work-head"><h2>我的待办</h2><button id="refreshTodo" class="refresh-button" type="button">${iconSvg("refresh", "button-icon")}<span>刷新</span></button></div><div class="work-body" id="todoList">加载中...</div></div>`);
+    document.getElementById("refreshTodo").addEventListener("click", () => {
+      reloadTodoList().catch(error => toast(error.message));
     });
-    bindTodoButtons(document.getElementById("todoList"));
+    reloadTodoList().catch(error => toast(error.message));
   }
 
   function renderNotifications(main) {
     const read = Boolean(system.notificationReadView);
-    main.innerHTML = moduleShell("\u901a\u77e5", `
-      <div class="work-panel"><div class="work-head"><h2>${read ? "\u5df2\u8bfb\u901a\u77e5" : "\u5f53\u524d\u901a\u77e5"}</h2><div class="flow-tools"><button id="markNotificationsRead" ${read ? "disabled" : ""}>\u4e00\u952e\u5df2\u8bfb</button><button id="toggleReadNotifications">${read ? "\u67e5\u770b\u5f53\u524d\u901a\u77e5" : "\u5df2\u8bfb\u901a\u77e5"}</button><button id="refreshNotifications">\u5237\u65b0</button></div></div><div class="work-body" id="notificationList">\u52a0\u8f7d\u4e2d...</div></div>
+    const category = String(system.notificationCategory || "");
+    const options = [
+      ["", "全部"],
+      ["inbound", "入库"],
+      ["stock_warning", "库存预警"],
+      ["supply", "供货"],
+      ["transfer", "转借"],
+    ];
+    main.innerHTML = moduleShell("通知", `
+      <div class="work-panel"><div class="work-head"><h2>${read ? "已读通知" : "当前通知"}</h2><div class="flow-tools"><label class="notification-filter">筛选<select id="notificationFilter">${options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === category ? "selected" : ""}>${label}</option>`).join("")}</select></label><button id="markNotificationsRead" ${read ? "disabled" : ""}>一键已读</button><button id="toggleReadNotifications">${read ? "查看当前通知" : "已读通知"}</button><button id="refreshNotifications">刷新</button></div></div><div class="work-body" id="notificationList">加载中...</div></div>
     `);
     document.getElementById("toggleReadNotifications").addEventListener("click", () => {
       system.notificationReadView = !system.notificationReadView;
       renderNotifications(main);
+    });
+    document.getElementById("notificationFilter").addEventListener("change", event => {
+      system.notificationCategory = event.target.value || "";
+      loadNotifications();
     });
     document.getElementById("refreshNotifications").addEventListener("click", loadNotifications);
     document.getElementById("markNotificationsRead").addEventListener("click", markNotificationsRead);
@@ -867,7 +1160,9 @@
   }
 
   async function loadNotifications() {
-    const data = await systemApi(`/api/notifications?read=${system.notificationReadView ? 1 : 0}`);
+    const params = new URLSearchParams({ read: system.notificationReadView ? "1" : "0" });
+    if (system.notificationCategory) params.set("category", system.notificationCategory);
+    const data = await systemApi(`/api/notifications?${params.toString()}`);
     system.notificationRows = data.items || [];
     system.boot.unread_notifications = data.unread_count || 0;
     const host = document.getElementById("notificationList");
@@ -892,7 +1187,8 @@
   }
 
   function notificationTable(rows, read) {
-    return `<table class="flow-table"><thead><tr><th>\u65f6\u95f4</th><th>\u6807\u9898</th><th>\u5185\u5bb9</th><th>\u72b6\u6001</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td>${escapeHtml(row.created_at || "")}</td><td>${escapeHtml(row.title || "")}</td><td>${escapeHtml(row.body || "")}</td><td>${read ? "\u5df2\u8bfb" : "\u672a\u8bfb"}</td></tr>`).join("") || `<tr><td colspan="4">${read ? "\u6682\u65e0\u5df2\u8bfb\u901a\u77e5" : "\u6682\u65e0\u5f53\u524d\u901a\u77e5"}</td></tr>`}</tbody></table>`;
+    const labels = { inbound: "入库", stock_warning: "库存预警", supply: "供货", transfer: "转借" };
+    return `<table class="flow-table"><thead><tr><th>\u65f6\u95f4</th><th>分类</th><th>\u6807\u9898</th><th>\u5185\u5bb9</th><th>\u72b6\u6001</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td>${escapeHtml(row.created_at || "")}</td><td>${escapeHtml(labels[row.category] || "")}</td><td>${escapeHtml(row.title || "")}</td><td>${escapeHtml(row.body || "")}</td><td>${read ? "\u5df2\u8bfb" : "\u672a\u8bfb"}</td></tr>`).join("") || `<tr><td colspan="5">${read ? "\u6682\u65e0\u5df2\u8bfb\u901a\u77e5" : "\u6682\u65e0\u5f53\u524d\u901a\u77e5"}</td></tr>`}</tbody></table>`;
   }
 
   function renderLogs(main) {
@@ -921,7 +1217,7 @@
   }
 
   function renderFlowCenter(main) {
-    main.innerHTML = moduleShell("\u6d41\u7a0b\u4e2d\u5fc3", `<div class="work-panel"><div class="work-head"><h2>\u5168\u90e8\u6d41\u7a0b</h2></div><div class="work-body"><div class="form-grid"><label>\u5206\u7c7b<select id="flowType"><option value="">\u5168\u90e8</option><option value="acceptance">\u7269\u6599\u9a8c\u6536</option><option value="semifinished">\u534a\u6210\u54c1\u9a8c\u6536</option><option value="finished">\u6210\u54c1\u9a8c\u6536</option><option value="claim">\u7533\u9886/\u51fa\u5e93</option><option value="borrow">借用申请</option><option value="borrow_return">借用归还</option></select></label><label>\u72b6\u6001<select id="flowStatus"><option value="">\u5168\u90e8</option><option value="acceptance">\u9a8c\u6536\u4e2d</option><option value="leader_acceptance">\u9a8c\u6536\u9886\u5bfc\u5ba1\u6279</option><option value="inbound">\u5f85\u5165\u5e93</option><option value="leader_claim">\u7533\u9886\u5ba1\u6279</option><option value="applicant_revision">\u53d1\u8d77\u4eba\u4fee\u6539</option><option value="outbound">\u5f85\u51fa\u5e93</option><option value="leader_borrow">借用审批</option><option value="borrow_outbound">借用待出库</option><option value="return_inbound">归还待入库</option><option value="completed">\u5df2\u529e\u7ed3</option></select></label>${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<label>单据库别<select id="flowStockScope"><option value="">全部</option><option value="temporary">临时库单据</option><option value="formal">正式库单据</option></select></label>` : ""}</div><div class="form-grid" style="margin-top:8px"><label>名称<input id="flowMaterialName" placeholder="物料/成品/半成品名称模糊搜索"></label><label>编号<input id="flowMaterialCode" placeholder="物料/成品/半成品编号模糊搜索"></label><label>\u54c1\u724c\u578b\u53f7<input id="flowBrandModel" placeholder="\u54c1\u724c\u578b\u53f7\u6a21\u7cca\u641c\u7d22"></label><label>\u6280\u672f\u89c4\u683c<input id="flowSpec" placeholder="技术规格/成品半成品规格参数模糊搜索"></label><label>申请人<input id="flowApplicant" placeholder="申请人姓名/账号/部门"></label><label>\u9a8c\u6536\u4eba<input id="flowInspector" placeholder="\u9a8c\u6536\u4eba\u59d3\u540d\u6a21\u7cca\u641c\u7d22"></label><label>\u6d41\u7a0b\u5355\u53f7<input id="flowFormNo" placeholder="\u6d41\u7a0b\u5355\u53f7\u6a21\u7cca\u641c\u7d22"></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="runFlowFilter" class="primary">\u7b5b\u9009</button><button id="clearFlowFilter">\u6e05\u7a7a</button></div><div class="flow-tools"><button id="exportFlowFiltered">\u5bfc\u51fa\u5f53\u524d\u7b5b\u9009</button><button id="exportFlowChecked">\u5bfc\u51fa\u52fe\u9009</button><button id="printFlowFiltered">\u6253\u5370\u5f53\u524d\u7b5b\u9009</button><button id="printFlowChecked">\u6253\u5370\u52fe\u9009</button><button id="deleteFlowChecked" class="danger">\u5220\u9664\u52fe\u9009</button></div><div id="flowCenterList"></div></div></div>`);
+    main.innerHTML = moduleShell("\u6d41\u7a0b\u4e2d\u5fc3", `<div class="work-panel"><div class="work-head"><h2>\u5168\u90e8\u6d41\u7a0b</h2></div><div class="work-body"><div class="form-grid"><label>\u5206\u7c7b<select id="flowType"><option value="">\u5168\u90e8</option><option value="acceptance">\u7269\u6599\u9a8c\u6536</option><option value="semifinished">\u534a\u6210\u54c1\u9a8c\u6536</option><option value="finished">\u6210\u54c1\u9a8c\u6536</option><option value="claim">\u7533\u9886/\u51fa\u5e93</option><option value="semifinished_claim">半成品领用</option><option value="claim_return">领用退库</option><option value="borrow">借用申请</option><option value="borrow_return">借用归还</option><option value="borrow_claim">借用转领用</option><option value="supply">供货管理</option></select></label><label>\u72b6\u6001<select id="flowStatus"><option value="">\u5168\u90e8</option><option value="acceptance">\u9a8c\u6536\u4e2d</option><option value="leader_acceptance">\u9a8c\u6536\u9886\u5bfc\u5ba1\u6279</option><option value="inbound">\u5f85\u5165\u5e93</option><option value="leader_claim">\u7533\u9886\u5ba1\u6279</option><option value="applicant_revision">\u53d1\u8d77\u4eba\u4fee\u6539</option><option value="outbound">\u5f85\u51fa\u5e93</option><option value="leader_borrow">借用审批</option><option value="borrow_outbound">借用待出库</option><option value="return_inbound">归还待入库</option><option value="completed">\u5df2\u529e\u7ed3</option></select></label>${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<label>单据库别<select id="flowStockScope"><option value="">全部</option><option value="temporary">临时库单据</option><option value="formal">正式库单据</option></select></label>` : ""}</div><div class="form-grid" style="margin-top:8px"><label>名称<input id="flowMaterialName" placeholder="物料/成品/半成品名称模糊搜索"></label><label>编号<input id="flowMaterialCode" placeholder="物料/成品/半成品编号模糊搜索"></label><label>\u54c1\u724c\u578b\u53f7<input id="flowBrandModel" placeholder="\u54c1\u724c\u578b\u53f7\u6a21\u7cca\u641c\u7d22"></label><label>\u6280\u672f\u89c4\u683c<input id="flowSpec" placeholder="技术规格/成品半成品规格参数模糊搜索"></label><label>申请人<input id="flowApplicant" placeholder="申请人姓名/账号/部门"></label><label>\u9a8c\u6536\u4eba<input id="flowInspector" placeholder="\u9a8c\u6536\u4eba\u59d3\u540d\u6a21\u7cca\u641c\u7d22"></label><label>\u6d41\u7a0b\u5355\u53f7<input id="flowFormNo" placeholder="\u6d41\u7a0b\u5355\u53f7\u6a21\u7cca\u641c\u7d22"></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="runFlowFilter" class="primary">\u7b5b\u9009</button><button id="clearFlowFilter">\u6e05\u7a7a</button></div><div class="flow-tools"><button id="exportFlowFiltered">\u5bfc\u51fa\u5f53\u524d\u7b5b\u9009</button><button id="exportFlowChecked">\u5bfc\u51fa\u52fe\u9009</button><button id="printFlowFiltered">\u6253\u5370\u5f53\u524d\u7b5b\u9009</button><button id="printFlowChecked">\u6253\u5370\u52fe\u9009</button><button id="deleteFlowChecked" class="danger">\u5220\u9664\u52fe\u9009</button></div><div id="flowCenterList"></div></div></div>`);
     document.getElementById("runFlowFilter").addEventListener("click", () => {
       system.pages.flowCenter = 1;
       loadFlowCenter();
@@ -947,94 +1243,271 @@
   function renderAcceptance(main) {
     system.selectedValidators = [];
     main.innerHTML = moduleShell("物料验收", `
-      <div class="work-panel"><div class="work-head"><h2>发起验收</h2><button id="addAcceptanceRow">添加行</button></div>
+      <div class="work-panel"><div class="work-head"><h2>发起验收</h2></div>
         <div class="work-body">
           <div class="form-grid">
-            <label class="wide">验收标题<input id="accTitle" placeholder="例如：研发物料到货验收"></label>            ${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<div class="wide acceptance-purchase-order"><span class="acceptance-purchase-order-label">是否有采购订单</span><div class="acceptance-purchase-order-options"><label><input type="radio" name="acceptancePurchaseOrder" value="yes" checked> 是</label><label><input type="radio" name="acceptancePurchaseOrder" value="no"> 否（按临时库物料验收）</label></div></div>` : ""}
+            <div class="wide acceptance-title-row"><label>验收标题<input id="accTitle" placeholder="例如：研发物料到货验收"></label><div class="acceptance-title-actions"><button type="button" id="downloadAcceptanceTemplate">下载导入模板</button><button type="button" id="importAcceptanceRows">导入</button><input id="acceptanceImportFile" type="file" accept=".csv,text/csv" hidden></div></div>
+            <div class="wide acceptance-order-row">${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<div class="acceptance-purchase-order"><span class="acceptance-purchase-order-label">是否有采购订单</span><div class="acceptance-purchase-order-options"><label><input type="radio" name="acceptancePurchaseOrder" value="yes" checked> 是</label><label><input type="radio" name="acceptancePurchaseOrder" value="no"> 否（按临时库物料验收）</label></div></div>` : "<span></span>"}<button type="button" id="addAcceptanceRow">添加行</button></div>
             <div class="wide" id="accRows"></div>
-            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitAcceptance">提交验收流程</button></div>
+            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitAcceptance">提交验收流程</button><button type="button" class="primary flow-submit-button" id="saveAcceptanceDraft">保存草稿</button></div>
           </div>
         </div>
       </div>
       <div class="work-panel"><div class="work-head"><h2>验收流程</h2><button id="refreshAcceptance">刷新</button></div><div class="work-body" id="accList"></div></div>
     `);
+    const hydrate = consumeDraftHydrate("acceptance");
     const rows = document.getElementById("accRows");
     const addRow = () => addItemRow(rows, "acceptance");
     document.getElementById("addAcceptanceRow").addEventListener("click", addRow);
-    addRow();
+    document.getElementById("downloadAcceptanceTemplate").addEventListener("click", () => { window.location.href = "/api/acceptance/import-template"; });
+    document.getElementById("importAcceptanceRows").addEventListener("click", () => document.getElementById("acceptanceImportFile").click());
+    document.getElementById("acceptanceImportFile").addEventListener("change", async event => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+      const text = await file.text();
+      const result = await systemApi("/api/acceptance/import", { method: "POST", body: JSON.stringify({ text }) });
+      rows.innerHTML = "";
+      (result.items || []).forEach(item => {
+        addRow();
+        const row = rows.lastElementChild;
+        row.querySelector("[data-material-id]").value = item.material_id || "";
+        row.querySelector("[data-code]").value = item.material_code || "";
+        row.querySelector("[data-search]").value = item.material_name || "";
+        row.querySelector("[data-brand]").value = item.brand_model || "";
+        row.querySelector("[data-spec]").value = item.spec || "";
+        row.querySelector("[data-purchase-applicant]").value = item.purchase_applicant || "";
+        row.querySelector("[data-purchase-project]").value = item.purchase_project || "";
+        row.querySelector("[data-usage-kind]").value = item.usage_kind || "研发用料";
+        row.querySelector("[data-pack]").value = item.pack_quantity || 1;
+        row.querySelector("[data-arrival-unit]").value = item.arrival_unit || "";
+        row.querySelector("[data-purchase]").value = item.purchase_quantity || "";
+        row.querySelector("[data-arrival]").value = item.arrival_quantity || "";
+        row.querySelector("[data-total-amount]").value = item.total_amount || "";
+        row._syncAmountInput?.();
+      });
+    });
+    document.getElementById("saveAcceptanceDraft").addEventListener("click", () => saveCurrentDraft("acceptance").catch(error => toast(error.message)));
     document.getElementById("submitAcceptance").addEventListener("click", startAcceptanceSubmit);
     document.getElementById("refreshAcceptance").addEventListener("click", loadAcceptanceList);
-    fillNextFormNo("accTitle", "YS");
+    const acceptanceSeed = system.acceptancePrefill;
+    system.acceptancePrefill = null;
+    if (acceptanceSeed) {
+      document.getElementById("accTitle").value = acceptanceSeed.title || "";
+      (acceptanceSeed.items || []).forEach(item => {
+        addRow();
+        const row = rows.lastElementChild;
+        row.querySelector("[data-material-id]").value = item.material_id || "";
+        row.querySelector("[data-purchase-item]").value = item.purchase_item_id || "";
+        row.querySelector("[data-code]").value = item.material_code || "";
+        row.querySelector("[data-search]").value = item.material_name || "";
+        row.querySelector("[data-brand]").value = item.brand_model || "";
+        row.querySelector("[data-spec]").value = item.spec || "";
+        row.querySelector("[data-purchase-applicant]").value = item.purchase_applicant || "";
+        row.querySelector("[data-purchase-project]").value = item.purchase_project || "";
+        row.querySelector("[data-usage-kind]").value = item.usage_kind || "研发用料";
+        row.querySelector("[data-pack]").value = item.pack_quantity || 1;
+        row.querySelector("[data-arrival-unit]").value = item.arrival_unit || item.unit || "";
+        row.querySelector("[data-purchase]").value = item.purchase_quantity || item.request_quantity || "";
+        row.querySelector("[data-arrival]").value = item.arrival_quantity || item.request_quantity || "";
+      });
+      if (!rows.children.length) addRow();
+    } else if (hydrate) {
+      hydrateAcceptanceForm(hydrate);
+    } else {
+      addRow();
+      fillNextFormNo("accTitle", "YS");
+    }
     loadAcceptanceList();
   }
 
   function renderClaim(main) {
-    main.innerHTML = moduleShell("物料申领", `
+    const claimTitleText = system.claimUsageKind === "生产用料" ? "生产用料申领" : "研发用料申领";
+    main.innerHTML = moduleShell(claimTitleText, `
       <div class="work-panel"><div class="work-head"><h2>发起申领</h2><button id="addClaimRow">添加行</button></div>
         <div class="work-body">
           <div class="form-grid">
-            <label class="wide">申领标题<input id="claimTitle" placeholder="例如：综合部办公用品申领"></label>
+            <div class="wide claim-title-row">
+              <label>申领标题<input id="claimTitle" placeholder="例如：综合部办公用品申领"></label>
+              <label class="compact-field">流程属性<select id="claimFlowAttribute"><option value="实物交接" selected>实物交接</option><option value="流程流转">流程流转</option></select></label>
+            </div>
+            <p class="hint wide" id="claimFlowAttributeHint" hidden>无实物交接，用于第三方集成采购组织等特定场景</p>
             <div class="wide claim-purpose-row">
               <label class="compact-field">用途<select id="claimPurpose"><option value="研发" selected>研发</option><option value="办公">办公</option></select></label>
               <label class="compact-field" data-claim-rd>研发类型<select id="claimRdKind"><option value="项目物料">项目物料</option><option value="辅料">辅料</option></select></label>
-              <label class="compact-field" data-claim-project>项目物料类型<select id="claimProjectKind"><option value="硬件">硬件</option><option value="结构">结构</option></select></label>
               <label class="compact-field" data-claim-project>项目代号<select id="claimProjectCode">${projectCodeOptions()}</select></label>
             </div>
+            <p class="hint wide">领用临时库物料时，单次只能领用一种物料</p>
             <div class="wide" id="claimRows"></div>
-            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitClaim">提交申领流程</button></div>
+            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitClaim">提交申领流程</button><button type="button" class="primary flow-submit-button" id="saveClaimDraft">保存草稿</button></div>
           </div>
         </div>
       </div>
       <div class="work-panel"><div class="work-head"><h2>申领流程</h2><button id="refreshClaim">刷新</button></div><div class="work-body" id="claimList"></div></div>
     `);
+    const hydrate = consumeDraftHydrate("claim");
     const rows = document.getElementById("claimRows");
-    const addRow = () => addItemRow(rows, "claim");
+    const addRow = () => {
+      if ([...document.querySelectorAll("#claimRows .inline-row")].some(rowClaimsTemporary)) {
+        toast("领用临时库物料时，单次只能领用一种物料");
+        return;
+      }
+      addItemRow(rows, "claim");
+    };
     document.getElementById("addClaimRow").addEventListener("click", addRow);
-    addRow();
+    document.getElementById("saveClaimDraft").addEventListener("click", () => saveCurrentDraft("claim").catch(error => toast(error.message)));
     document.getElementById("submitClaim").addEventListener("click", chooseClaimLeadersAndSubmit);
     document.getElementById("refreshClaim").addEventListener("click", loadClaimList);
-    document.getElementById("claimPurpose").addEventListener("change", updateClaimPurposeFields);
-    document.getElementById("claimRdKind").addEventListener("change", updateClaimPurposeFields);
-    updateClaimPurposeFields();
-    fillNextFormNo("claimTitle", "CK");
+    document.getElementById("claimPurpose").addEventListener("change", () => updatePurposeFields("claim"));
+    document.getElementById("claimFlowAttribute")?.addEventListener("change", updateClaimFlowAttributeHint);
+    updateClaimFlowAttributeHint();
+    document.getElementById("claimRdKind").addEventListener("change", () => updatePurposeFields("claim"));
+    updatePurposeFields("claim");
+    if (hydrate) {
+      hydrateClaimForm(hydrate);
+    } else {
+      addRow();
+      fillNextFormNo("claimTitle", "CK");
+    }
     loadClaimList();
   }
 
+  function renderSemifinishedClaim(main) {
+    const dept = currentUser()?.department || "";
+    const leaderUsers = approvalLeaderUsers("semifinished_claim", "leader_semifinished_claim", dept);
+    main.innerHTML = moduleShell("半成品领用", `
+      <div class="work-panel"><div class="work-head"><h2>发起半成品领用</h2></div>
+        <div class="work-body">
+          <div class="form-grid">
+            <label class="wide">领用标题<input id="semiClaimTitle" placeholder="半成品领用"></label>
+            <label>项目代号<select id="semiClaimProject">${projectCodeOptions()}</select></label>
+            <label>来源<select id="semiClaimSource"><option value="qualified">合格</option><option value="defective">不合格</option><option value="scrapped">报废</option></select></label>
+            <label class="wide">半成品<input id="semiClaimSearch" placeholder="搜索名称、规格或流水号"><div id="semiClaimResults" class="material-results"></div></label>
+            <label>数量<input id="semiClaimQty" type="number" min="0" step="any" value="1"></label>
+            <label>审批领导<select id="semiClaimLeader">${leaderUsers.map(user => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>
+            <div class="wide"><button class="primary" id="submitSemiClaim" type="button">提交半成品领用</button></div>
+            <p class="hint wide" id="semiClaimPicked">请先选择项目代号并搜索半成品</p>
+          </div>
+        </div>
+      </div>
+    `);
+    fillNextFormNo("semiClaimTitle", "BC");
+    let picked = null;
+    const results = document.getElementById("semiClaimResults");
+    const search = document.getElementById("semiClaimSearch");
+    async function loadItems() {
+      const project = document.getElementById("semiClaimProject").value;
+      if (!project) {
+        results.style.display = "none";
+        return;
+      }
+      const source = document.getElementById("semiClaimSource").value;
+      const data = await systemApi(`/api/semifinished-claims/items?keyword=${encodeURIComponent(search.value.trim())}&purchase_project=${encodeURIComponent(project)}`);
+      const items = (data.items || []).filter(item => item.source_kind === source);
+      if (!items.length) {
+        results.innerHTML = `<div class="material-option">没有可领用的半成品</div>`;
+        results.style.display = "block";
+        return;
+      }
+      results.innerHTML = items.map((item, index) => `<button type="button" class="material-option" data-semi-claim-index="${index}">${escapeHtml(item.serial_no || "")} ${escapeHtml(item.name || "")}<small>${escapeHtml(item.spec || "")} · 可领 ${formatQty(item.available_quantity)} ${escapeHtml(item.unit || "")}</small></button>`).join("");
+      results.style.display = "block";
+      results.querySelectorAll("[data-semi-claim-index]").forEach(button => {
+        button.addEventListener("click", () => {
+          picked = items[Number(button.dataset.semiClaimIndex)];
+          search.value = `${picked.serial_no || ""} ${picked.name || ""}`.trim();
+          document.getElementById("semiClaimQty").value = picked.whole_item ? "1" : formatInputQty(picked.available_quantity);
+          document.getElementById("semiClaimQty").disabled = Boolean(picked.whole_item);
+          document.getElementById("semiClaimPicked").textContent = `${picked.serial_no || ""} ${picked.name || ""}，可领 ${formatQty(picked.available_quantity)}`;
+          results.style.display = "none";
+        });
+      });
+    }
+    let timer = 0;
+    search.addEventListener("input", () => {
+      picked = null;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => loadItems().catch(error => toast(error.message)), 160);
+    });
+    search.addEventListener("focus", () => loadItems().catch(error => toast(error.message)));
+    document.getElementById("semiClaimProject").addEventListener("change", () => { picked = null; loadItems().catch(error => toast(error.message)); });
+    document.getElementById("semiClaimSource").addEventListener("change", () => { picked = null; loadItems().catch(error => toast(error.message)); });
+    document.getElementById("submitSemiClaim").addEventListener("click", async () => {
+      if (!picked) {
+        toast("请选择半成品");
+        return;
+      }
+      const leaderId = document.getElementById("semiClaimLeader").value;
+      if (!leaderId) {
+        toast("请选择审批领导");
+        return;
+      }
+      try {
+        await systemApi("/api/semifinished-claims", {
+          method: "POST",
+          body: JSON.stringify({
+            project_code: document.getElementById("semiClaimProject").value,
+            leader_id: leaderId,
+            items: [{
+              source_kind: picked.source_kind,
+              source_id: picked.source_id,
+              quantity: document.getElementById("semiClaimQty").value,
+            }],
+          }),
+        });
+        toast("半成品领用已提交");
+        picked = null;
+        search.value = "";
+        fillNextFormNo("semiClaimTitle", "BC");
+      } catch (error) {
+        toast(error.message || "提交失败");
+      }
+    });
+  }
+
   function renderBorrow(main) {
+    const hydrate = consumeDraftHydrate("borrow");
     const dept = currentUser()?.department || "";
     const leaderUsers = approvalLeaderUsers("borrow", "leader_borrow", dept);
     const validLeaderIds = new Set(leaderUsers.map(user => Number(user.id)));
+    if (hydrate?.leader_id) system.selectedBorrowLeader = Number(hydrate.leader_id);
     if (!validLeaderIds.has(Number(system.selectedBorrowLeader || 0))) system.selectedBorrowLeader = Number(leaderUsers[0]?.id || 0);
     main.innerHTML = moduleShell("借用申请", `
-      <div class="work-panel"><div class="work-head"><h2>发起借用</h2><button id="refreshBorrowItems">刷新可借物料</button></div>
+      <div class="work-panel"><div class="work-head"><h2>发起借用</h2><button id="addBorrowRow" type="button">添加行</button></div>
         <div class="work-body">
           <div class="form-grid">
             <label class="wide">借用标题<input id="borrowTitle" placeholder="例如：项目调试物料借用"></label>
-            <label class="short-date-field">预计归还日期${datePickerHtml("borrowReturnDate")}</label>
-            <label class="wide">搜索可借物料/半成品/成品<input id="borrowKeyword" placeholder="物料名称 / 物料编号 / 品牌型号 / 技术规格 / 采购申请人 / 成品半成品编号 / 名称 / 规格"></label>
-            <button class="primary borrow-search-button" id="searchBorrowItems">搜索</button>
+            <div class="wide borrow-meta-row">
+              <label class="compact-field">用途<select id="borrowPurpose"><option value="研发" selected>研发</option><option value="办公">办公</option></select></label>
+              <label class="compact-field" data-borrow-rd>研发类型<select id="borrowRdKind"><option value="项目物料">项目物料</option><option value="辅料">辅料</option></select></label>
+              <label class="compact-field" data-borrow-project>项目代号<select id="borrowProjectCode">${projectCodeOptions()}</select></label>
+              <label class="compact-field">用料形式<select id="borrowUsageKind"><option value="研发用料">研发用料</option><option value="生产用料">生产用料</option></select></label>
+              <label class="compact-field short-date-field">预计归还日期${datePickerHtml("borrowReturnDate")}</label>
+            </div>
+            <div class="wide" id="borrowRows"></div>
+            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitBorrow">提交借用申请</button><button type="button" class="primary flow-submit-button" id="saveBorrowDraft">保存草稿</button></div>
           </div>
-          <div id="borrowItemList" style="margin-top:10px;"></div>
-          <h3>本次借用明细</h3>
-          <div id="borrowDraftList"></div>
-          <div class="submit-flow-actions"><button class="primary flow-submit-button" id="submitBorrow">提交借用申请</button></div>
         </div>
       </div>
       <div class="work-panel"><div class="work-head"><h2>我的借用流程</h2><button id="refreshBorrowFlows">刷新</button></div><div class="work-body" style="padding-top:0"><div class="search-bar"><input type="text" id="borrowMakerFilter" placeholder="搜索制作人..." class="search-input"><input type="text" id="borrowProjectFilter" placeholder="搜索所属项目..." class="search-input"><button id="clearBorrowFiltersBtn">清除</button></div><div id="borrowFlowList"></div></div></div>
     `);
-    document.getElementById("searchBorrowItems").addEventListener("click", loadBorrowItems);
-    document.getElementById("refreshBorrowItems").addEventListener("click", loadBorrowItems);
-    document.getElementById("borrowKeyword").addEventListener("keydown", event => { if (event.key === "Enter") loadBorrowItems(); });
+    document.getElementById("addBorrowRow").addEventListener("click", () => addBorrowRow());
+    document.getElementById("borrowPurpose")?.addEventListener("change", () => updatePurposeFields("borrow"));
+    document.getElementById("borrowRdKind")?.addEventListener("change", () => updatePurposeFields("borrow"));
+    updatePurposeFields("borrow");
+    document.getElementById("saveBorrowDraft").addEventListener("click", () => saveCurrentDraft("borrow").catch(error => toast(error.message)));
     document.getElementById("submitBorrow").addEventListener("click", chooseBorrowLeaderAndSubmit);
     document.getElementById("refreshBorrowFlows").addEventListener("click", () => fetchBorrowApplications("", ""));
     document.getElementById("borrowMakerFilter")?.addEventListener("input", debouncedFilterBorrow);
     document.getElementById("borrowProjectFilter")?.addEventListener("input", debouncedFilterBorrow);
     document.getElementById("clearBorrowFiltersBtn")?.addEventListener("click", clearBorrowFilters);
     bindDatePickers(main);
-    fillNextFormNo("borrowTitle", "JY");
-    system.borrowItemRows = [];
-    document.getElementById("borrowItemList").innerHTML = `<div class="empty-state">请输入条件并点击搜索后显示可借物料。</div>`;
-    renderBorrowDraftList();
+    if (hydrate) {
+      hydrateBorrowForm(hydrate);
+      if (!document.querySelector("#borrowRows .inline-row")) addBorrowRow();
+    } else {
+      fillNextFormNo("borrowTitle", "JY");
+      addBorrowRow();
+    }
     loadBorrowFlowList();
   }
 
@@ -1071,6 +1544,59 @@
     document.getElementById("refreshMyStarted").addEventListener("click", loadMyStarted);
     bindPersonalFlowFilters("myStarted", "myStarted", loadMyStarted);
     loadMyStarted();
+  }
+
+  function renderDrafts(main) {
+    main.innerHTML = moduleShell("草稿箱", `
+      <div class="work-panel"><div class="work-head"><h2>草稿箱</h2><button id="refreshDrafts">刷新</button></div>
+        <div class="work-body" id="draftList">加载中...</div>
+      </div>
+    `);
+    document.getElementById("refreshDrafts").addEventListener("click", loadDrafts);
+    loadDrafts();
+  }
+
+  async function loadDrafts() {
+    const host = document.getElementById("draftList");
+    if (!host) return;
+    const data = await systemApi("/api/drafts");
+    system.draftRows = data.drafts || [];
+    const rows = system.draftRows;
+    host.innerHTML = `<div class="table-wrapper"><table class="flow-table"><thead><tr><th>类型</th><th>标题</th><th>更新时间</th><th>操作</th></tr></thead><tbody>${rows.map(row => `
+      <tr>
+        <td>${escapeHtml(flowTypeLabel(row.form_type))}</td>
+        <td>${escapeHtml(row.title || "-")}</td>
+        <td>${escapeHtml(row.updated_at || "")}</td>
+        <td class="mini-actions"><button type="button" data-draft-continue="${row.id}">继续填写</button><button type="button" class="danger" data-draft-delete="${row.id}">删除</button></td>
+      </tr>
+    `).join("") || `<tr><td colspan="4">暂无草稿</td></tr>`}</tbody></table></div>`;
+    host.querySelectorAll("[data-draft-continue]").forEach(button => {
+      button.addEventListener("click", () => continueDraft(Number(button.dataset.draftContinue)).catch(error => toast(error.message)));
+    });
+    host.querySelectorAll("[data-draft-delete]").forEach(button => {
+      button.addEventListener("click", () => deleteDraftRow(Number(button.dataset.draftDelete)).catch(error => toast(error.message)));
+    });
+  }
+
+  async function continueDraft(draftId) {
+    const data = await systemApi(`/api/drafts/${draftId}`);
+    const draft = data.draft || {};
+    const view = draftViewForType(draft.form_type);
+    if (!view) {
+      toast("草稿类型无法继续填写");
+      return;
+    }
+    system.pendingDraftHydrate = { id: draft.id, form_type: draft.form_type, payload: draft.payload || {} };
+    system.view = view;
+    renderSystemMain();
+  }
+
+  async function deleteDraftRow(draftId) {
+    if (!confirm("确认删除该草稿？")) return;
+    await systemApi(`/api/drafts/${draftId}`, { method: "DELETE" });
+    toast("草稿已删除");
+    if (Number(system.currentDraftId) === Number(draftId)) system.currentDraftId = 0;
+    loadDrafts();
   }
 
   function personalFlowFilterHtml(prefix) {
@@ -1119,17 +1645,53 @@
     return params.toString();
   }
 
+  function activeProjectRows() {
+    return (system.boot?.projects || []).filter(row => row.active !== false && row.active !== 0);
+  }
+
   function projectCodeOptions(selected = "") {
-    const codes = system.boot?.workflow_settings?.project_codes || [];
+    const codes = activeProjectRows().map(row => row.code).filter(code => code && code !== "办公");
     if (!codes.length) return `<option value="">未设置项目代号</option>`;
     return codes.map(code => `<option value="${escapeAttr(code)}" ${code === selected ? "selected" : ""}>${escapeHtml(code)}</option>`).join("");
   }
 
+  function purchaseProjectOptions(selected = "") {
+    const codes = activeProjectRows().map(row => row.code);
+    const unique = [...new Set(["办公", ...codes].filter(Boolean))];
+    return `<option value="">请选择</option>` + unique.map(code => `<option value="${escapeAttr(code)}" ${code === selected ? "selected" : ""}>${escapeHtml(code)}</option>`).join("");
+  }
+
+  function updateClaimFlowAttributeHint() {
+    const hint = document.getElementById("claimFlowAttributeHint");
+    if (!hint) return;
+    hint.hidden = document.getElementById("claimFlowAttribute")?.value !== "流程流转";
+  }
+
+  function updatePurposeFields(prefix = "claim") {
+    const isRd = document.getElementById(`${prefix}Purpose`)?.value === "研发";
+    const isProjectMaterial = isRd && document.getElementById(`${prefix}RdKind`)?.value === "项目物料";
+    document.querySelectorAll(`[data-${prefix}-rd]`).forEach(el => { el.style.display = isRd ? "" : "none"; });
+    document.querySelectorAll(`[data-${prefix}-project]`).forEach(el => { el.style.display = isProjectMaterial ? "" : "none"; });
+  }
+
+  function fillPurposeFromPurchaseProject(prefix, purchaseProject) {
+    const purpose = document.getElementById(`${prefix}Purpose`);
+    const rdKind = document.getElementById(`${prefix}RdKind`);
+    const projectCode = document.getElementById(`${prefix}ProjectCode`);
+    if (purchaseProject === "办公") {
+      if (purpose) purpose.value = "办公";
+      if (rdKind) rdKind.value = "项目物料";
+      if (projectCode) projectCode.value = "";
+    } else if (purchaseProject) {
+      if (purpose) purpose.value = "研发";
+      if (rdKind) rdKind.value = "项目物料";
+      if (projectCode) projectCode.value = purchaseProject;
+    }
+    updatePurposeFields(prefix);
+  }
+
   function updateClaimPurposeFields() {
-    const isRd = document.getElementById("claimPurpose")?.value === "研发";
-    const isProjectMaterial = isRd && document.getElementById("claimRdKind")?.value === "项目物料";
-    document.querySelectorAll("[data-claim-rd]").forEach(el => { el.style.display = isRd ? "" : "none"; });
-    document.querySelectorAll("[data-claim-project]").forEach(el => { el.style.display = isProjectMaterial ? "" : "none"; });
+    updatePurposeFields("claim");
   }
 
   function defaultValidatorSelection(formType) {
@@ -1203,91 +1765,150 @@
   }
 
   function renderSemifinished(main) {
+    const hydrate = consumeDraftHydrate("semifinished");
     system.selectedValidators = [];
     main.innerHTML = moduleShell("半成品验收", `
       <div class="work-panel"><div class="work-head"><h2>发起半成品验收</h2></div>
         <div class="work-body">
           <div class="form-grid">
-            <label class="wide">验收单号/标题<input id="semiTitle"></label>
+            <div class="wide production-head-row">
+              <label>验收单号/标题<input id="semiTitle"></label>
+              <label>项目代号<select id="semiProjectCode">${purchaseProjectOptions()}</select></label>
+            </div>
+            <div class="wide production-meta-row">
+              <label>验收数量<input id="semiQty" type="number" step="1" min="1" value="1"></label>
+              <label>验收日期${datePickerHtml("semiDate", new Date().toISOString().slice(0, 10))}</label>
+              <label>单位<input id="semiUnit" value="台"></label>
+              <label>制作人<select id="semiMakerId"><option value="">请选择制作人</option></select></label>
+            </div>
             <label>半成品名称<input id="semiName"></label>
             <label>规格参数<input id="semiSpec"></label>
-            <label>验收数量<input id="semiQty" type="number" step="1" min="1" value="1"></label>
-            <label>单位<input id="semiUnit" value="台"></label>
-            <label>制作人<select id="semiMakerId"><option value="">请选择制作人</option></select></label>
-            <label>验收日期${datePickerHtml("semiDate", new Date().toISOString().slice(0, 10))}</label>
-            <label class="wide">项目代号<input id="semiProjectCode" placeholder="输入项目代号"></label>
             <div class="wide"><div class="flow-tools"><strong>单台所用物料</strong><button type="button" id="addSemiMaterial">添加物料</button></div><div id="semiMaterials"></div></div>
             <div class="wide"><span class="badge" id="semiCost">成本价：¥0.00 / 台</span></div>
-            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitSemi">提交半成品验收</button></div>
+            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitSemi">提交半成品验收</button><button type="button" class="primary flow-submit-button" id="saveSemiDraft">保存草稿</button></div>
           </div>
         </div>
       </div>
       <div class="work-panel"><div class="work-head"><h2>半成品验收流程</h2><button id="refreshSemiFlows">刷新</button></div><div class="work-body" id="semiFlowList"></div></div>
     `);
     document.getElementById("semiQty").addEventListener("input", () => refreshComponentRows("semiMaterials", "semiQty", "semiCost"));
-    const addRow = () => addMaterialComponentRow(document.getElementById("semiMaterials"), system.productionMaterialPool, "semiQty", "semiCost");
-    document.getElementById("addSemiMaterial").addEventListener("click", addRow);
+    document.getElementById("semiProjectCode")?.addEventListener("change", async () => {
+      document.getElementById("semiMaterials").innerHTML = "";
+      await loadProductionMaterialPool().catch(error => toast(error.message));
+    });
+    document.getElementById("addSemiMaterial").addEventListener("click", async () => {
+      if (!document.getElementById("semiProjectCode")?.value) {
+        toast("请先选择项目代号");
+        return;
+      }
+      try {
+        await loadProductionMaterialPool();
+        addMaterialComponentRow(document.getElementById("semiMaterials"), system.productionMaterialPool, "semiQty", "semiCost");
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    document.getElementById("saveSemiDraft").addEventListener("click", () => saveCurrentDraft("semifinished").catch(error => toast(error.message)));
     document.getElementById("submitSemi").addEventListener("click", startSemifinishedSubmit);
     document.getElementById("refreshSemiFlows").addEventListener("click", loadSemifinishedFlowList);
     document.getElementById("semiTitle").value = "";
-    // Load users for maker dropdown
     populateProductionMakerSelect("semiMakerId");
     bindDatePickers(main);
-    fillNextFormNo("semiTitle", "BY");
+    if (hydrate) hydrateSemifinishedForm(hydrate);
+    else fillNextFormNo("semiTitle", "BY");
     loadProductionMaterialPool()
       .catch(error => {
         console.warn("半成品验收物料池加载失败", error);
         system.productionMaterialPool = [];
       })
       .finally(() => {
-        if (!document.querySelector("#semiMaterials .component-row")) addRow();
+        if (hydrate) hydrateMaterialComponents("semiMaterials", hydrate.components || [], system.productionMaterialPool, "semiQty", "semiCost");
       });
     loadSemifinishedFlowList();
   }
 
   function renderFinished(main) {
+    const hydrate = consumeDraftHydrate("finished");
     system.selectedValidators = [];
     main.innerHTML = moduleShell("成品验收", `
       <div class="work-panel"><div class="work-head"><h2>发起成品验收</h2></div>
         <div class="work-body">
           <div class="form-grid">
-            <label class="wide">验收单号/标题<input id="finTitle"></label>
+            <div class="wide production-head-row">
+              <label>验收单号/标题<input id="finTitle"></label>
+              <label>项目代号<select id="finProjectCode">${purchaseProjectOptions()}</select></label>
+            </div>
+            <div class="wide production-meta-row">
+              <label>验收数量<input id="finQty" type="number" step="1" min="1" value="1"></label>
+              <label>验收日期${datePickerHtml("finDate", new Date().toISOString().slice(0, 10))}</label>
+              <label>单位<input id="finUnit" value="台"></label>
+              <label>制作人<select id="finMakerId"><option value="">请选择制作人</option></select></label>
+            </div>
             <label>成品名称<input id="finName"></label>
             <label>规格参数<input id="finSpec"></label>
-            <label>验收数量<input id="finQty" type="number" step="1" min="1" value="1"></label>
-            <label>单位<input id="finUnit" value="台"></label>
-            <label>制作人<select id="finMakerId"><option value="">请选择制作人</option></select></label>
-            <label>验收日期${datePickerHtml("finDate", new Date().toISOString().slice(0, 10))}</label>
-            <label class="wide">项目代号<input id="finProjectCode" placeholder="输入项目代号"></label>
             <div class="wide"><div class="flow-tools"><strong>所用物料</strong><button type="button" id="addFinMaterial">添加物料</button></div><div id="finMaterials"></div></div>
             <div class="wide"><div class="flow-tools"><strong>所用半成品</strong><button type="button" id="addFinSemi">添加半成品</button></div><div id="finSemis"></div></div>
             <div class="wide"><span class="badge" id="finCost">成本价：¥0.00 / 台</span></div>
-            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitFin">提交成品验收</button></div>
+            <div class="wide submit-flow-actions"><button class="primary flow-submit-button" id="submitFin">提交成品验收</button><button type="button" class="primary flow-submit-button" id="saveFinDraft">保存草稿</button></div>
           </div>
         </div>
       </div>
       <div class="work-panel"><div class="work-head"><h2>成品验收流程</h2><button id="refreshFinFlows">刷新</button></div><div class="work-body" id="finFlowList"></div></div>
     `);
+    document.getElementById("finProjectCode")?.addEventListener("change", async () => {
+      document.getElementById("finMaterials").innerHTML = "";
+      document.getElementById("finSemis").innerHTML = "";
+      try {
+        await loadProductionMaterialPool();
+        await loadSemifinishedPool();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
     ["finQty", "finName"].forEach(id => document.getElementById(id).addEventListener("input", () => {
       refreshComponentRows("finMaterials", "finQty", "finCost", "finSemis");
     }));
     const addMaterial = () => addMaterialComponentRow(document.getElementById("finMaterials"), system.productionMaterialPool, "finQty", "finCost", "finSemis");
     const addSemi = () => addSemifinishedComponentRow(document.getElementById("finSemis"), system.semifinishedPool, "finQty", "finCost", "finMaterials");
-    document.getElementById("addFinMaterial").addEventListener("click", addMaterial);
-    document.getElementById("addFinSemi").addEventListener("click", addSemi);
+    document.getElementById("addFinMaterial").addEventListener("click", async () => {
+      if (!document.getElementById("finProjectCode")?.value) {
+        toast("请先选择项目代号");
+        return;
+      }
+      try {
+        await loadProductionMaterialPool();
+        addMaterial();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    document.getElementById("addFinSemi").addEventListener("click", async () => {
+      if (!document.getElementById("finProjectCode")?.value) {
+        toast("请先选择项目代号");
+        return;
+      }
+      try {
+        await loadSemifinishedPool();
+        addSemi();
+      } catch (error) {
+        toast(error.message);
+      }
+    });
+    document.getElementById("saveFinDraft").addEventListener("click", () => saveCurrentDraft("finished").catch(error => toast(error.message)));
     document.getElementById("submitFin").addEventListener("click", startFinishedSubmit);
     document.getElementById("refreshFinFlows").addEventListener("click", loadFinishedFlowList);
     document.getElementById("finTitle").value = "";
     populateProductionMakerSelect("finMakerId");
     bindDatePickers(main);
-    fillNextFormNo("finTitle", "CY");
+    if (hydrate) hydrateFinishedForm(hydrate);
+    else fillNextFormNo("finTitle", "CP");
     loadProductionMaterialPool()
       .catch(error => {
         console.warn("成品验收物料池加载失败", error);
         system.productionMaterialPool = [];
       })
       .finally(() => {
-        if (!document.querySelector("#finMaterials .component-row")) addMaterial();
+        if (hydrate) hydrateMaterialComponents("finMaterials", hydrate.components || hydrate.material_components || [], system.productionMaterialPool, "finQty", "finCost", "finSemis");
       });
     loadSemifinishedPool()
       .catch(error => {
@@ -1295,7 +1916,7 @@
         system.semifinishedPool = [];
       })
       .finally(() => {
-        if (!document.querySelector("#finSemis .component-row")) addSemi();
+        if (hydrate) hydrateSemifinishedComponents("finSemis", hydrate.semifinished_components || [], system.semifinishedPool, "finQty", "finCost", "finMaterials");
       });
     loadFinishedFlowList();
   }
@@ -1442,7 +2063,7 @@
           </div>
           <div class="compact-action-row">
             <button class="primary" id="createStocktake">生成盘点单</button>
-            <button id="printStocktake">打印</button>
+            <button id="printStocktake" type="button">下载盘点报表</button>
           </div>
           <div class="print-area" id="stocktakeResult"></div>
         </div>
@@ -1451,7 +2072,13 @@
     `);
     document.getElementById("createStocktake")?.addEventListener("click", chooseStocktakeSupervisorAndCreate);
     document.getElementById("loadStocktakes").addEventListener("click", loadStocktakes);
-    document.getElementById("printStocktake")?.addEventListener("click", () => printElement("stocktakeResult"));
+    document.getElementById("printStocktake")?.addEventListener("click", () => {
+      if (!system.currentStocktakeId) {
+        toast("请先生成盘点单");
+        return;
+      }
+      window.location.href = `/api/stocktakes/${system.currentStocktakeId}/report.xlsx`;
+    });
     bindDatePickers(main);
     loadStocktakes();
   }
@@ -1459,7 +2086,7 @@
   function renderAdmin(main) {
     main.innerHTML = moduleShell("\u7cfb\u7edf\u8bbe\u7f6e", `
       <div class="work-panel"><div class="work-head"><h2>\u90e8\u95e8\u7ba1\u7406</h2><button id="saveDept" class="primary">\u4fdd\u5b58\u90e8\u95e8</button></div><div class="work-body"><input type="hidden" id="deptId"><div class="form-grid"><label>\u90e8\u95e8\u540d<input id="deptName"></label><label>\u63cf\u8ff0<input id="deptDesc"></label></div><div id="deptHost"></div></div></div>
-      <div class="work-panel"><div class="work-head"><h2>\u8d26\u53f7\u4e0e\u89d2\u8272</h2><button id="saveUser" class="primary">\u4fdd\u5b58\u7528\u6237</button></div><div class="work-body"><input type="hidden" id="editUserId"><div class="form-grid"><label>\u8d26\u53f7<input id="newUsername"></label><label>\u59d3\u540d<input id="newDisplayName"></label><label>\u5bc6\u7801<input id="newPassword" type="password" placeholder="\u65b0\u5efa\u9ed8\u8ba4 123456\uff0c\u7f16\u8f91\u7559\u7a7a\u4e0d\u6539"></label><label>\u90e8\u95e8<select id="newDepartment">${departmentOptions()}</select></label><label>\u72b6\u6001<select id="newActive"><option value="1">\u542f\u7528</option><option value="0">\u505c\u7528</option></select></label><label class="wide">\u89d2\u8272<select id="newRoles" multiple size="5">${(system.boot.roles || []).map(r => `<option value="${r.code}">${escapeHtml(r.name)}</option>`).join("")}</select></label></div><div id="usersHost"></div></div></div>
+      <div class="work-panel"><div class="work-head"><h2>\u8d26\u53f7\u4e0e\u89d2\u8272</h2><button id="saveUser" class="primary">\u4fdd\u5b58\u7528\u6237</button></div><div class="work-body"><input type="hidden" id="editUserId"><div class="form-grid"><label>\u8d26\u53f7<input id="newUsername"></label><label>\u59d3\u540d<input id="newDisplayName"></label><label>\u5bc6\u7801<input id="newPassword" type="password" placeholder="\u65b0\u5efa\u9ed8\u8ba4 123456\uff0c\u7f16\u8f91\u7559\u7a7a\u4e0d\u6539"></label><label>\u90e8\u95e8<select id="newDepartment">${departmentOptions()}</select></label><label>\u72b6\u6001<select id="newActive"><option value="1">\u542f\u7528</option><option value="0">\u505c\u7528</option></select></label><label class="wide">\u89d2\u8272<select id="newRoles" multiple size="6">${(system.boot.roles || []).map(r => `<option value="${r.code}">${escapeHtml(r.name)}</option>`).join("")}</select></label></div><div id="usersHost"></div></div></div>
       <div class="work-panel"><div class="work-head"><h2>密码策略</h2><button id="savePasswordPolicy" class="primary">保存密码策略</button></div><div class="work-body" id="passwordPolicySettings">加载中...</div></div>
       <div class="work-panel"><div class="work-head"><h2>数据校验</h2><button id="saveDataValidation" class="primary">保存数据校验</button></div><div class="work-body" id="dataValidationSettings">加载中...</div></div>
       <div class="work-panel"><div class="work-head"><h2>\u6d41\u7a0b\u8bbe\u7f6e</h2><button id="saveWorkflowSettings" class="primary">\u4fdd\u5b58\u6d41\u7a0b\u8bbe\u7f6e</button></div><div class="work-body" id="workflowSettings">\u52a0\u8f7d\u4e2d...</div></div>
@@ -1661,6 +2288,8 @@
   function defaultStepUserId(formType, stepCode, fallbackRole = "", department = "") {
     return (usersForStep(formType, stepCode, fallbackRole, department)[0] || usersBy(fallbackRole)[0] || {}).id || "";
   }
+
+  window.warehouseStepOptions = userOptionsForStep;
 
   function manualApprovalLeaderEnabled() {
     return Boolean(system.boot?.workflow_settings?.allow_manual_approval_leader);
@@ -2046,7 +2675,7 @@
     const uploadHtml = canModifyMaterial()
       ? `<div class="wide attachment-inline-upload"><h3>补充批次附件</h3>${batchOptions ? `<div class="attachment-upload-controls"><select id="detailAttachmentBatch" aria-label="选择批次">${batchOptions}</select><select id="detailAttachmentType" aria-label="附件类型"><option value="material_photo">物料照片</option><option value="document">资料</option></select><label class="attachment-file-pick"><input id="detailAttachmentFiles" data-empty-label="选择文件" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"><span data-file-label>选择文件</span></label><button type="button" class="attachment-upload-button" id="uploadDetailAttachments">上传</button></div>` : `<div class="empty-state">该物料暂无批次，入库生成批次后再上传附件。</div>`}</div>`
       : "";
-    return `<div class="form-grid material-detail-grid"><div class="wide"><h3>${escapeHtml(material.material_code || "")} ${escapeHtml(material.name || "")}</h3></div><div><span class="hint">品牌型号</span><strong>${escapeHtml(material.brand_model || "-")}</strong></div><div><span class="hint">技术规格</span><strong>${escapeHtml(material.spec || "-")}</strong></div><div><span class="hint">单位</span><strong>${escapeHtml(material.unit || "-")}</strong></div><div><span class="hint">库存总量</span><strong>${formatQty(material.quantity || 0)}</strong></div><div><span class="hint">采购申请人</span><strong>${escapeHtml(material.purchase_applicant || "-")}</strong></div><div><span class="hint">位置</span><strong>${escapeHtml(material.shelf_name || "")} ${escapeHtml(material.layer_number || "")} ${escapeHtml(material.zone_name || "")}</strong></div><div class="wide"><h3>批次信息</h3>${batchSummaryHtml(material.batches || []) || `<div class="empty-state">暂无批次</div>`}</div><div class="wide"><h3>批次附件</h3><div id="materialDetailBatchAttachments">${materialBatchAttachmentsHtml(material, canDeleteMaterialAttachment())}</div></div>${uploadHtml}</div>`;
+    return `<div class="form-grid material-detail-grid"><div class="wide"><h3>${escapeHtml(material.material_code || "")} ${escapeHtml(material.name || "")}</h3></div><div><span class="hint">品牌型号</span><strong>${escapeHtml(material.brand_model || "-")}</strong></div><div><span class="hint">技术规格</span><strong>${escapeHtml(material.spec || "-")}</strong></div><div><span class="hint">所属分类编码</span><strong>${escapeHtml(material.group_category_code || "-")}</strong></div><div><span class="hint">物品和服务分类代码</span><strong>${escapeHtml(material.group_service_code || "-")}</strong></div><div class="wide"><span class="hint">标准描述</span><strong>${escapeHtml(material.group_standard_description || "-")}</strong></div><div class="wide material-detail-line"><div><span class="hint">单位</span><strong>${escapeHtml(material.unit || "-")}</strong></div><div><span class="hint">位置</span><strong>${escapeHtml([material.shelf_name, material.layer_number, material.zone_name].filter(value => String(value || "").trim()).join(" ") || "-")}</strong></div></div><div class="wide material-detail-line"><div><span class="hint">正式库实际数量</span><strong>${formatQty(material.quantity || 0)}</strong></div><div><span class="hint">正式库账面数量</span><strong>${formatQty(material.book_quantity || 0)}</strong></div></div><div class="wide material-detail-line"><div><span class="hint">临时库实际数量</span><strong>${formatQty(material.temporary_quantity || 0)}</strong></div><div><span class="hint">临时库账面数量</span><strong>${formatQty(material.temporary_book_quantity || 0)}</strong></div></div><div class="wide"><h3>批次信息</h3>${batchSummaryHtml(material.batches || [], material.unit) || `<div class="empty-state">暂无批次</div>`}<h3>临时库批次</h3>${batchSummaryHtml(material.temporary_batches || [], material.unit) || `<div class="empty-state">暂无临时库批次</div>`}}</div><div class="wide"><h3>批次附件</h3><div id="materialDetailBatchAttachments">${materialBatchAttachmentsHtml(material, canDeleteMaterialAttachment())}</div></div>${uploadHtml}</div>`;
   }
 
   async function viewMaterialDetail(materialId) {
@@ -2097,8 +2726,8 @@
     const row = document.createElement("div");
     row.className = `inline-row ${type === "claim" ? "claim" : "acceptance"}`;
     row.innerHTML = type === "claim"
-      ? `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格/采购申请人"><div data-result-list class="material-results"></div><small data-stock-info class="hint"></small></label><label>编号<input data-code readonly></label><label>品牌型号<input data-brand readonly></label><label>技术规格<input data-spec readonly></label><label>领用数量<input data-qty type="number" step="1" min="0"><small data-allocation-info class="claim-allocation-preview"></small></label><button data-remove>删除</button><input type="hidden" data-material-id><input type="hidden" data-stock-quantity>`
-      : `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div></label><label class="material-search">编号<input data-code placeholder="输入编号近似搜索"><div data-result-list class="material-results"></div></label><label>品牌型号<input data-brand></label><label>技术规格<input data-spec></label><label>采购申请人<input data-purchase-applicant></label><label>采购数量<input data-purchase type="number" step="1"></label><label>到货数量<input data-arrival type="number" step="1"></label><label>总金额<input data-total-amount type="number" min="0" step="0.01" required></label><label>单价<input data-price type="number" step="0.0001" readonly></label><button data-remove>删除</button><input type="hidden" data-material-id>`;
+      ? `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格/采购申请人"><div data-result-list class="material-results"></div><small data-stock-info class="hint"></small></label><label>编号<input data-code readonly></label><label>品牌型号<input data-brand readonly></label><label>技术规格<input data-spec readonly></label><label>领用数量<input data-qty type="number" step="1" min="0"><small data-allocation-info class="claim-allocation-preview"></small></label><button data-remove>删除</button><input type="hidden" data-material-id><input type="hidden" data-stock-quantity><input type="hidden" data-purchase-project>`
+      : `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div></label><label class="material-search">编号<input data-code placeholder="输入编号近似搜索"><div data-result-list class="material-results"></div></label><label>品牌型号<input data-brand></label><label>技术规格<input data-spec></label><label>采购申请人<input data-purchase-applicant></label><label>采购申请项目<select data-purchase-project required>${purchaseProjectOptions()}</select></label><label>用料形式<select data-usage-kind><option value="研发用料">研发用料</option><option value="生产用料">生产用料</option></select></label><label>每单位数量<input data-pack type="number" min="1" step="1" value="1"></label><label>单位<input data-arrival-unit></label><label>采购数量<input data-purchase type="number" step="1"></label><label>到货数量<input data-arrival type="number" step="1"></label><label>总金额<input data-total-amount type="number" min="0" step="0.01" required></label><label>单价<input data-price type="number" step="0.0001" readonly></label><button data-remove>删除</button><input type="hidden" data-material-id><input type="hidden" data-purchase-item>`;
     row.querySelector("[data-remove]").addEventListener("click", () => row.remove());
     const bindSearch = input => {
       if (!input) return;
@@ -2107,9 +2736,9 @@
       input.addEventListener("input", () => {
         window.clearTimeout(timer);
         row.querySelector("[data-material-id]").value = "";
-        timer = window.setTimeout(() => resolveMaterial(row, type === "claim", input, list), 220);
+        timer = window.setTimeout(() => resolveMaterial(row, type === "claim", input, list).catch(error => toast(error.message)), 220);
       });
-      input.addEventListener("focus", () => resolveMaterial(row, type === "claim", input, list));
+      input.addEventListener("focus", () => resolveMaterial(row, type === "claim", input, list).catch(error => toast(error.message)));
       input.addEventListener("keydown", event => {
         if (event.key === "Escape") hideMaterialResults(row);
       });
@@ -2133,9 +2762,9 @@
   async function resolveMaterial(row, positiveOnly, input = row.querySelector("[data-search]"), list = input?.parentElement.querySelector("[data-result-list]")) {
     const keyword = input?.value.trim() || "";
     const results = positiveOnly
-      ? await api(`/api/claims/materials${keyword ? `?keyword=${encodeURIComponent(keyword)}` : ""}`)
+      ? await systemApi(`/api/claims/materials?usage_kind=${encodeURIComponent(system.view === "borrow" ? (document.getElementById("borrowUsageKind")?.value || "研发用料") : (system.claimUsageKind || "研发用料"))}${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ""}`)
       : (keyword
-        ? await api(`/api/materials/search?keyword=${encodeURIComponent(keyword)}`)
+        ? await systemApi(`/api/materials/search?keyword=${encodeURIComponent(keyword)}`)
         : await freshMaterialRowsForPicker());
     const filtered = positiveOnly
       ? results.filter(item => Number(item.total_available_quantity ?? item.quantity ?? 0) > 0)
@@ -2151,7 +2780,7 @@
     list.innerHTML = filtered.map((material, index) => `
       <button class="material-option" type="button" data-material-index="${index}">
         ${escapeHtml(material.material_code)} · ${escapeHtml(material.name)}
-        <small>${escapeHtml(material.brand_model || "")} ${escapeHtml(material.spec || "")} · 采购申请人 ${escapeHtml(material.purchase_applicant || "-")} · ${positiveOnly ? escapeHtml(ClaimSourceUI.availabilityText(material, temporaryEnabled, formatQty)) : `总余量 ${formatQty(material.quantity || 0)}`} ${escapeHtml(material.unit || "")}${!positiveOnly && material.batch_summary ? ` · 批次 ${escapeHtml(material.batch_summary)}` : ""}</small>
+        <small>${escapeHtml(material.brand_model || "")} ${escapeHtml(material.spec || "")} · 采购申请人 ${escapeHtml(material.purchase_applicant || "-")}${positiveOnly && material.purchase_project ? ` · ${escapeHtml(material.purchase_project)}` : ""} · ${positiveOnly ? escapeHtml(ClaimSourceUI.availabilityText(material, temporaryEnabled, formatQty)) : `总余量 ${formatQty(material.quantity || 0)}`} ${escapeHtml(material.unit || "")}${!positiveOnly && material.batch_summary ? ` · 批次 ${escapeHtml(material.batch_summary)}` : ""}</small>
       </button>
     `).join("");
     positionMaterialResults(row, list, filtered.length, input);
@@ -2163,6 +2792,17 @@
   }
 
   function applyMaterialSelection(row, material) {
+    if (row.closest("#claimRows") && material.purchase_project) {
+      const others = [...document.querySelectorAll("#claimRows .inline-row")].filter(other => other !== row);
+      const conflict = others.some(other => {
+        const value = other.querySelector("[data-purchase-project]")?.value || "";
+        return value && value !== material.purchase_project;
+      });
+      if (conflict) {
+        toast("一张申领单只允许一个采购申请项目");
+        return;
+      }
+    }
     row._selectedMaterial = material;
     row.querySelector("[data-material-id]").value = material.id;
     row.querySelector("[data-search]").value = material.name || "";
@@ -2170,6 +2810,8 @@
     row.querySelector("[data-brand]") && (row.querySelector("[data-brand]").value = material.brand_model || "");
     row.querySelector("[data-spec]") && (row.querySelector("[data-spec]").value = material.spec || "");
     row.querySelector("[data-purchase-applicant]") && (row.querySelector("[data-purchase-applicant]").value = material.purchase_applicant || "");
+    const projectInput = row.querySelector("[data-purchase-project]");
+    if (projectInput && material.purchase_project) projectInput.value = material.purchase_project;
     hideMaterialResults(row);
     const totalQuantity = Number(material.total_available_quantity ?? material.quantity ?? 0);
     const stockInput = row.querySelector("[data-stock-quantity]");
@@ -2182,7 +2824,30 @@
         formatQty,
       );
     }
+    if (row.closest("#claimRows") && material.purchase_project) {
+      fillPurposeFromPurchaseProject("claim", material.purchase_project);
+    }
     updateClaimAllocationPreview(row);
+    if (row.closest("#claimRows")) keepOnlyTemporaryClaimRow(row);
+  }
+
+  function rowClaimsTemporary(row) {
+    const material = row?._selectedMaterial;
+    if (!material || !system.boot?.workflow_settings?.temporary_inventory_enabled) return false;
+    const temporary = Number(material.temporary_available_quantity || 0);
+    if (!(temporary > 0)) return false;
+    const formal = Number(material.formal_available_quantity || 0);
+    const quantity = Number(row.querySelector("[data-qty]")?.value || 0);
+    if (quantity > 0) return quantity > formal + 1e-9;
+    return formal <= 1e-9;
+  }
+
+  function keepOnlyTemporaryClaimRow(row) {
+    if (!rowClaimsTemporary(row)) return;
+    const extras = [...document.querySelectorAll("#claimRows .inline-row")].filter(other => other !== row);
+    if (!extras.length) return;
+    extras.forEach(other => other.remove());
+    toast("领用临时库物料时，单次只能领用一种物料");
   }
 
   function updateClaimAllocationPreview(row) {
@@ -2196,6 +2861,7 @@
     );
     host.textContent = text;
     host.classList.toggle("has-shortage", text.includes("不足"));
+    if (row.closest("#claimRows")) keepOnlyTemporaryClaimRow(row);
   }
 
   async function freshMaterialRowsForPicker() {
@@ -2238,9 +2904,11 @@
     const labels = {
       claim: ["申领/出库", "type-issue"], acceptance: ["物料验收", "type-acceptance"],
       semifinished: ["半成品验收", "type-acceptance"], finished: ["成品验收", "type-acceptance"],
-      borrow: ["借用申请", "type-borrow"], borrow_return: ["借用归还", "type-return"],
+      borrow: ["借用申请", "type-borrow"], borrow_return: ["借用归还", "type-return"], borrow_claim: ["借用转领用", "type-issue"],
       common_material: ["常用物料申请", "type-common"], supply: ["供货申请", "type-supply"],
       supply_return: ["供货回寄", "type-return"], supply_extension: ["供货延期", "type-supply"],
+      purchase_request: ["采购申请", "type-common"], purchase_summary: ["采购汇总", "type-common"],
+      special_claim: ["特殊用料", "type-issue"], stocktake: ["盘点", "type-default"],
     };
     const item = labels[raw];
     return { label: item ? item[0] : (raw || "-"), className: item ? item[1] : "type-default" };
@@ -2252,7 +2920,7 @@
     const classes = {
       applicant_revision: "status-revision", acceptance: "status-acceptance", leader_acceptance: "status-pending", inbound: "status-pending",
       leader_claim: "status-pending", outbound: "status-pending", leader_borrow: "status-pending", borrow_outbound: "status-pending", return_inbound: "status-pending",
-      leader_common_material: "status-pending", leader_supply: "status-pending", supply_outbound: "status-pending", supply_return_inbound: "status-acceptance", leader_supply_extension: "status-pending", external_open: "status-transfer-warning",
+      leader_common_material: "status-pending", leader_supply: "status-pending", supply_handover_print: "status-pending", supply_outbound: "status-pending", supply_voucher_upload: "status-pending", supply_voucher_review: "status-pending", supply_return_inbound: "status-acceptance", leader_supply_extension: "status-pending", external_open: "status-transfer-warning",
       awaiting_purchase: "status-transfer-purchase", acceptance_in_progress: "status-transfer-processing", acceptance_failed: "status-transfer-exception",
       formal_inbound_partial: "status-transfer-warning", formal_inbound_complete: "status-transfer-processing", reserving: "status-transfer-processing",
       auto_claim_creating: "status-transfer-processing", auto_claim_pending: "status-transfer-purchase", auto_claim_exception: "status-transfer-exception",
@@ -2302,9 +2970,14 @@
       brand_model: row.querySelector("[data-brand]")?.value || "",
       spec: row.querySelector("[data-spec]")?.value || "",
       purchase_applicant: row.querySelector("[data-purchase-applicant]")?.value || "",
+      purchase_project: row.querySelector("[data-purchase-project]")?.value || "",
+      usage_kind: row.querySelector("[data-usage-kind]")?.value || "研发用料",
+      pack_quantity: row.querySelector("[data-pack]")?.value || 1,
+      arrival_unit: row.querySelector("[data-arrival-unit]")?.value || "",
       purchase_quantity: row.querySelector("[data-purchase]").value,
       arrival_quantity: row.querySelector("[data-arrival]").value,
       total_amount: row.querySelector("[data-total-amount]").value,
+      purchase_item_id: row.querySelector("[data-purchase-item]")?.value || "",
     }));
     return { rows, items };
   }
@@ -2411,7 +3084,7 @@
       const { items } = acceptanceItemsWithRows();
       const purchaseOrderChoice = document.querySelector("input[name='acceptancePurchaseOrder']:checked");
       const hasPurchaseOrder = purchaseOrderChoice ? purchaseOrderChoice.value === "yes" : true;
-      await systemApi("/api/acceptance", { method: "POST", body: JSON.stringify({ title: document.getElementById("accTitle").value, validator_ids: system.selectedValidators, has_purchase_order: hasPurchaseOrder, items }) });
+      await submitWorkflowPayload("acceptance", "/api/acceptance", { title: document.getElementById("accTitle").value, validator_ids: system.selectedValidators, has_purchase_order: hasPurchaseOrder, items });
       toast("\u9a8c\u6536\u6d41\u7a0b\u5df2\u63d0\u4ea4");
       system.boot = null;
       await loadSystemBoot();
@@ -2426,14 +3099,7 @@
     const submitButton = document.getElementById("submitClaim");
     if (submitButton) submitButton.disabled = true;
     try {
-      const items = [...document.querySelectorAll("#claimRows .inline-row")].map(row => ({
-        material_id: row.querySelector("[data-material-id]").value,
-        material_code: row.querySelector("[data-code]")?.value || "",
-        material_name: row.querySelector("[data-search]")?.value || "",
-        brand_model: row.querySelector("[data-brand]")?.value || "",
-        spec: row.querySelector("[data-spec]")?.value || "",
-        request_quantity: row.querySelector("[data-qty]").value,
-      }));
+      const payload = claimPayload();
       [...document.querySelectorAll("#claimRows .inline-row")].forEach(row => {
         const qty = Number(row.querySelector("[data-qty]").value || 0);
         const stockRaw = row.querySelector("[data-stock-quantity]")?.value;
@@ -2442,16 +3108,7 @@
           throw new Error("\u7533\u9886\u6570\u91cf\u4e0d\u80fd\u5927\u4e8e\u5f53\u524d\u5e93\u5b58\u6570\u91cf");
         }
       });
-      await systemApi("/api/claims", { method: "POST", body: JSON.stringify({
-        title: document.getElementById("claimTitle").value,
-        leader_id: system.selectedClaimLeaders[0],
-        leader_ids: system.selectedClaimLeaders,
-        purpose: document.getElementById("claimPurpose").value,
-        rd_item_kind: document.getElementById("claimRdKind")?.value || "",
-        project_material_kind: document.getElementById("claimProjectKind")?.value || "",
-        project_code: document.getElementById("claimProjectCode")?.value || "",
-        items,
-      }) });
+      await submitWorkflowPayload("claim", "/api/claims", payload);
       toast("\u7533\u9886\u6d41\u7a0b\u5df2\u63d0\u4ea4");
       system.boot = null;
       await loadSystemBoot();
@@ -2503,97 +3160,138 @@
     fetchBorrowApplications("", "");
   }
 
-  async function loadBorrowItems() {
-    const host = document.getElementById("borrowItemList");
-    if (!host) return;
-    host.innerHTML = `<div class="empty-state">加载中...</div>`;
-    const keyword = document.getElementById("borrowKeyword")?.value || "";
-    const data = await systemApi(`/api/borrow/items?keyword=${encodeURIComponent(keyword)}`);
-    system.borrowItemRows = data.items || [];
-    system.pages.borrowItems = 1;
-    renderBorrowItemList();
+  function collectBorrowRows() {
+    return [...document.querySelectorAll("#borrowRows .inline-row")].map(row => {
+      const item = row._borrowItem || {};
+      const quantity = row.querySelector("[data-qty]")?.value || item.request_quantity || item.quantity || 0;
+      return {
+        ...item,
+        item_type: row.querySelector("[data-item-type]")?.value || item.item_type || "",
+        item_ref_id: Number(row.querySelector("[data-item-ref]")?.value || item.item_ref_id || 0),
+        purchase_project: row.querySelector("[data-purchase-project]")?.value || item.purchase_project || "",
+        item_code: row.querySelector("[data-code]")?.value || item.item_code || "",
+        item_name: row.querySelector("[data-search]")?.value || item.item_name || "",
+        brand_model: row.querySelector("[data-brand]")?.value || item.brand_model || "",
+        spec: row.querySelector("[data-spec]")?.value || item.spec || "",
+        request_quantity: quantity,
+        quantity,
+      };
+    }).filter(item => item.item_ref_id);
   }
 
-  function renderBorrowItemList() {
-    const host = document.getElementById("borrowItemList");
-    if (!host) return;
-    const rows = system.borrowItemRows || [];
-    const visible = pageRows("borrowItems", rows, 12);
-    const temporaryEnabled = Boolean(system.boot?.workflow_settings?.temporary_inventory_enabled);
-    host.innerHTML = `<table class="flow-table"><thead><tr><th>类型</th><th>编号</th><th>名称</th><th>品牌</th><th>规格</th><th>库存余量</th><th>位置</th><th>数量</th><th>操作</th></tr></thead><tbody>${visible.map((item, index) => {
-      const actualIndex = (Number(system.pages.borrowItems || 1) - 1) * 12 + index;
-      const availability = item.item_type === "material" ? ClaimSourceUI.availabilityText(item, temporaryEnabled, formatQty) : `可借 ${formatQty(item.available_quantity || 0)}`;
-      return `<tr><td>${borrowItemTypeLabel(item.item_type)}</td><td>${escapeHtml(item.item_code || "")}</td><td>${escapeHtml(item.item_name || "")}</td><td>${escapeHtml(item.brand_model || "无")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml(availability)} ${escapeHtml(item.unit || "")}</td><td>${escapeHtml(item.location_text || "")}</td><td><span class="qty-with-unit"><input data-borrow-qty="${actualIndex}" type="number" step="1" min="0" max="${Number(item.available_quantity || 0)}" value="1"><span>${escapeHtml(item.unit || "")}</span></span></td><td><button type="button" data-borrow-add="${actualIndex}">添加借用</button></td></tr>`;
-    }).join("") || `<tr><td colspan="9">暂无可借物料</td></tr>`}</tbody></table>${paginationHtml("borrowItems", rows, 12)}`;
-    host.querySelectorAll("[data-borrow-add]").forEach(button => button.addEventListener("click", () => addBorrowDraft(Number(button.dataset.borrowAdd))));
-    bindPagination(host, "borrowItems", renderBorrowItemList);
+  function placeBorrowResults(input, list) {
+    const rect = input.getBoundingClientRect();
+    list.style.left = `${Math.max(8, rect.left)}px`;
+    list.style.top = `${rect.bottom + 4}px`;
+    list.style.width = `${Math.max(rect.width, 320)}px`;
+    list.style.display = "block";
   }
 
-  function addBorrowDraft(index) {
-    const item = (system.borrowItemRows || [])[index];
-    if (!item) return;
-    const qty = Number(document.querySelector(`[data-borrow-qty="${index}"]`)?.value || 0);
-    if (qty <= 0) {
-      toast("借用数量必须大于 0");
-      return;
-    }
-    if (qty > Number(item.available_quantity || 0) + 1e-9) {
-      toast("借用数量不能大于可借数量");
-      return;
-    }
-    const key = `${item.item_type}:${item.item_ref_id}`;
-    const existing = system.borrowDraftRows.find(row => `${row.item_type}:${row.item_ref_id}` === key);
-    if (existing) {
-      existing.request_quantity = Math.min(Number(existing.request_quantity || 0) + qty, Number(item.available_quantity || 0));
-    } else {
-      system.borrowDraftRows.push({ ...item, request_quantity: qty });
-    }
-    renderBorrowDraftList();
-  }
-
-  function renderBorrowDraftList() {
-    const host = document.getElementById("borrowDraftList");
-    if (!host) return;
-    const rows = system.borrowDraftRows || [];
-    const temporaryEnabled = Boolean(system.boot?.workflow_settings?.temporary_inventory_enabled);
-    host.innerHTML = `<table class="flow-table"><thead><tr><th>类型</th><th>编号</th><th>名称</th><th>品牌</th><th>规格</th><th>数量与预计来源</th><th>操作</th></tr></thead><tbody>${rows.map((item, index) => `<tr><td>${borrowItemTypeLabel(item.item_type)}</td><td>${escapeHtml(item.item_code || "")}</td><td>${escapeHtml(item.item_name || "")}</td><td>${escapeHtml(item.brand_model || "无")}</td><td>${escapeHtml(item.spec || "")}</td><td><span class="qty-with-unit"><input data-borrow-draft-qty="${index}" type="number" step="1" min="0" max="${Number(item.available_quantity || 0)}" value="${formatInputQty(item.request_quantity || 0)}"><span>${escapeHtml(item.unit || "")}</span></span><small class="claim-allocation-preview" data-borrow-estimate="${index}">${item.item_type === "material" ? escapeHtml(ClaimSourceUI.allocationEstimate(item, item.request_quantity, temporaryEnabled, formatQty)) : ""}</small></td><td><button type="button" class="danger" data-borrow-remove="${index}">移除</button></td></tr>`).join("") || `<tr><td colspan="7">暂无借用明细</td></tr>`}</tbody></table>`;
-    host.querySelectorAll("[data-borrow-draft-qty]").forEach(input => input.addEventListener("input", () => {
-      const index = Number(input.dataset.borrowDraftQty);
-      const item = rows[index];
-      if (!item) return;
-      item.request_quantity = Number(input.value || 0);
-      const estimate = host.querySelector(`[data-borrow-estimate="${index}"]`);
-      if (estimate && item.item_type === "material") {
-        estimate.textContent = ClaimSourceUI.allocationEstimate(item, item.request_quantity, temporaryEnabled, formatQty);
+  function applyBorrowSelection(row, item, checkConflict = true) {
+    const project = item.purchase_project || "";
+    if (checkConflict && project) {
+      const conflict = [...document.querySelectorAll("#borrowRows .inline-row")].some(other => {
+        if (other === row) return false;
+        const value = other.querySelector("[data-purchase-project]")?.value || "";
+        return value && value !== project;
+      });
+      if (conflict) {
+        toast("一张借用单只允许一个采购申请项目");
+        return;
       }
-    }));
-    host.querySelectorAll("[data-borrow-remove]").forEach(button => button.addEventListener("click", () => {
-      system.borrowDraftRows.splice(Number(button.dataset.borrowRemove), 1);
-      renderBorrowDraftList();
-    }));
+    }
+    row._borrowItem = item;
+    row.querySelector("[data-search]").value = item.item_name || "";
+    row.querySelector("[data-code]").value = item.item_code || "";
+    row.querySelector("[data-brand]").value = item.brand_model || "";
+    row.querySelector("[data-spec]").value = item.spec || "";
+    row.querySelector("[data-kind]").value = borrowItemTypeLabel(item.item_type);
+    row.querySelector("[data-item-type]").value = item.item_type || "material";
+    row.querySelector("[data-item-ref]").value = item.item_ref_id || "";
+    row.querySelector("[data-purchase-project]").value = project;
+    const qty = row.querySelector("[data-qty]");
+    const available = Number(item.available_quantity || 0);
+    if (available > 0) qty.max = String(available);
+    if (!qty.value) qty.value = formatInputQty(item.request_quantity || item.quantity || 1);
+    const stock = row.querySelector("[data-stock-info]");
+    if (stock) {
+      const availableText = available ? `可借 ${formatInputQty(available)} ${item.unit || ""}` : "";
+      stock.textContent = [project, availableText].filter(Boolean).join(" · ");
+    }
+    const list = row.querySelector("[data-result-list]");
+    if (list) list.style.display = "none";
+    if (checkConflict && project) fillPurposeFromPurchaseProject("borrow", project);
+  }
+
+  async function searchBorrowRow(row, input, list) {
+    const keyword = input.value.trim();
+    if (!keyword) {
+      list.style.display = "none";
+      return;
+    }
+    const data = await systemApi(`/api/borrow/items?keyword=${encodeURIComponent(keyword)}`);
+    const usage = document.getElementById("borrowUsageKind")?.value || "";
+    const items = (data.items || []).filter(item => !usage || !item.usage_kind || item.usage_kind === usage).slice(0, 12);
+    if (!items.length) {
+      list.style.display = "none";
+      return;
+    }
+    list.innerHTML = items.map((item, index) => `
+      <button class="material-option" type="button" data-borrow-index="${index}">
+        ${escapeHtml(item.item_code || "")} · ${escapeHtml(item.item_name || "")}
+        <small>${escapeHtml(borrowItemTypeLabel(item.item_type))} ${escapeHtml(item.brand_model || "")} ${escapeHtml(item.spec || "")}${item.purchase_project ? ` · ${escapeHtml(item.purchase_project)}` : ""} · 可借 ${escapeHtml(formatInputQty(item.available_quantity || 0))} ${escapeHtml(item.unit || "")}</small>
+      </button>
+    `).join("");
+    placeBorrowResults(input, list);
+    list.querySelectorAll("[data-borrow-index]").forEach(button => {
+      button.addEventListener("click", () => applyBorrowSelection(row, items[Number(button.dataset.borrowIndex)]));
+    });
+  }
+
+  function addBorrowRow(item = null) {
+    const host = document.getElementById("borrowRows");
+    if (!host) return;
+    const row = document.createElement("div");
+    row.className = "inline-row borrow";
+    row.innerHTML = `<label class="material-search">物料<input data-search placeholder="输入编号/名称/规格"><div data-result-list class="material-results"></div><small data-stock-info class="hint"></small></label><label>编号<input data-code readonly></label><label>品牌型号<input data-brand readonly></label><label>技术规格<input data-spec readonly></label><label>类型<input data-kind readonly></label><label>借用数量<input data-qty type="number" step="1" min="0"></label><button type="button" data-remove>删除</button><input type="hidden" data-item-type><input type="hidden" data-item-ref><input type="hidden" data-purchase-project>`;
+    row.querySelector("[data-remove]").addEventListener("click", () => row.remove());
+    const input = row.querySelector("[data-search]");
+    const list = row.querySelector("[data-result-list]");
+    let timer = 0;
+    input.addEventListener("input", () => {
+      window.clearTimeout(timer);
+      row.querySelector("[data-item-ref]").value = "";
+      timer = window.setTimeout(() => searchBorrowRow(row, input, list).catch(error => toast(error.message)), 220);
+    });
+    input.addEventListener("keydown", event => {
+      if (event.key === "Escape") list.style.display = "none";
+    });
+    document.addEventListener("click", event => {
+      if (!row.contains(event.target)) list.style.display = "none";
+    });
+    host.appendChild(row);
+    if (item && (item.item_ref_id || item.item_name || item.item_code)) applyBorrowSelection(row, item, false);
   }
 
   async function submitBorrow() {
-    const rows = (system.borrowDraftRows || []).map((item, index) => ({
+    const payload = borrowPayload();
+    const rows = (payload.items || []).map(item => ({
       item_type: item.item_type,
       item_ref_id: item.item_ref_id,
-      quantity: document.querySelector(`[data-borrow-draft-qty="${index}"]`)?.value || item.request_quantity,
-    })).filter(item => Number(item.quantity || 0) > 0);
+      quantity: item.quantity || item.request_quantity,
+      purchase_project: item.purchase_project || "",
+      usage_kind: payload.usage_kind || "研发用料",
+    })).filter(item => Number(item.quantity || 0) > 0 && item.item_ref_id);
     if (!rows.length) {
       toast("请先加入借用明细");
       return;
     }
-    await systemApi("/api/borrows", {
-      method: "POST",
-      body: JSON.stringify({
-        title: document.getElementById("borrowTitle").value,
-        expected_return_date: document.getElementById("borrowReturnDate").value,
-        leader_id: system.selectedBorrowLeader,
-        items: rows,
-      }),
+    await submitWorkflowPayload("borrow", "/api/borrows", {
+      ...payload,
+      leader_id: system.selectedBorrowLeader,
+      items: rows,
     });
     toast("借用申请已提交");
-    system.borrowDraftRows = [];
     system.boot = null;
     await loadSystemBoot();
     renderSystemMain();
@@ -2638,7 +3336,7 @@
   function claimBorrow(recordId) {
     const item = (system.myBorrowRows || []).find(row => Number(row.id) === Number(recordId));
     if (!item) return;
-    const quantity = formatQty(item.remaining_quantity || 0);
+    const remaining = Number(item.remaining_quantity || 0);
     openModal({
       title: "确认转为领用",
       placement: "top-center",
@@ -2646,13 +3344,19 @@
         <p>请确认是否将以下借用物料转为已领用：</p>
         <div class="borrow-claim-summary">
           <strong>${escapeHtml(item.item_code || "")} · ${escapeHtml(item.item_name || "该物料")}</strong>
-          <span>领用数量：${escapeHtml(quantity)} ${escapeHtml(item.unit || "")}</span>
+          <span>未归还：${escapeHtml(formatQty(remaining))} ${escapeHtml(item.unit || "")}</span>
         </div>
-        <p class="borrow-claim-warning">转换后该数量无需归还，且此操作不可撤销。</p>
+        <label>领用数量<input id="borrowClaimQty" type="number" min="0" step="any" max="${remaining}" value="${formatInputQty(remaining)}"></label>
+        <p class="borrow-claim-warning">转换后该数量记为已领用，如不留物料可再退库。</p>
       </div>`,
       okText: "确认领用",
       onOk: async () => {
-        await systemApi(`/api/borrows/${recordId}/claim`, { method: "POST", body: "{}" });
+        const quantity = Number(document.getElementById("borrowClaimQty")?.value);
+        if (!(quantity > 0) || quantity > remaining + 1e-9) throw new Error("转领用数量不正确");
+        await systemApi(`/api/borrows/${recordId}/claim`, {
+          method: "POST",
+          body: JSON.stringify({ quantity }),
+        });
         toast("借用物料已转为已领用");
         await loadMyBorrow();
       },
@@ -2715,19 +3419,18 @@
     if (!record) return;
     const isProduction = record.item_type === 'semifinished' || record.item_type === 'finished';
     const warehouseId = defaultStepUserId("borrow_return", "return_inbound", "warehouse");
+    const statusOptions = isProduction
+      ? `<option value="完好">完好</option><option value="报废">报废</option><option value="异常">异常</option>`
+      : `<option value="完好">完好</option><option value="损坏">损坏</option>`;
 
     let body = `<div class="form-grid">
       <p class="hint wide">未归还数量：${formatQty(record.remaining_quantity || 0)} ${escapeHtml(record.unit || "")}</p>
       <label>归还数量<input id="returnBorrowQty" type="number" step="1" min="0" max="${Number(record.remaining_quantity || 0)}" value="${formatInputQty(record.remaining_quantity || 0)}"></label>
       <label>归还状态
-        <select id="returnStatus">
-          <option value="完好">完好</option>
-          <option value="报废">报废</option>
-          <option value="异常">异常</option>
-        </select>
+        <select id="returnStatus">${statusOptions}</select>
       </label>
       <label id="remarksLabel" style="display:none">备注说明<textarea id="returnRemarks" rows="2"></textarea></label>
-      <label class="wide">仓库验收入库人<select id="returnBorrowWarehouse">${userOptionsForStep("borrow_return", "return_inbound", "warehouse", "", warehouseId)}</select></label>`;
+      <label class="wide" id="returnWarehouseLabel">仓库验收入库人<select id="returnBorrowWarehouse">${userOptionsForStep("borrow_return", "return_inbound", "warehouse", "", warehouseId)}</select></label>`;
 
     if (isProduction) {
       body += `
@@ -2764,8 +3467,15 @@
       onReady: () => {
         const statusSelect = document.getElementById('returnStatus');
         const remarksLabel = document.getElementById('remarksLabel');
+        const warehouseLabel = document.getElementById('returnWarehouseLabel');
         statusSelect.onchange = () => {
+          const materialDamage = !isProduction && statusSelect.value === '损坏';
           remarksLabel.style.display = (statusSelect.value === '报废' || statusSelect.value === '异常') ? '' : 'none';
+          if (warehouseLabel) warehouseLabel.style.display = materialDamage ? 'none' : '';
+          if (materialDamage && !confirm("借用物料损坏需领用，如后续不留物料可再退库")) {
+            statusSelect.value = "完好";
+            if (warehouseLabel) warehouseLabel.style.display = '';
+          }
         };
 
         if (isProduction) {
@@ -2790,6 +3500,17 @@
 
         if ((status === '报废' || status === '异常') && !remarks.trim()) {
           throw new Error('报废/异常需填写备注');
+        }
+        if (!isProduction && status === '损坏') {
+          const quantity = parseFloat(document.getElementById('returnBorrowQty').value);
+          await systemApi(`/api/borrows/${record.id}/claim`, {
+            method: "POST",
+            body: JSON.stringify({ quantity }),
+          });
+          toast("已转为领用");
+          await loadMyBorrow();
+          await refreshRealtimeTodos();
+          return;
         }
 
         const payload = {
@@ -2834,20 +3555,35 @@
     const selfId = Number(currentUser()?.id);
     const users = (system.boot?.users || []).filter(u => Number(u.id) !== selfId);
     if (!users.length) { toast("没有可转借的用户"); return; }
-    openPeoplePicker({
+    const remaining = Number(record.remaining_quantity || 0);
+    openModal({
       title: `转借 - ${escapeHtml(record.item_name || "")}`,
-      users: users,
-      multiple: false,
-      onConfirm: async (ids) => {
-        const receiverId = ids[0];
-        if (!receiverId) { toast("请选择接收人"); return; }
-        await systemApi(`/api/borrows/${recordId}/transfer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ receiver_id: receiverId }),
-        });
-        toast("转借请求已发送");
-        await refreshMyBorrows();
+      body: `<div class="form-grid">
+        <p class="hint wide">未归还数量：${formatQty(remaining)} ${escapeHtml(record.unit || "")}</p>
+        <label>转借数量<input id="borrowTransferQty" type="number" min="0" step="any" max="${remaining}" value="${formatInputQty(remaining)}"></label>
+      </div>`,
+      okText: "选择接收人",
+      onOk: () => {
+        const quantity = Number(document.getElementById("borrowTransferQty")?.value);
+        if (!(quantity > 0) || quantity > remaining + 1e-9) throw new Error("转借数量不正确");
+        window.setTimeout(() => {
+          openPeoplePicker({
+            title: `转借 - ${escapeHtml(record.item_name || "")}`,
+            users: users,
+            multiple: false,
+            onConfirm: async (ids) => {
+              const receiverId = ids[0];
+              if (!receiverId) { toast("请选择接收人"); return; }
+              await systemApi(`/api/borrows/${recordId}/transfer`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ receiver_id: receiverId, quantity }),
+              });
+              toast("转借请求已发送");
+              await refreshMyBorrows();
+            },
+          });
+        }, 0);
       },
     });
   }
@@ -2932,6 +3668,18 @@
         if (!detail) return;
         if (workflowCan(form, "edit")) detail.insertAdjacentHTML("afterend", `<button data-edit-flow="${form.id}">\u4fee\u6539</button>`);
         if (workflowCan(form, "delete")) detail.insertAdjacentHTML("afterend", `<button class="danger" data-delete-flow="${form.id}">\u5220\u9664</button>`);
+        if (form.form_type === "acceptance" && workflowCan(form, "edit")) {
+          const editButton = host.querySelector(`[data-edit-flow="${form.id}"]`);
+          const correctButton = `<button type="button" data-correct-price="${form.id}">更正单价</button>`;
+          if (editButton) editButton.insertAdjacentHTML("afterend", correctButton);
+          else detail.insertAdjacentHTML("afterend", correctButton);
+        }
+        if (form.form_type === "semifinished" && form.status === "completed" && workflowCan(form, "edit")) {
+          const editButton = host.querySelector(`[data-edit-flow="${form.id}"]`);
+          const revokeButton = `<button type="button" data-revoke-semi="${form.id}">撤销</button>`;
+          if (editButton) editButton.insertAdjacentHTML("afterend", revokeButton);
+          else detail.insertAdjacentHTML("afterend", revokeButton);
+        }
       });
     }
     document.getElementById("checkAllFlows")?.addEventListener("change", event => {
@@ -2939,13 +3687,23 @@
     });
     bindFlowDetailButtons(host);
     host.querySelectorAll("[data-edit-flow]").forEach(btn => btn.addEventListener("click", () => editWorkflow(Number(btn.dataset.editFlow))));
+    host.querySelectorAll("[data-revoke-semi]").forEach(btn => btn.addEventListener("click", () => revokeSemifinishedWorkflow(Number(btn.dataset.revokeSemi))));
+    host.querySelectorAll("[data-correct-price]").forEach(btn => btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      try {
+        await openAcceptancePriceCorrection(Number(btn.dataset.correctPrice));
+      } finally {
+        btn.disabled = false;
+      }
+    }));
     host.querySelectorAll("[data-delete-flow]").forEach(btn => btn.addEventListener("click", () => deleteWorkflow(Number(btn.dataset.deleteFlow))));
     if (pageKey) bindPagination(host, pageKey, () => renderFlowList(hostId, rows));
   }
 
   function workflowCan(form, action) {
     const isAcceptance = form.form_type === "acceptance" || form.form_type === "semifinished" || form.form_type === "finished";
-    if (form.form_type === "borrow" || form.form_type === "borrow_return") return hasPerm(`${action}_borrow`);
+    if (form.form_type === "borrow" || form.form_type === "borrow_return" || form.form_type === "borrow_claim") return hasPerm(`${action}_borrow`);
     const isOutbound = form.form_type === "claim" && form.status === "outbound";
     const key = `${action}_${isAcceptance ? "acceptance" : (isOutbound ? "outbound" : "claim")}`;
     return hasPerm(key);
@@ -2957,10 +3715,16 @@
     if (type === "supply_return") return "供货回寄";
     if (type === "supply_extension") return "供货延期";
     if (type === "claim") return "申领/出库";
+    if (type === "semifinished_claim") return "半成品领用";
+    if (type === "claim_return") return "领用退库";
     if (type === "borrow") return "借用申请";
     if (type === "borrow_return") return "借用归还";
+    if (type === "borrow_claim") return "借用转领用";
     if (type === "semifinished") return "半成品验收";
     if (type === "finished") return "成品验收";
+    if (type === "purchase_request") return "采购申请";
+    if (type === "purchase_summary") return "采购汇总";
+    if (type === "special_claim") return "特殊用料";
     if (type === "stocktake") return "盘点";
     return "物料验收";
   }
@@ -2972,6 +3736,9 @@
       inbound: "待入库",
       leader_claim: "申领审批",
       outbound: "待出库",
+      leader_semifinished_claim: "半成品领用审批",
+      semifinished_outbound: "半成品待出库",
+      damage_claim: "物料损坏转领用",
       leader_borrow: "借用审批",
       borrow_outbound: "借用待出库",
       return_inbound: "归还待入库",
@@ -2994,10 +3761,24 @@
       cancelled: "已取消",
       leader_common_material: "常用物料审批",
       leader_supply: "供货审批",
+      supply_handover_print: "打印回执单",
       supply_outbound: "供货出库",
+      supply_voucher_upload: "上传交接凭证",
+      supply_voucher_review: "查阅交接凭证",
+      supply_return_acceptance: "回寄验收",
       supply_return_inbound: "供货回寄验收入库",
       leader_supply_extension: "供货延期审批",
       external_open: "外部待结清",
+      voucher: "交接凭证",
+      shipping: "出库中",
+      pending_summary: "待汇总",
+      returned: "已退回",
+      summarized: "已汇总",
+      registered: "已登记",
+      project_owner: "项目负责人审批",
+      leader_special_claim: "特殊用料领导审批",
+      special_outbound: "特殊用料出库",
+      purchase_register: "库房赋码",
     };
     return labels[status] || status || "";
   }
@@ -3009,6 +3790,9 @@
       inbound: "入库",
       leader_claim: "申领审批",
       outbound: "出库",
+      leader_semifinished_claim: "半成品领用审批",
+      semifinished_outbound: "半成品出库",
+      damage_claim: "物料损坏转领用",
       leader_borrow: "借用审批",
       borrow_outbound: "借用出库",
       return_inbound: "归还验收入库",
@@ -3020,10 +3804,18 @@
       cancelled: "已取消",
       leader_common_material: "常用物料审批",
       leader_supply: "供货审批",
+      supply_handover_print: "打印回执单",
       supply_outbound: "供货出库",
+      supply_voucher_upload: "上传交接凭证",
+      supply_voucher_review: "查阅交接凭证",
+      supply_return_acceptance: "回寄验收",
       supply_return_inbound: "供货回寄验收入库",
       leader_supply_extension: "供货延期审批",
       external_open: "外部待结清",
+      project_owner: "项目负责人",
+      leader_special_claim: "特殊用料领导审批",
+      special_outbound: "特殊用料出库",
+      purchase_register: "库房赋码",
     };
     return labels[step] || workflowStatusLabel(step) || step || "";
   }
@@ -3069,6 +3861,7 @@
           }
         });
       });
+      bindClaimOutboundQuantityEditors();
     }, onOk: async () => {
       await systemApi(`/api/workflows/${formId}`, { method: "PUT", body: JSON.stringify({
         title: document.getElementById("editFlowTitle").value,
@@ -3182,8 +3975,41 @@
     });
   }
 
-  function editWorkflowItemsHtml(form) {
-    const fields = [
+  function editWorkflowItemControl(key, label, item) {
+    if (key === "purchase_project") {
+      const selected = item.purchase_project || item.data?.purchase_project || "";
+      return `<label>${label}<select data-edit-item-field="${key}">${batchProjectOptions(selected)}</select></label>`;
+    }
+    return `<label>${label}<input data-edit-item-field="${key}" value="${escapeAttr(item[key] ?? "")}"></label>`;
+  }
+
+  function editWorkflowItemFields(form) {
+    const type = form.form_type;
+    if (type === "acceptance") {
+      return [
+        ["request_quantity", "采购数量"],
+        ["arrival_quantity", "到货数量"],
+        ["qualified_quantity", "合格数量"],
+        ["unqualified_quantity", "不合格数量"],
+        ["approved_quantity", "核准入库"],
+        ["unit_price", "单价"],
+        ["purchase_project", "采购申请项目"],
+      ];
+    }
+    if (type === "semifinished" || type === "finished") {
+      return [
+        ["arrival_quantity", "验收数量"],
+        ["qualified_quantity", "合格数量"],
+        ["unqualified_quantity", "不合格数量"],
+      ];
+    }
+    if (type === "borrow") {
+      return [
+        ["request_quantity", "申请数量"],
+        ["outbound_quantity", "出库数量"],
+      ];
+    }
+    return [
       ["material_code", "编号"],
       ["material_name", "名称"],
       ["brand_model", "品牌型号"],
@@ -3197,7 +4023,46 @@
       ["outbound_quantity", "出库数量"],
       ["unit_price", "单价"],
     ];
-    return `<h3>表单明细</h3>${(form.items || []).map(item => `<div class="work-panel" data-edit-flow-item="${item.id}"><div class="work-body"><div class="form-grid">${fields.map(([key, label]) => `<label>${label}<input data-edit-item-field="${key}" value="${escapeAttr(item[key] ?? "")}"></label>`).join("")}</div><div style="margin-top:8px;display:flex;justify-content:flex-end"><button class="danger" data-delete-edit-item="${item.id}">删除此物料行</button></div></div></div>`).join("") || `<div class="empty-state">暂无明细</div>`}`;
+  }
+
+  function claimOutboundLineHtml(line) {
+    return `<div class="form-grid" data-claim-line data-stock-record-id="${Number(line.stock_record_id || 0)}" data-batch-id="${Number(line.batch_id || 0)}"><label>批次<input value="${escapeAttr(line.batch_no || "")}" readonly></label><label>实际数量<input data-claim-actual type="number" min="0" step="1" value="${escapeAttr(formatInputQty(line.actual_quantity || 0))}"></label><label>每单位数量<input data-claim-pack type="number" min="1" step="1" value="${escapeAttr(formatInputQty(line.pack_quantity || 1))}"></label><label>账面数量<input data-claim-book type="number" min="0" step="1" value="${escapeAttr(formatInputQty(line.book_quantity || 0))}"></label></div>`;
+  }
+
+  function bindClaimOutboundQuantityEditors() {
+    document.querySelectorAll("[data-claim-line]").forEach(line => {
+      const actual = line.querySelector("[data-claim-actual]");
+      const pack = line.querySelector("[data-claim-pack]");
+      const book = line.querySelector("[data-claim-book]");
+      if (!actual || !pack || !book) return;
+      const syncActual = () => {
+        if (actual.dataset.handEdited === "1") return;
+        const bookQty = Number(book.value || 0);
+        const packQty = Number(pack.value || 0);
+        if (!Number.isFinite(bookQty) || !Number.isFinite(packQty)) return;
+        actual.value = String(Number((bookQty * packQty).toFixed(4)));
+      };
+      actual.addEventListener("input", () => { actual.dataset.handEdited = "1"; });
+      pack.addEventListener("input", syncActual);
+      book.addEventListener("input", syncActual);
+    });
+  }
+
+  function editWorkflowItemsHtml(form) {
+    const claimLike = form.form_type === "claim" || form.form_type === "special_claim";
+    const fields = claimLike ? [] : editWorkflowItemFields(form);
+    const body = (form.items || []).map(item => {
+      const title = [item.material_code, item.material_name].filter(Boolean).join(" ");
+      if (claimLike) {
+        const lines = item.outbound_lines || [];
+        const lineHtml = lines.length
+          ? lines.map(claimOutboundLineHtml).join("")
+          : `<p class="hint">尚未出库，没有待消耗数量</p>`;
+        return `<div class="work-panel" data-edit-flow-item="${item.id}"><div class="work-body"><p><strong>${escapeHtml(title || "物料")}</strong></p>${lineHtml}</div></div>`;
+      }
+      return `<div class="work-panel" data-edit-flow-item="${item.id}"><div class="work-body"><p><strong>${escapeHtml(title || item.material_name || "")}</strong></p><div class="form-grid">${fields.map(([key, label]) => editWorkflowItemControl(key, label, item)).join("")}</div><div style="margin-top:8px;display:flex;justify-content:flex-end"><button class="danger" data-delete-edit-item="${item.id}">删除此物料行</button></div></div></div>`;
+    }).join("");
+    return `<h3>表单明细</h3>${body || `<div class="empty-state">暂无明细</div>`}`;
   }
 
   function editWorkflowTasksHtml(form) {
@@ -3207,6 +4072,17 @@
   function collectEditWorkflowItems() {
     return [...document.querySelectorAll("[data-edit-flow-item]")].filter(row => !row.dataset.editFlowDeleted).map(row => {
       const item = { id: Number(row.dataset.editFlowItem) };
+      const lines = [...row.querySelectorAll("[data-claim-line]")];
+      if (lines.length) {
+        item.outbound_lines = lines.map(line => ({
+          stock_record_id: Number(line.dataset.stockRecordId),
+          batch_id: Number(line.dataset.batchId),
+          actual_quantity: line.querySelector("[data-claim-actual]")?.value,
+          pack_quantity: line.querySelector("[data-claim-pack]")?.value,
+          book_quantity: line.querySelector("[data-claim-book]")?.value,
+        }));
+        return item;
+      }
       row.querySelectorAll("[data-edit-item-field]").forEach(input => { item[input.dataset.editItemField] = input.value; });
       return item;
     });
@@ -3229,6 +4105,71 @@
     await systemApi(`/api/workflows/${formId}`, { method: "DELETE" });
     toast("\u6d41\u7a0b\u5df2\u5220\u9664");
     refreshAfterFlowMutation();
+  }
+
+  async function revokeSemifinishedWorkflow(formId) {
+    if (!confirm("确认撤销该半成品验收？撤销后本单入库结果删除，流程退回待入库。")) return;
+    await systemApi(`/api/production/semifinished/${formId}/revoke`, { method: "POST", body: "{}" });
+    toast("半成品验收已撤销");
+    refreshAfterFlowMutation();
+  }
+
+  function correctionDocumentText(items, key) {
+    const numbers = [];
+    (items || []).forEach(item => {
+      (item[key] || []).forEach(number => {
+        if (number && !numbers.includes(number)) numbers.push(number);
+      });
+    });
+    return numbers.join("、");
+  }
+
+  async function openAcceptancePriceCorrection(formId) {
+    let preview;
+    try {
+      preview = await systemApi(`/api/acceptance/${formId}/unit-price-correction`);
+    } catch (error) {
+      toast(error.message || "更正单价失败");
+      return;
+    }
+    const items = preview.items || [];
+    const outboundText = correctionDocumentText(items, "outbound_form_nos") || "无";
+    const semifinishedText = correctionDocumentText(items, "semifinished_form_nos") || "无";
+    const finishedText = correctionDocumentText(items, "finished_form_nos") || "无";
+    openModal({
+      title: `更正单价 ${preview.form_no || ""}`,
+      body: `<div class="form-grid">
+        <p class="hint wide">未修改的行不会保存。出库单金额会改成新单价，相关半成品和成品成本会重算。没有入库批次的行不能更正。</p>
+        <p class="wide">受影响的出库单：${escapeHtml(outboundText)}</p>
+        <p class="wide">将重算成本的半成品：${escapeHtml(semifinishedText)}</p>
+        <p class="wide">将重算成本的成品：${escapeHtml(finishedText)}</p>
+        ${items.map(item => `<div class="work-panel wide"><div class="work-body"><div class="form-grid">
+          <label>物料<input value="${escapeAttr(`${item.material_code || ""} ${item.material_name || ""}`.trim())}" readonly></label>
+          <label>当前单价<input value="${escapeAttr(formatInputQty(item.unit_price || 0))}" readonly></label>
+          <label>新单价<input id="correctPrice${item.id}" type="number" min="0" step="0.0001" value="${escapeAttr(formatInputQty(item.unit_price || 0))}" ${item.correctable ? "" : "disabled"}></label>
+          ${item.correctable ? "" : `<p class="hint wide">${escapeHtml(item.block_reason || "这条验收明细没有入库批次，不能更正单价")}</p>`}
+        </div></div></div>`).join("") || `<div class="empty-state">暂无验收明细</div>`}
+      </div>`,
+      okText: "确认更正",
+      onOk: async () => {
+        const corrections = [];
+        items.forEach(item => {
+          const input = document.getElementById(`correctPrice${item.id}`);
+          if (!input || input.disabled) return;
+          const next = input.value.trim();
+          if (next === "" || Math.abs(Number(next) - Number(item.unit_price || 0)) <= 1e-9) return;
+          corrections.push({ id: item.id, unit_price: next });
+        });
+        if (!corrections.length) throw new Error("没有需要更正的单价");
+        const result = await systemApi(`/api/acceptance/${formId}/correct-unit-price`, {
+          method: "POST",
+          body: JSON.stringify({ items: corrections }),
+        });
+        const changedOutbound = (result.outbound_form_nos || []).join("、");
+        toast(changedOutbound ? `单价已更正，请重打出库单 ${changedOutbound}` : "单价已更正");
+        await refreshAfterFlowMutation();
+      },
+    });
   }
 
   async function refreshAfterFlowMutation() {
@@ -3266,7 +4207,7 @@
     const data = rows.length ? rows : system.flowRows;
     const csv = [["单号", "标题", "类型", "状态", "申请人", "时间"], ...data.map(row => [row.form_no, row.title || "", row.form_type === "claim" ? "申领" : "验收", row.status, row.applicant_name || "", row.created_at || ""])]
       .map(line => line.map(cell => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -3297,13 +4238,13 @@
   async function exportFullFlowRows(rows, filename) {
     const data = await fullFlowRows(rows.length ? rows : system.flowRows);
     const csv = [["单号", "标题", "类型", "状态", "申请人", "时间", "物料明细", "审批/办理记录"], ...data.map(row => [row.form_no, row.title || "", flowTypeLabel(row.form_type), workflowStatusLabel(row.status), row.applicant_name || "", row.created_at || "", flowItemsText(row), flowTasksText(row)])].map(line => line.map(cell => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href);
   }
 
   async function printFullFlowRows(rows) {
     const data = await fullFlowRows(rows.length ? rows : system.flowRows);
-    const html = data.map(row => `<section style="page-break-inside:avoid;margin-bottom:18px;"><h2>${escapeHtml(row.form_no)} ${escapeHtml(row.title || "")}</h2><p>类型：${flowTypeLabel(row.form_type)}，状态：${escapeHtml(workflowStatusLabel(row.status))}，申请人：${escapeHtml(row.applicant_name || "")}，时间：${escapeHtml(row.created_at || "")}</p>${itemsTable(row.items || [])}<h3>审批/办理记录</h3><table class="flow-table"><thead><tr><th>环节</th><th>办理人</th><th>意见</th><th>签字</th><th>日期</th><th>备注</th></tr></thead><tbody>${(row.tasks || []).map(t => `<tr><td>${escapeHtml(workflowStepLabel(t.step_code))}</td><td>${escapeHtml(t.assignee_name || "")}</td><td>${escapeHtml(t.decision || "")}</td><td>${escapeHtml(t.signature || "")}</td><td>${escapeHtml(t.signed_at || "")}</td><td>${escapeHtml(t.data?.remark || t.data?.return_reason || "")}</td></tr>`).join("")}</tbody></table></section>`).join("");
+    const html = data.map(row => `<section style="page-break-inside:avoid;margin-bottom:18px;"><h2>${escapeHtml(row.form_type === "purchase_request" ? `${row.form_no} 中光学（杭州）物料采购申请` : `${row.form_no} ${row.title || ""}`)}</h2><p>类型：${flowTypeLabel(row.form_type)}，项目代号：${escapeHtml(flowProjectCode(row))}，状态：${escapeHtml(workflowStatusLabel(row.status))}，申请人：${escapeHtml(row.applicant_name || "")}，时间：${escapeHtml(row.created_at || "")}${row.form_type === "claim" ? `，流程属性：${escapeHtml(row.data?.flow_attribute || "实物交接")}` : ""}</p>${flowItemsTable(row)}${row.form_type === "purchase_summary" ? "<p>制表　　　　校对　　　　审核　　　　审批</p>" : ""}<h3>审批/办理记录</h3><table class="flow-table"><thead><tr><th>环节</th><th>办理人</th><th>意见</th><th>签字</th><th>日期</th><th>备注</th></tr></thead><tbody>${(row.tasks || []).map(t => `<tr><td>${escapeHtml(workflowStepLabel(t.step_code))}</td><td>${escapeHtml(t.assignee_name || "")}</td><td>${escapeHtml(t.decision || "")}</td><td>${escapeHtml(t.signature || "")}</td><td>${escapeHtml(t.signed_at || "")}</td><td>${escapeHtml(t.data?.remark || t.data?.return_reason || "")}</td></tr>`).join("")}</tbody></table></section>`).join("");
     printHtml("流程表单", html);
   }
 
@@ -3317,8 +4258,20 @@
 
   async function openFlowDetail(formId, readonly = false) {
     const form = await systemApi(`/api/workflows/${formId}`);
-    const taskButtons = readonly ? `<button data-flow-action="printDetail">打印</button>` : flowActions(form);
+    let vouchers = [];
+    if (form.form_type === "supply" && Number(form.data?.handover_required || 0)) {
+      try {
+        const voucherData = await systemApi(`/api/supplies/${form.id}/handover-vouchers`);
+        vouchers = voucherData.items || [];
+      } catch (error) {
+        vouchers = [];
+      }
+    }
+    const receiptButton = form.form_type === "supply" && Number(form.data?.handover_required || 0)
+      ? `<button data-flow-action="supplyReceipt">打印回执单</button>` : "";
+    const taskButtons = (readonly ? `<button data-flow-action="printDetail">打印</button>${receiptButton}` : flowActions(form));
     const leaderSignatures = (form.tasks || []).filter(task => task.step_code === "leader_acceptance" || task.step_code === "leader_claim" || task.step_code === "leader_borrow").map(task => task.signature).filter(Boolean).join("、");
+    const showAcceptanceSignature = form.form_type === "acceptance" || form.form_type === "supply_return" || isProductionFlow(form);
     openModal({
       title: `${form.form_no} · ${form.title || ""}`,
       hideOk: true,
@@ -3326,11 +4279,15 @@
         <div class="facts">
           <div class="fact"><span>状态</span><strong>${escapeHtml(workflowStatusLabel(form.status))}</strong></div>
           <div class="fact"><span>申请人</span><span>${escapeHtml(form.applicant_name || "")}</span></div>
+          ${form.form_type === "supply" && form.data?.contact_phone ? `<div class="fact"><span>申请人电话</span><span>${escapeHtml(form.data.contact_phone)}</span></div>` : ""}
+          ${form.form_type === "claim" ? `<div class="fact"><span>流程属性</span><span>${escapeHtml(form.data?.flow_attribute || "实物交接")}</span></div>` : ""}
+          ${form.form_type === "borrow_claim" ? `<div class="fact"><span>关联借用单号</span><span>${escapeHtml(form.data?.borrow_form_no || "")}</span></div><div class="fact"><span>领用日期</span><span>${escapeHtml(form.data?.claimed_date || "")}</span></div>` : ""}
           ${isProductionFlow(form) ? `<div class="fact"><span>制作人</span><span>${escapeHtml(form.data?.maker || "未填写")}</span></div>` : ""}
-          <div class="fact"><span>验收签字</span><span>${escapeHtml(form.data?.acceptance_signatures || "")}</span></div>
+          ${showAcceptanceSignature ? `<div class="fact"><span>验收签字</span><span>${escapeHtml(form.data?.acceptance_signatures || "")}</span></div>` : ""}
           <div class="fact"><span>领导签字</span><span>${escapeHtml(leaderSignatures || "")}</span></div>
         </div>
         ${flowItemsTable(form)}
+        ${supplyVoucherHtml(vouchers)}
         <h3>审批/办理记录</h3>${flowTaskTable(form)}
         <div class="mini-actions">${taskButtons}</div>
       `,
@@ -3352,14 +4309,26 @@
     if (pendingTask && form.form_type === "acceptance" && form.status === "inbound") buttons.push(`<button data-flow-action="inbound" class="good">办理入库</button>`);
     if (pendingTask && form.form_type === "claim" && form.status === "leader_claim") buttons.push(`<button data-flow-action="leaderClaim" class="primary">领导审批</button>`);
     if (pendingTask && form.form_type === "claim" && form.status === "outbound") buttons.push(`<button data-flow-action="outbound" class="warn">办理出库</button>`);
+    if (pendingTask && form.form_type === "semifinished_claim" && form.status === "leader_semifinished_claim") buttons.push(`<button data-flow-action="leaderSemiClaim" class="primary">领导审批</button>`);
+    if (pendingTask && form.form_type === "semifinished_claim" && form.status === "semifinished_outbound") buttons.push(`<button data-flow-action="semiClaimOutbound" class="warn">办理出库</button>`);
+    if (pendingTask && form.form_type === "claim_return" && form.status === "return_inbound") buttons.push(`<button data-flow-action="claimReturnInbound" class="good">退库入库</button>`);
+    if (pendingTask && form.form_type === "borrow_return" && form.status === "damage_claim") buttons.push(`<button data-flow-action="borrowDamageClaim" class="warn">物料损坏转领用</button>`);
     if (pendingTask && form.form_type === "borrow" && form.status === "leader_borrow") buttons.push(`<button data-flow-action="leaderBorrow" class="primary">领导审批</button>`);
     if (pendingTask && form.form_type === "borrow" && form.status === "borrow_outbound") buttons.push(`<button data-flow-action="borrowOutbound" class="warn">办理出库</button>`);
     if (pendingTask && form.form_type === "borrow_return" && form.status === "return_inbound") buttons.push(`<button data-flow-action="borrowReturnInbound" class="good">验收入库</button>`);
     if (pendingTask && form.form_type === "common_material" && form.status === "leader_common_material") buttons.push('<button data-flow-action="leaderCommonMaterial" class="primary">常用物料审批</button>');
     if (pendingTask && form.form_type === "supply" && form.status === "leader_supply") buttons.push('<button data-flow-action="leaderSupply" class="primary">供货审批</button>');
-    if (pendingTask && form.form_type === "supply" && form.status === "supply_outbound") buttons.push('<button data-flow-action="supplyOutbound" class="warn">打开供货出库</button>');
-    if (pendingTask && form.form_type === "supply_return" && form.status === "supply_return_inbound") buttons.push('<button data-flow-action="supplyReturnInbound" class="good">验收回寄</button>');
+    if (form.form_type === "supply" && Number(form.data?.handover_required || 0)) buttons.push('<button data-flow-action="supplyReceipt">打印回执单</button>');
+    if (pendingTask && form.form_type === "supply" && form.status === "supply_handover_print") buttons.push('<button data-flow-action="supplyReceiptPrinted" class="primary">已打印</button>');
+    if (pendingTask && form.form_type === "supply" && form.status === "supply_outbound") buttons.push('<button data-flow-action="supplyOutbound" class="warn">办理供货出库</button>');
+    if (pendingTask && form.form_type === "supply" && form.status === "supply_voucher_upload") buttons.push('<button data-flow-action="supplyVoucherUpload" class="primary">上传交接凭证</button>');
+    if (pendingTask && form.form_type === "supply" && form.status === "supply_voucher_review") buttons.push('<button data-flow-action="supplyVoucherReview" class="primary">查阅交接凭证</button>');
+    if (pendingTask && form.form_type === "supply_return" && form.status === "supply_return_acceptance") buttons.push('<button data-flow-action="supplyReturnAccept" class="primary">验收</button>');
+    if (pendingTask && form.form_type === "supply_return" && form.status === "supply_return_inbound") buttons.push('<button data-flow-action="supplyReturnInbound" class="good">办理入库</button>');
     if (pendingTask && form.form_type === "supply_extension" && form.status === "leader_supply_extension") buttons.push('<button data-flow-action="leaderSupplyExtension" class="primary">延期审批</button>');
+    if (pendingTask && form.form_type === "special_claim" && (form.status === "project_owner" || form.status === "leader_special_claim")) buttons.push('<button data-flow-action="specialDecide" class="primary">审批</button>');
+    if (pendingTask && form.form_type === "special_claim" && form.status === "special_outbound") buttons.push('<button data-flow-action="specialOutbound" class="warn">办理出库</button>');
+    if (pendingTask && form.form_type === "purchase_summary" && form.status === "summarized") buttons.push('<button data-flow-action="purchaseRegister" class="good">申请物料编码</button>');
     if (pendingTask && form.status === "applicant_revision") buttons.push(`<button data-flow-action="returnedRevision" class="primary">重新提交</button>`);
     if (workflowCanReturn(form)) buttons.push(`<button data-flow-action="returnFlow" class="danger">退回</button>`);
     if (isAdmin && currentStepPendingTasks(form).length) buttons.push(`<button data-flow-action="reassignTask">改派当前待办</button>`);
@@ -3368,6 +4337,7 @@
   }
 
   async function handleFlowAction(form, action) {
+    if (action === "supplyReceipt") return printSupplyReceipt(form);
     closeModal();
     if (action === "productionInspect") return inspectProductionFlow(form);
     if (action === "productionLeader") return leaderDecision(`/api/production/${form.form_type}/${form.id}/leader`, form);
@@ -3377,29 +4347,72 @@
     if (action === "inbound") return inboundFlowV2(form);
     if (action === "leaderClaim") return leaderDecision(`/api/claims/${form.id}/leader`, form);
     if (action === "outbound") return outboundFlowV2(form);
+    if (action === "leaderSemiClaim") return leaderDecision(`/api/semifinished-claims/${form.id}/leader`, form);
+    if (action === "semiClaimOutbound") return semiClaimOutboundFlow(form);
+    if (action === "claimReturnInbound") return claimReturnInboundFlow(form);
+    if (action === "borrowDamageClaim") return borrowDamageClaimFlow(form);
     if (action === "leaderBorrow") return leaderDecision(`/api/borrows/${form.id}/leader`, form);
     if (action === "leaderCommonMaterial") return leaderDecision("/api/common-material-applications/" + form.id + "/leader", form);
     if (action === "leaderSupply") return leaderDecision("/api/supplies/" + form.id + "/leader", form);
-    if (action === "supplyOutbound") { system.view = "supplies"; return renderSystemMain(); }
+    if (action === "supplyReceiptPrinted") return confirmSupplyReceiptPrinted(form);
+    if (action === "supplyVoucherUpload") return uploadSupplyVoucher(form);
+    if (action === "supplyVoucherReview") return reviewSupplyVoucher(form);
     if (action === "leaderSupplyExtension") return leaderDecision("/api/supply-extensions/" + form.id + "/leader", form);
-    if (action === "supplyReturnInbound") { system.view = "supplies"; return renderSystemMain(); }
+    if (action === "supplyReturnInbound") return supplyReturnInboundFlow(form);
     if (action === "borrowOutbound") return borrowOutboundFlow(form);
     if (action === "borrowReturnInbound") return borrowReturnInboundFlow(form);
     if (action === "returnedRevision") return editApplicantWorkflow(form);
     if (action === "returnFlow") return returnWorkflowFlow(form);
     if (action === "reassignTask") return reassignWorkflowTask(form);
     if (action === "printDetail") return printFullFlowRows([form]);
+    if (action === "specialDecide") return decideSpecialClaim(form);
+    if (action === "specialOutbound") return outboundSpecialClaim(form);
+    if (action === "purchaseRegister") {
+      closeModal();
+      system.codingFormId = form.id;
+      system.view = "purchaseCoding";
+      renderSystemMain();
+      return;
+    }
+    if (action === "supplyOutbound") return supplyOutboundFlow(form);
+    if (action === "supplyReturnAccept") return acceptSupplyReturn(form);
   }
 
-  function workflowStepCodes(type) {
+  async function decideSpecialClaim(form) {
+    openModal({
+      title: "特殊用料审批",
+      okText: "同意",
+      body: `<label class="wide">意见<textarea id="specialDecisionRemark"></textarea></label>`,
+      onOk: async () => {
+        await systemApi(`/api/special-claims/${form.id}/decide`, { method: "POST", body: JSON.stringify({ approved: true, remark: document.getElementById("specialDecisionRemark").value }) });
+        toast("已同意");
+        renderSystemMain();
+      },
+    });
+  }
+
+  async function outboundSpecialClaim(form) {
+    const items = (form.items || []).map(item => ({ id: item.id, outbound_quantity: item.request_quantity }));
+    await systemApi(`/api/special-claims/${form.id}/outbound`, { method: "POST", body: JSON.stringify({ items }) });
+    toast("已出库");
+    renderSystemMain();
+  }
+
+  function workflowStepCodes(type, form) {
+    const supplySteps = form && Number(form.data?.handover_required || 0)
+      ? ["leader_supply", "supply_handover_print", "supply_outbound", "supply_voucher_upload", "supply_voucher_review"]
+      : ["leader_supply", "supply_outbound"];
     const map = {
       acceptance: ["acceptance", "leader_acceptance", "inbound"],
       claim: ["leader_claim", "outbound"],
       borrow: ["leader_borrow", "borrow_outbound"],
-      borrow_return: ["return_inbound"],
+      semifinished_claim: ["leader_semifinished_claim", "semifinished_outbound"],
+      claim_return: ["return_inbound"],
+      borrow_return: ["return_inbound", "damage_claim"],
+      borrow_claim: [],
       common_material: ["leader_common_material"],
-      supply: ["leader_supply", "supply_outbound"],
-      supply_return: ["supply_return_inbound"],
+      supply: supplySteps,
+      supply_return: ["supply_return_acceptance", "supply_return_inbound"],
       supply_extension: ["leader_supply_extension"],
       semifinished: ["acceptance", "leader_acceptance", "inbound"],
       finished: ["acceptance", "leader_acceptance", "inbound"],
@@ -3443,13 +4456,13 @@
   }
 
   function workflowCanReturn(form) {
-    const steps = workflowStepCodes(form.form_type);
+    const steps = workflowStepCodes(form.form_type, form);
     const current = form.current_step || form.status;
     return currentPendingTask(form) && steps.includes(current);
   }
 
   function returnWorkflowFlow(form) {
-    const steps = workflowStepCodes(form.form_type);
+    const steps = workflowStepCodes(form.form_type, form);
     const current = form.current_step || form.status;
     const currentIndex = steps.indexOf(current);
     const targets = ["applicant_revision", ...steps.slice(0, Math.max(0, currentIndex))];
@@ -3492,7 +4505,7 @@
   }
 
   function productionHeaderTable(form, item) {
-    return `<table class="flow-table"><thead><tr><th>${productionNameLabel(form)}</th><th>参数</th><th>验收数量</th><th>单位</th></tr></thead><tbody><tr><td>${escapeHtml(item.material_name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.arrival_quantity || item.request_quantity || 0)}</td><td>${escapeHtml(item.unit || "")}</td></tr></tbody></table><h3>${productionComponentLabel(form)}</h3>`;
+    return `<table class="flow-table"><thead><tr><th>${productionNameLabel(form)}</th><th>项目代号</th><th>参数</th><th>验收数量</th><th>单位</th></tr></thead><tbody><tr><td>${escapeHtml(item.material_name || "")}</td><td>${escapeHtml(flowProjectCode(form) || item.data?.project_code || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.arrival_quantity || item.request_quantity || 0)}</td><td>${escapeHtml(item.unit || "")}</td></tr></tbody></table><h3>${productionComponentLabel(form)}</h3>`;
   }
 
   function inspectProductionFlow(form) {
@@ -3567,10 +4580,12 @@
     }
     const token = ++productionSerialPreviewToken;
     const name = item.material_name || (form.form_type === "semifinished" ? "半成品" : "成品");
-    const data = await systemApi(`/api/production/${form.form_type}/serials?name=${encodeURIComponent(name)}&count=${count}`);
+    const params = new URLSearchParams({ name, count: String(count) });
+    if (form.id) params.set("form_id", String(form.id));
+    const data = await systemApi(`/api/production/${form.form_type}/serials?${params.toString()}`);
     if (token !== productionSerialPreviewToken) return;
     const existing = item.data?.serial_items || [];
-    const serials = existing.length === count ? existing.map(row => row.serial_no) : (data.serials || []);
+    const serials = data.serials || [];
     host.innerHTML = `<table class="flow-table"><thead><tr><th>编号</th><th>是否合格</th><th>异常情况</th><th>备注</th></tr></thead><tbody>${serials.map((serial, index) => {
       const current = existing[index] || {};
       const qualified = current.qualified !== false;
@@ -3660,7 +4675,7 @@
         title: `办理${flowTypeLabel(form.form_type)}入库`,
         body: `<div class="form-grid">
           <div class="wide">${productionHeaderTable(form, item)}${productionComponentsTable(item)}<p class="hint">合格数量：${formatQty(item.qualified_quantity || 0)}；不合格数量：${formatQty(item.unqualified_quantity || 0)}</p></div>
-          <label>核准入库数量<input id="prodInboundQty" type="number" step="1" value="${formatInputQty(item.qualified_quantity || 0)}" readonly></label>
+          <label>账面入库数量<input id="prodInboundQty" type="number" step="1" value="${formatInputQty(item.qualified_quantity || 0)}" readonly></label>
           <label>入库日期${datePickerHtml("prodInboundDate", new Date().toISOString().slice(0, 10))}</label>
           ${shelfLocationSelects(shelvesData, "prod")}
           <label>库管签字<input id="prodInboundSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label>
@@ -3730,10 +4745,11 @@
   function leaderDecision(url, form = {}) {
     const isClaim = url.includes("/claims/");
     const isBorrow = url.includes("/borrows/");
-    const nextStep = isBorrow ? "borrow_outbound" : (isClaim ? "outbound" : "inbound");
-    const formType = isBorrow ? "borrow" : (isClaim ? "claim" : (form.form_type || "acceptance"));
+    const isSupply = form.form_type === "supply" || url.includes("/supplies/");
+    const nextStep = isBorrow ? "borrow_outbound" : (isClaim ? "outbound" : (isSupply ? "supply_outbound" : "inbound"));
+    const formType = isBorrow ? "borrow" : (isClaim ? "claim" : (isSupply ? "supply" : (form.form_type || "acceptance")));
     const warehouseId = defaultStepUserId(formType, nextStep, "warehouse");
-    openModal({ title: "领导审批", body: `<div class="form-grid"><label>是否同意<select id="leaderDecision"><option>同意</option><option>不同意</option></select></label><label>${isClaim || isBorrow ? "出库办理人" : "入库办理人"}<select id="leaderWarehouse">${userOptionsForStep(formType, nextStep, "warehouse", "", warehouseId)}</select></label><label>签字<input id="leaderSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label><label class="wide">备注/意见<textarea id="leaderRemark"></textarea></label></div>`, okText: "提交审批", onReady: () => {
+    openModal({ title: "领导审批", body: `<div class="form-grid"><label>是否同意<select id="leaderDecision"><option>同意</option><option>不同意</option></select></label><label>${isClaim || isBorrow || isSupply ? "出库办理人" : "入库办理人"}<select id="leaderWarehouse">${userOptionsForStep(formType, nextStep, "warehouse", "", warehouseId)}</select></label><label>签字<input id="leaderSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label><label class="wide">备注/意见<textarea id="leaderRemark"></textarea></label></div>`, okText: "提交审批", onReady: () => {
       const decision = document.getElementById("leaderDecision");
       const remark = document.getElementById("leaderRemark");
       decision.addEventListener("change", () => { remark.required = decision.value === "不同意"; remark.placeholder = remark.required ? "不同意时必须填写审批意见" : ""; });
@@ -3756,7 +4772,7 @@
     const fetchShelves = shelves.length ? Promise.resolve(shelves) : systemApi("/api/shelves").then(data => { if (typeof state !== "undefined") state.shelves = data; return data; });
     fetchShelves.then(shelvesData => {
       window._shelfData = shelvesData;
-      openModal({ title: "办理入库", body: `<div class="form-grid">${form.items.map(item => `<div class="wide work-panel"><div class="work-body"><strong>${escapeHtml(item.material_name)}</strong><label>核准入库数量<input data-in="${item.id}" type="number" value="${item.qualified_quantity || item.arrival_quantity || 0}"></label><div class="form-grid">${shelfLocationSelects(shelvesData, item.id)}</div></div></div>`).join("")}<label class="wide">库管签字<input id="inSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`, okText: "确认入库", onReady: () => {
+      openModal({ title: "办理入库", body: `<div class="form-grid">${form.items.map(item => `<div class="wide work-panel"><div class="work-body"><strong>${escapeHtml(item.material_name)}</strong><label>账面入库数量<input data-in="${item.id}" type="number" value="${item.qualified_quantity || item.arrival_quantity || 0}"></label><div class="form-grid">${shelfLocationSelects(shelvesData, item.id)}</div></div></div>`).join("")}<label class="wide">库管签字<input id="inSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`, okText: "确认入库", onReady: () => {
         document.querySelectorAll("[data-shelf]").forEach(sel => { if (sel.tagName === "SELECT") window._updateShelfLocation(sel); });
       }, onOk: async () => {
         const items = form.items.map(item => ({ id: item.id, approved_quantity: document.querySelector(`[data-in="${item.id}"]`).value, shelf_id: document.querySelector(`[data-shelf="${item.id}"]`).value, layer_number: document.querySelector(`[data-layer="${item.id}"]`).value, zone_name: document.querySelector(`[data-zone="${item.id}"]`).value }));
@@ -3775,6 +4791,8 @@
       const collectItem = item => ({
         id: item.id,
         approved_quantity: document.querySelector(`[data-in="${item.id}"]`).value,
+        pack_quantity: document.querySelector(`[data-pack="${item.id}"]`).value,
+        actual_quantity: document.querySelector(`[data-actual="${item.id}"]`).value,
         shelf_id: document.querySelector(`[data-shelf="${item.id}"]`).value,
         layer_number: document.querySelector(`[data-layer="${item.id}"]`).value,
         zone_name: document.querySelector(`[data-zone="${item.id}"]`).value,
@@ -3785,6 +4803,8 @@
           const original = (form.items || []).find(row => Number(row.id) === id);
           if (original) original.data = { ...(original.data || {}), inbound_done: true };
           document.querySelector(`[data-in="${id}"]`)?.setAttribute("disabled", "disabled");
+          document.querySelector(`[data-pack="${id}"]`)?.setAttribute("disabled", "disabled");
+          document.querySelector(`[data-actual="${id}"]`)?.setAttribute("disabled", "disabled");
           document.querySelector(`[data-shelf="${id}"]`)?.setAttribute("disabled", "disabled");
           document.querySelector(`[data-layer="${id}"]`)?.setAttribute("disabled", "disabled");
           document.querySelector(`[data-zone="${id}"]`)?.setAttribute("disabled", "disabled");
@@ -3809,9 +4829,17 @@
       };
       openModal({ title: "办理入库", body: `<div class="form-grid">${form.items.map(item => {
         const done = Boolean(item.data?.inbound_done);
-        return `<div class="wide work-panel" data-inbound-card="${item.id}"><div class="work-body"><strong data-inbound-title>${escapeHtml(item.material_name)}${done ? ` <span class="badge" data-inbound-done-badge>已入库</span>` : ""}</strong><p>入库批次：<b>${escapeHtml(item.data?.inbound_batch_no || expectedInboundBatchNo(item))}</b></p><label>核准入库数量<input data-in="${item.id}" type="number" value="${item.qualified_quantity || item.arrival_quantity || 0}" ${done ? "disabled" : ""}></label><div class="form-grid">${shelfLocationSelects(shelvesData, item.id)}</div>${singleEnabled ? `<div class="inbound-single-actions"><button type="button" class="good" data-single-inbound="${item.id}" ${done ? "disabled" : ""}>单独入库</button></div>` : ""}</div></div>`;
+        const pack = Number(item.data?.pack_quantity || item.pack_quantity || 1);
+        const arrival = Number(item.arrival_quantity || 0);
+        const actual = arrival * pack;
+        return `<div class="wide work-panel" data-inbound-card="${item.id}"><div class="work-body"><strong data-inbound-title>${escapeHtml(item.material_name)}${done ? ` <span class="badge" data-inbound-done-badge>已入库</span>` : ""}</strong><p>入库批次：<b>${escapeHtml(item.data?.inbound_batch_no || expectedInboundBatchNo(item))}</b></p><label>每单位数量<input data-pack="${item.id}" type="number" min="1" step="1" value="${pack}" ${done ? "disabled" : ""}></label><label>账面入库数量<input data-in="${item.id}" type="number" value="${item.qualified_quantity || item.arrival_quantity || 0}" ${done ? "disabled" : ""}></label><label>实际数量<input data-actual="${item.id}" type="number" value="${actual}" ${done ? "disabled" : ""}></label><div class="form-grid">${shelfLocationSelects(shelvesData, item.id)}</div>${singleEnabled ? `<div class="inbound-single-actions"><button type="button" class="good" data-single-inbound="${item.id}" ${done ? "disabled" : ""}>单独入库</button></div>` : ""}</div></div>`;
       }).join("")}<label class="wide">库管签字<input id="inSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`, okText: singleEnabled ? "一键入库" : "确认入库", onReady: () => {
         document.querySelectorAll("[data-shelf]").forEach(sel => { if (sel.tagName === "SELECT") window._updateShelfLocation(sel); });
+        document.querySelectorAll("[data-pack]").forEach(input => input.addEventListener("input", () => {
+          const item = (form.items || []).find(row => Number(row.id) === Number(input.dataset.pack));
+          const actual = document.querySelector(`[data-actual="${input.dataset.pack}"]`);
+          if (actual) actual.value = Number(input.value || 0) * Number(item?.arrival_quantity || 0);
+        }));
         document.querySelectorAll("[data-single-inbound]").forEach(button => button.addEventListener("click", async () => {
           const item = (form.items || []).find(row => Number(row.id) === Number(button.dataset.singleInbound));
           if (!item) return;
@@ -3830,6 +4858,351 @@
     });
   }
 
+
+  function supplyVoucherHtml(vouchers) {
+    if (!vouchers || !vouchers.length) return "";
+    return `<h3>交接凭证</h3><ul>${vouchers.map(row => `<li><a href="${escapeAttr(row.download_url || "")}" target="_blank" rel="noopener">${escapeHtml(row.original_name || "凭证")}</a></li>`).join("")}</ul>`;
+  }
+
+  function supplyReceiptDocument(receipt) {
+    const cell = value => escapeHtml(value || "");
+    const rows = (receipt.items || []).map(item => `<tr><td>${cell(item.index)}</td><td>${cell(item.name)}</td><td>${cell(item.unit)}</td><td>${cell(item.quantity)}</td><td>${cell(item.goods_status)}</td><td></td></tr>`).join("");
+    const dateText = formatDateCn(receipt.provide_date || "");
+    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title></title><style>
+      /* 页边距为 0 时，浏览器不再印出日期、标题和 about:blank 页码。 */
+      @page { size: A4; margin: 0; }
+      html, body { margin: 0; padding: 0; }
+      body { padding: 16mm 18mm; color: #000; font-family: SimSun, "Songti SC", serif; }
+      h1 { text-align: center; font-size: 22px; letter-spacing: 6px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+      td, th { border: 1px solid #000; padding: 8px 10px; font-size: 14px; text-align: center; vertical-align: middle; }
+      .label { width: calc(90px - 2em); white-space: nowrap; }
+      .sign { margin-top: 28px; font-size: 15px; display: flex; flex-direction: column; align-items: flex-end; }
+      .sign-company { line-height: 2.4; }
+      .sign-tail { display: grid; grid-template-columns: auto 3em auto 2em auto 2em auto; line-height: 2.4; }
+      .sign-who { grid-column: 1; grid-row: 1; }
+      .sign-year { grid-column: 3; grid-row: 2; }
+      .sign-month { grid-column: 5; grid-row: 2; }
+      .sign-day { grid-column: 7; grid-row: 2; }
+    </style></head><body>
+      <h1>产品接收回执单</h1>
+      <table>
+        <tr><td class="label">提供单位</td><td>${cell(receipt.provider_company)}</td><td class="label">接收单位</td><td>${cell(receipt.recipient_company)}</td></tr>
+        <tr><td class="label">联系人</td><td>${cell(receipt.provider_contact)}</td><td class="label">联系人</td><td>${cell(receipt.recipient_name)}</td></tr>
+        <tr><td class="label">联系电话</td><td>${cell(receipt.provider_phone)}</td><td class="label">联系电话</td><td>${cell(receipt.recipient_phone)}</td></tr>
+        <tr><td class="label">提供日期</td><td colspan="3">${dateText}</td></tr>
+      </table>
+      <table>
+        <thead><tr><th>序号</th><th>产品名称及代号</th><th>计量单位</th><th>数量</th><th>状态</th><th>备注</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="sign"><div class="sign-company">接收单位：${cell(receipt.recipient_company)}</div><div class="sign-tail"><span class="sign-who">接收人：</span><span class="sign-year">年</span><span class="sign-month">月</span><span class="sign-day">日</span></div></div>
+    </body></html>`;
+  }
+
+  async function printSupplyReceipt(form) {
+    const receipt = await systemApi(`/api/supplies/${form.id}/handover-receipt`);
+    const page = window.open("", "_blank");
+    if (!page) throw new Error("浏览器拦截了回执单窗口");
+    page.document.open();
+    page.document.write(supplyReceiptDocument(receipt));
+    page.document.close();
+    page.focus();
+    page.print();
+  }
+
+  async function confirmSupplyReceiptPrinted(form) {
+    await systemApi(`/api/supplies/${form.id}/handover-print`, { method: "POST", body: "{}" });
+    toast("已确认打印");
+    await refreshAfterFlowMutation();
+  }
+
+  function uploadSupplyVoucher(form) {
+    openModal({
+      title: "上传交接凭证",
+      okText: "上传",
+      body: `<label class="wide">图片或 PDF<input id="supplyVoucherFiles" type="file" accept="image/*,.pdf" multiple></label>`,
+      onOk: async () => {
+        const input = document.getElementById("supplyVoucherFiles");
+        if (!input?.files?.length) throw new Error("请选择交接凭证");
+        const body = new FormData();
+        [...input.files].forEach(file => body.append("files", file));
+        await systemApi(`/api/supplies/${form.id}/handover-vouchers`, { method: "POST", body, headers: {} });
+        toast("凭证已上传");
+        await refreshAfterFlowMutation();
+      },
+    });
+  }
+
+  function reviewSupplyVoucher(form) {
+    openModal({
+      title: "查阅交接凭证",
+      okText: "提交",
+      body: `<div class="form-grid"><label>是否同意<select id="voucherDecision"><option>同意</option><option>退回</option></select></label><label class="wide">意见<textarea id="voucherRemark"></textarea></label></div>`,
+      onOk: async () => {
+        const decision = document.getElementById("voucherDecision").value;
+        const remark = document.getElementById("voucherRemark").value.trim();
+        if (decision === "退回" && !remark) throw new Error("退回时必须填写意见");
+        await systemApi(`/api/supplies/${form.id}/voucher-review`, { method: "POST", body: JSON.stringify({ decision, remark }) });
+        toast(decision === "同意" ? "已进入外部待结清" : "已退回重新上传");
+        await refreshAfterFlowMutation();
+      },
+    });
+  }
+
+  async function supplyOutboundFlow(form) {
+    const ledger = await systemApi("/api/supplies");
+    const order = (ledger.items || []).find(row => Number(row.form_id) === Number(form.id));
+    if (!order) {
+      toast("供货台账不存在");
+      return;
+    }
+    const blocks = [];
+    for (const item of order.items || []) {
+      const remain = Math.max(0, Number(item.approved_quantity || 0) - Number(item.shipped_quantity || 0));
+      if (remain <= 0) continue;
+      if (item.item_type === "material") {
+        const batches = await systemApi(`/api/materials/${item.item_ref_id}/batches`);
+        const rows = (Array.isArray(batches) ? batches : []).filter(batch => Number(batch.quantity || 0) > 0);
+        blocks.push(`<div class="wide work-panel"><div class="work-body"><h3>${escapeHtml(item.item_code || "")} ${escapeHtml(item.item_name || "")}</h3><p>待出：${formatQty(remain)} ${escapeHtml(item.unit || "")}</p><label>本次出库数量<input data-supply-qty="${item.id}" type="number" min="0" max="${remain}" step="1" value="${formatInputQty(remain)}"></label><table class="flow-table"><thead><tr><th>出库</th><th>批次</th><th>批次库存</th></tr></thead><tbody>${rows.map(batch => `<tr><td><input data-supply-batch="${item.id}" data-batch-id="${batch.id}" type="number" min="0" max="${Number(batch.quantity || 0)}" step="1" value="0"></td><td>${escapeHtml(batch.batch_no || "")}</td><td>${formatQty(batch.quantity)}</td></tr>`).join("") || `<tr><td colspan="3">暂无可用批次</td></tr>`}</tbody></table></div></div>`);
+      } else {
+        const choices = await systemApi(`/api/supplies/item-choices?item_type=${encodeURIComponent(item.item_type)}&q=${encodeURIComponent(item.item_name || "")}`);
+        const options = (choices.items || []).filter(row => row.item_type === item.item_type);
+        blocks.push(`<div class="wide work-panel"><div class="work-body"><h3>${escapeHtml(item.item_name || "")}</h3><p>待出：${formatQty(remain)} ${escapeHtml(item.unit || "")}</p><label>本次出库数量<input data-supply-qty="${item.id}" type="number" min="0" max="${remain}" step="1" value="${formatInputQty(remain)}"></label><label>编号<select data-supply-serial="${item.id}">${options.map(row => `<option value="${row.item_ref_id}" data-code="${escapeAttr(row.item_code || "")}" ${Number(row.item_ref_id) === Number(item.item_ref_id) ? "selected" : ""}>${escapeHtml(row.item_code || "")} ${escapeHtml(row.item_name || "")}</option>`).join("")}</select></label></div></div>`);
+      }
+    }
+    openModal({
+      title: "办理供货出库",
+      okText: "确认出库",
+      body: `<div class="form-grid">${blocks.join("") || `<div class="wide">没有待出物品</div>`}<label>承运方<input id="supplyCarrier"></label><label>运单号<input id="supplyTracking"></label><label>出库日期${datePickerHtml("supplyShipDate", new Date().toISOString().slice(0, 10))}</label></div>`,
+      onReady: () => bindDatePickers(document.querySelector(".modal") || document),
+      onOk: async () => {
+        const items = [...document.querySelectorAll("[data-supply-qty]")].map(input => {
+          const serial = document.querySelector(`[data-supply-serial="${input.dataset.supplyQty}"]`);
+          const option = serial?.selectedOptions?.[0];
+          return {
+            supply_item_id: Number(input.dataset.supplyQty),
+            quantity: input.value,
+            allocations: [...document.querySelectorAll(`[data-supply-batch="${input.dataset.supplyQty}"]`)].map(batch => ({ batch_id: Number(batch.dataset.batchId), quantity: batch.value })).filter(batch => Number(batch.quantity) > 0),
+            item_ref_id: serial ? Number(serial.value) : undefined,
+            item_code: option?.dataset.code || "",
+          };
+        }).filter(item => Number(item.quantity) > 0);
+        await systemApi(`/api/supplies/${form.id}/shipments`, { method: "POST", body: JSON.stringify({ items, carrier: document.getElementById("supplyCarrier").value, tracking_no: document.getElementById("supplyTracking").value, shipped_at: document.getElementById("supplyShipDate").value }) });
+        toast("供货出库完成");
+        system.boot = null;
+        await loadSystemBoot();
+        renderSystemMain();
+      },
+    });
+  }
+
+  function acceptSupplyReturn(form) {
+    openModal({
+      title: "回寄验收",
+      okText: "同意",
+      body: `<p>接收日期：${escapeHtml(form.data?.received_date || "")}</p><p>货品信息：${escapeHtml(form.data?.goods_info || "")}</p>`,
+      onOk: async () => {
+        await systemApi(`/api/supply-returns/${form.id}/accept`, { method: "POST", body: JSON.stringify({}) });
+        toast("验收已提交");
+        system.boot = null;
+        await loadSystemBoot();
+        renderSystemMain();
+      },
+    });
+  }
+
+  function supplyReturnItemNeedsShelf(item) {
+    const kind = item.data?.item_type || (item.material_id ? "material" : "");
+    return kind === "material";
+  }
+
+  function supplyReturnInboundFlow(form) {
+    const anyMaterial = (form.items || []).some(supplyReturnItemNeedsShelf);
+    const shelves = typeof state !== "undefined" && Array.isArray(state.shelves) && state.shelves.length ? state.shelves : [];
+    const ready = anyMaterial
+      ? (shelves.length ? Promise.resolve(shelves) : systemApi("/api/shelves").then(data => { if (typeof state !== "undefined") state.shelves = data; return data; }))
+      : Promise.resolve([]);
+    ready.then(shelvesData => {
+      window._shelfData = shelvesData;
+      const rows = (form.items || []).map(item => {
+        const shelf = supplyReturnItemNeedsShelf(item) ? `<div class="form-grid">${shelfLocationSelects(shelvesData, `return-${item.id}`)}</div>` : "";
+        return `<div class="wide work-panel"><div class="work-body"><strong>${escapeHtml(item.material_name || "")}</strong><p>预计回寄：${formatQty(item.request_quantity || 0)}</p><label>实收数量<input data-return-received="${item.id}" data-supply-item="${item.data?.supply_item_id || ""}" data-return-material="${supplyReturnItemNeedsShelf(item) ? "1" : "0"}" type="number" min="0" step="1" value="${formatInputQty(item.request_quantity || 0)}"></label><label>完好数量<input data-return-good="${item.id}" type="number" min="0" step="1" value="${formatInputQty(item.request_quantity || 0)}"></label><label>不良数量<input data-return-bad="${item.id}" type="number" min="0" step="1" value="0"></label>${shelf}</div></div>`;
+      }).join("");
+      openModal({
+        title: "回寄入库",
+        okText: "确认入库",
+        body: `<div class="form-grid">${rows}</div>`,
+        onReady: () => {
+          document.querySelectorAll("[data-shelf]").forEach(sel => { if (sel.tagName === "SELECT") window._updateShelfLocation(sel); });
+        },
+        onOk: async () => {
+          const items = [...document.querySelectorAll("[data-return-received]")].map(input => {
+            const key = `return-${input.dataset.returnReceived}`;
+            const good = document.querySelector(`[data-return-good="${input.dataset.returnReceived}"]`).value;
+            const location = input.dataset.returnMaterial === "1" ? {
+              shelf_id: document.querySelector(`[data-shelf="${key}"]`)?.value || "",
+              layer_number: document.querySelector(`[data-layer="${key}"]`)?.value || "",
+              zone_name: document.querySelector(`[data-zone="${key}"]`)?.value || "",
+            } : {};
+            if (input.dataset.returnMaterial === "1" && Number(good) > 0 && !location.shelf_id) {
+              throw new Error("物料完好回库必须选择货架");
+            }
+            return {
+              supply_item_id: Number(input.dataset.supplyItem),
+              received_quantity: input.value,
+              good_quantity: good,
+              defective_quantity: document.querySelector(`[data-return-bad="${input.dataset.returnReceived}"]`).value,
+              location,
+            };
+          });
+          await systemApi(`/api/supply-returns/${form.id}/inbound`, { method: "POST", body: JSON.stringify({ items }) });
+          toast("回寄已入库");
+          system.boot = null;
+          await loadSystemBoot();
+          renderSystemMain();
+        },
+      });
+    }).catch(error => toast(error.message));
+  }
+
+  function supplyReturnGoodsText(item) {
+    const kind = { material: "物料", semifinished: "半成品", finished: "成品" }[item.item_type] || "物品";
+    const title = [item.item_code, item.item_name, item.brand_model, item.spec].map(value => String(value || "").trim()).filter(Boolean).join(" ");
+    return `${kind} ${title}，数量 ${formatQty(item.outstanding_quantity || 0)} ${item.unit || ""}`.trim();
+  }
+
+  function supplySettlementLabel(status) {
+    return status === "completed" ? "已结清" : "未结清";
+  }
+
+  function supplyFollowButton(row, returnAttr) {
+    if (!hasPerm("view_supply")) return "";
+    const method = row.supply_method || "试用";
+    if (method === "销售") {
+      return row.status === "external_open" ? `<button type="button" data-supply-payment="${row.form_id}">货款结清</button>` : "";
+    }
+    if (!["shipping", "external_open"].includes(row.status)) return "";
+    return `<button type="button" data-${returnAttr}="${row.form_id}">登记回寄</button>`;
+  }
+
+  function bindSupplyFollow(rows, returnAttr) {
+    const returnKey = returnAttr.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+    document.querySelectorAll(`[data-${returnAttr}]`).forEach(button => button.addEventListener("click", () => {
+      const order = rows.find(row => Number(row.form_id) === Number(button.dataset[returnKey]));
+      if (order) openSupplyTrialReturn(order);
+    }));
+    document.querySelectorAll("[data-supply-payment]").forEach(button => button.addEventListener("click", () => {
+      const order = rows.find(row => Number(row.form_id) === Number(button.dataset.supplyPayment));
+      if (order) openSupplyPaymentSettlement(order);
+    }));
+  }
+
+  function openSupplyPaymentSettlement(order) {
+    openModal({
+      title: "供货-销售 货款结清",
+      okText: "确认结清",
+      body: `<div class="form-grid"><div class="wide"><span class="hint">关联供货单号</span><strong>${escapeHtml(order.form_no || "")}</strong></div><label>货款结清日期${datePickerHtml("supplyPaymentDate", new Date().toISOString().slice(0, 10))}</label><label class="wide">备注<textarea id="supplyPaymentRemark"></textarea></label></div>`,
+      onReady: () => bindDatePickers(document.querySelector(".modal") || document),
+      onOk: async () => {
+        const settled_at = document.getElementById("supplyPaymentDate").value;
+        if (!settled_at) throw new Error("请填写货款结清日期");
+        await systemApi(`/api/supplies/${order.form_id}/payment-settlement`, { method: "POST", body: JSON.stringify({ settled_at, remark: document.getElementById("supplyPaymentRemark").value.trim() }) });
+        toast("货款已结清");
+        renderSystemMain();
+      },
+    });
+  }
+
+  async function renderSupplyLedger(main) {
+    main.innerHTML = `<div class="module-content" data-page-title="供货台账"><div class="work-panel"><div class="work-head"><h2>供货台账</h2><button type="button" id="refreshSupplyLedger">刷新</button></div><div class="work-body" id="supplyLedgerList">加载中...</div></div></div>`;
+    const load = async () => {
+      try {
+        const data = await systemApi("/api/supplies");
+        const rows = data.items || [];
+        const body = rows.map(row => {
+          const receipt = [row.recipient_company, row.recipient_name, row.recipient_phone, row.recipient_address].map(value => String(value || "").trim()).filter(Boolean).join(" / ");
+          const detail = (row.items || []).map(item => `${escapeHtml(item.item_name || "")} 已出${formatQty(item.shipped_quantity)}/${formatQty(item.approved_quantity)}，待结 ${formatQty(item.outstanding_quantity)}`).join("<br>");
+          return `<tr><td>${escapeHtml(row.form_no || "")}</td><td>${escapeHtml(receipt)}</td><td>${escapeHtml(workflowStatusLabel(row.form_status || row.status) || "")}</td><td>${escapeHtml(row.supply_method || "试用")}</td><td>${escapeHtml(row.expected_close_date || "")}</td><td>${supplySettlementLabel(row.status)}</td><td>${detail}</td><td>${supplyFollowButton(row, "ledger-return")}</td></tr>`;
+        }).join("");
+        document.getElementById("supplyLedgerList").innerHTML = rows.length
+          ? `<div class="table-wrap"><table class="flow-table"><thead><tr><th>单号</th><th>收货信息</th><th>状态</th><th>供货方式</th><th>预计结清日期</th><th>结清状态</th><th>明细</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`
+          : "暂无供货记录";
+        bindSupplyFollow(rows, "ledger-return");
+      } catch (error) {
+        document.getElementById("supplyLedgerList").textContent = error.message;
+      }
+    };
+    document.getElementById("refreshSupplyLedger").addEventListener("click", load);
+    await load();
+  }
+
+  function openSupplyTrialReturn(order) {
+    const lines = (order.items || []).filter(item => Number(item.outstanding_quantity || 0) > 0);
+    const goods = lines.map(supplyReturnGoodsText).join("\n");
+    openModal({
+      title: "供货-试用 登记回寄",
+      okText: "发起申请",
+      body: `<div class="form-grid"><div class="wide"><span class="hint">关联供货单号</span><strong>${escapeHtml(order.form_no || "")}</strong></div><label>接收日期${datePickerHtml("supplyReturnDate", new Date().toISOString().slice(0, 10))}</label><label class="wide">货品信息<textarea id="supplyReturnGoods">${escapeHtml(goods)}</textarea></label></div>`,
+      onReady: () => bindDatePickers(document.querySelector(".modal") || document),
+      onOk: async () => {
+        const received_date = document.getElementById("supplyReturnDate").value;
+        const goods_info = document.getElementById("supplyReturnGoods").value.trim();
+        if (!received_date) throw new Error("请填写接收日期");
+        if (!goods_info) throw new Error("请填写货品信息");
+        const items = lines.map(item => ({ supply_item_id: Number(item.id), expected_quantity: Number(item.outstanding_quantity || 0) }));
+        if (!items.length) throw new Error("没有待回寄物品");
+        const draft = { received_date, goods_info, items };
+        window.setTimeout(() => openSupplyReturnValidators(order, draft), 0);
+      },
+    });
+  }
+
+  function openSupplyReturnValidators(order, draft) {
+    const users = system.boot?.users || [];
+    const selected = new Set(users.filter(user => String(user.role_codes || "").split(",").includes("warehouse")).map(user => Number(user.id)));
+    const departments = system.boot?.departments || [];
+    const grouped = departments.map(dep => ({
+      name: dep.name,
+      users: users.filter(user => user.department === dep.name),
+    })).filter(group => group.users.length);
+    const listed = new Set(grouped.flatMap(group => group.users.map(user => Number(user.id))));
+    const rest = users.filter(user => !listed.has(Number(user.id)));
+    if (rest.length) grouped.push({ name: "其他", users: rest });
+    const body = grouped.map(group => `<div class="people-dept"><h3>${escapeHtml(group.name)}</h3>${group.users.map(user => `<label data-validator-row data-validator-text="${escapeAttr(`${user.display_name || ""} ${user.username || ""} ${user.department || ""}`.toLowerCase())}"><input type="checkbox" name="supplyReturnValidator" value="${user.id}" ${selected.has(Number(user.id)) ? "checked" : ""}>${escapeHtml(user.display_name || user.username || "")}<small>${escapeHtml(user.username || "")}</small></label>`).join("")}</div>`).join("");
+    openModal({
+      title: "选择验收人",
+      okText: "确认选择",
+      body: `<input id="supplyReturnValidatorSearch" placeholder="搜索姓名 / 账号 / 部门" style="margin-bottom:10px;"><div class="people-grid">${body || `<div class="empty-state">没有可选人员</div>`}</div>`,
+      onReady: () => {
+        document.getElementById("supplyReturnValidatorSearch")?.addEventListener("input", event => {
+          const keyword = event.target.value.trim().toLowerCase();
+          document.querySelectorAll("[data-validator-row]").forEach(label => { label.style.display = label.dataset.validatorText.includes(keyword) ? "flex" : "none"; });
+        });
+      },
+      onOk: async () => {
+        const ids = [...document.querySelectorAll('input[name="supplyReturnValidator"]:checked')].map(input => Number(input.value));
+        if (ids.length < 3) throw new Error("请至少选择 3 名验收人");
+        await systemApi(`/api/supplies/${order.form_id}/returns`, { method: "POST", body: JSON.stringify({ ...draft, validator_ids: ids }) });
+        toast("回寄已登记");
+        renderSystemMain();
+      },
+    });
+  }
+
+  async function renderMySupplies(main) {
+    const method = system.supplyMineMethod || "试用";
+    main.innerHTML = `<div class="module-content" data-page-title="我的供货"><div class="work-panel"><div class="work-head"><h2>我的供货</h2><span class="purchase-toolbar"><button type="button" id="mySupplyTrial" class="${method === "试用" ? "primary" : ""}">试用</button><button type="button" id="mySupplySale" class="${method === "销售" ? "primary" : ""}">销售</button></span></div><div class="work-body" id="mySupplyList">加载中...</div></div></div>`;
+    document.getElementById("mySupplyTrial").addEventListener("click", () => { system.supplyMineMethod = "试用"; renderMySupplies(main); });
+    document.getElementById("mySupplySale").addEventListener("click", () => { system.supplyMineMethod = "销售"; renderMySupplies(main); });
+    const data = await systemApi("/api/supplies");
+    const mine = (data.items || []).filter(row => Number(row.applicant_id) === Number(system.userId || 0) && (row.supply_method || "试用") === method);
+    document.getElementById("mySupplyList").innerHTML = `<table class="flow-table"><thead><tr><th>单号</th><th>收货方</th><th>状态</th><th>明细</th><th></th></tr></thead><tbody>${mine.map(row => `<tr><td>${escapeHtml(row.form_no || "")}</td><td>${escapeHtml(row.recipient_company || "")}</td><td>${escapeHtml(workflowStatusLabel(row.form_status || row.status) || "")}</td><td>${(row.items || []).map(item => `${escapeHtml(item.item_name || "")} ${formatQty(item.shipped_quantity)}/${formatQty(item.approved_quantity)}`).join("<br>")}</td><td>${supplyFollowButton(row, "my-return")}</td></tr>`).join("") || `<tr><td colspan="5">暂无供货申请</td></tr>`}</tbody></table>`;
+    bindSupplyFollow(mine, "my-return");
+  }
+
+  window.openSupplyTrialReturn = openSupplyTrialReturn;
+  window.openSupplyPaymentSettlement = openSupplyPaymentSettlement;
 
   function outboundFlowV2(form) {
     const operationKey = newAttachmentToken();
@@ -3874,6 +5247,77 @@
     }});
   }
 
+  function semiClaimOutboundFlow(form) {
+    const lines = (form.items || []).map(item => `<p>${escapeHtml(item.material_code || "")} ${escapeHtml(item.material_name || "")} · ${formatQty(item.request_quantity || 0)} ${escapeHtml(item.unit || "")}</p>`).join("");
+    openModal({
+      title: "办理半成品出库",
+      body: `<div class="form-grid"><div class="wide">${lines}</div><label>库管签字<input id="semiClaimOutSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`,
+      okText: "确认出库",
+      onOk: async () => {
+        await systemApi(`/api/semifinished-claims/${form.id}/outbound`, {
+          method: "POST",
+          body: JSON.stringify({ signature: document.getElementById("semiClaimOutSign").value }),
+        });
+        toast("半成品已出库");
+        await loadBootstrap();
+      },
+    });
+  }
+
+  function claimReturnInboundFlow(form) {
+    const data = form.data || {};
+    const condition = data.condition_status || "正常";
+    openModal({
+      title: "领用退库入库",
+      body: `<div class="form-grid">
+        <p class="wide">${escapeHtml((form.items || [])[0]?.material_name || "")} · ${escapeHtml(condition)} · ${formatQty(data.quantity || (form.items || [])[0]?.request_quantity || 0)}</p>
+        ${data.remark ? `<p class="wide">备注：${escapeHtml(data.remark)}</p>` : ""}
+        <label class="wide">审批意见<textarea id="claimReturnRemark" rows="2"></textarea></label>
+        <div class="wide" style="display:flex;gap:8px;margin-top:12px">
+          <button type="button" id="claimReturnApprove" class="primary" style="flex:1">确认入库</button>
+          <button type="button" id="claimReturnReject" class="danger" style="flex:1">拒绝</button>
+        </div>
+      </div>`,
+      hideOk: true,
+      onReady: () => {
+        async function submit(decision) {
+          const remark = document.getElementById("claimReturnRemark").value;
+          if (decision === "拒绝" && !remark.trim()) {
+            toast("拒绝时必须填写审批意见");
+            return;
+          }
+          try {
+            await systemApi(`/api/claim-returns/${form.id}/inbound`, {
+              method: "POST",
+              body: JSON.stringify({ decision, remark }),
+            });
+            toast(decision === "拒绝" ? "已拒绝退库" : "退库入库完成");
+            closeModal();
+            await loadBootstrap();
+          } catch (error) {
+            toast(error.message || "操作失败");
+          }
+        }
+        document.getElementById("claimReturnApprove").addEventListener("click", () => submit("同意"));
+        document.getElementById("claimReturnReject").addEventListener("click", () => submit("拒绝"));
+      },
+    });
+  }
+
+  function borrowDamageClaimFlow(form) {
+    const prompt = (form.data && form.data.warehouse_prompt) || "借用物料损坏需领用，如后续不留物料可再退库";
+    openModal({
+      title: "物料损坏转领用",
+      body: `<p>${escapeHtml(prompt)}</p>`,
+      okText: "确认",
+      onOk: async () => {
+        await systemApi(`/api/borrow-returns/${form.id}/damage-claim`, { method: "POST", body: "{}" });
+        toast("已转为领用");
+        await loadBootstrap();
+      },
+    });
+  }
+
   function borrowReturnInboundFlow(form) {
     const item = (form.items || [])[0] || {};
     const isMaterial = (item.data?.borrow_item_type || (item.material_id ? "material" : "")) === "material";
@@ -3908,6 +5352,7 @@
         <div class="wide"><strong>${escapeHtml(item.material_name || "")}</strong> ${ClaimSourceUI.sourceBadge(item.stock_source)}<p>归还数量：${formatQty(item.request_quantity || 0)} ${escapeHtml(item.unit || "")}</p>
         ${enhancedInfo}</div>
         <label>验收入库数量<input id="borrowReturnQty" type="number" step="1" min="0" value="${formatInputQty(item.request_quantity || 0)}"></label>
+        ${isMaterial ? `<label>核验状态<select id="borrowReturnVerified"><option value="完好">完好</option><option value="损坏">损坏</option></select></label>` : ""}
         <label>入库日期${datePickerHtml("borrowReturnInboundDate", new Date().toISOString().slice(0, 10))}</label>
         ${isMaterial ? shelfLocationSelects(shelvesData, "borrowReturn") : ""}
         <label>库管签字<input id="borrowReturnSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label>
@@ -3921,7 +5366,7 @@
 
         async function processDecision(decision) {
           try {
-            await systemApi(`/api/borrow-returns/${form.id}/inbound`, {
+            const result = await systemApi(`/api/borrow-returns/${form.id}/inbound`, {
               method: "POST",
               body: JSON.stringify({
                 return_quantity: document.getElementById("borrowReturnQty").value,
@@ -3931,9 +5376,10 @@
                 zone_name: document.querySelector(`[data-zone="borrowReturn"]`)?.value || "",
                 signature: document.getElementById("borrowReturnSign").value,
                 decision: decision,
+                verified_status: document.getElementById("borrowReturnVerified")?.value || "",
               }),
             });
-            toast(decision === '同意' ? "借用归还入库完成" : "已拒绝归还");
+            toast(result.damage_claim ? "借用物料损坏需领用，如后续不留物料可再退库" : (decision === '同意' ? "借用归还入库完成" : "已拒绝归还"));
             closeModal();
             await loadBootstrap();
           } catch (error) {
@@ -3985,13 +5431,23 @@
   }
 
   async function loadProductionMaterialPool() {
-    const data = await systemApi("/api/production/material-batch-pool");
+    const project = document.getElementById("semiProjectCode")?.value || document.getElementById("finProjectCode")?.value || "";
+    if (!project) {
+      system.productionMaterialPool = [];
+      return system.productionMaterialPool;
+    }
+    const data = await systemApi(`/api/production/material-pool?purchase_project=${encodeURIComponent(project)}`);
     system.productionMaterialPool = data.items || [];
     return system.productionMaterialPool;
   }
 
   async function loadSemifinishedPool() {
-    const data = await systemApi("/api/production/semifinished-pool");
+    const project = document.getElementById("finProjectCode")?.value || "";
+    if (!project) {
+      system.semifinishedPool = [];
+      return system.semifinishedPool;
+    }
+    const data = await systemApi(`/api/production/semifinished-pool?purchase_project=${encodeURIComponent(project)}`);
     system.semifinishedPool = data.items || [];
     return system.semifinishedPool;
   }
@@ -4012,14 +5468,15 @@
     row.dataset.qtyId = qtyId;
     row.dataset.costId = costId;
     row.dataset.peerHostId = peerHostId;
-    row.innerHTML = `<label class="material-search">所用物料/批次<input data-prod-material-search placeholder="搜索编号/名称/品牌/规格/批次/申领人"><div data-result-list class="material-results"></div></label><label>名称<input data-prod-name readonly></label><label>品牌<input data-prod-brand readonly></label><label>规格<input data-prod-spec readonly></label><label>批次<input data-prod-batch-text readonly></label><label>单台用量<input data-prod-per-unit type="number" step="1" min="0" value="1"></label><label>总消耗<input data-prod-total readonly></label><span class="hint" data-prod-info></span><button type="button" data-remove>删除</button><input type="hidden" data-prod-material><input type="hidden" data-prod-batch>`;
+    row.innerHTML = `<label class="material-search">所用物料<input data-prod-material-search placeholder="搜索编号/名称/品牌/规格/批次/申领人"><div data-result-list class="material-results"></div></label><label>名称<input data-prod-name readonly></label><label>品牌<input data-prod-brand readonly></label><label>规格<input data-prod-spec readonly></label><label>单台用量<input data-prod-per-unit type="number" step="1" min="0" value="1"></label><label>总消耗<input data-prod-total readonly></label><span class="hint" data-prod-info></span><button type="button" data-remove>删除</button><input type="hidden" data-prod-material><div class="prod-batch-picks" data-prod-batch-picks></div>`;
     row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refreshComponentRows(host.id, qtyId, costId, peerHostId); });
     const search = row.querySelector("[data-prod-material-search]");
     let timer = 0;
     search.addEventListener("input", () => {
       window.clearTimeout(timer);
       row.querySelector("[data-prod-material]").value = "";
-      row.querySelector("[data-prod-batch]").value = "";
+      row.dataset.prodBatches = "[]";
+      row.querySelector("[data-prod-batch-picks]").innerHTML = "";
       fillComponentInfo(row, {});
       timer = window.setTimeout(() => resolveProductionMaterial(row, pool), 160);
       refreshComponentRows(host.id, qtyId, costId, peerHostId);
@@ -4042,7 +5499,7 @@
     const keyword = row.querySelector("[data-prod-material-search]").value.trim().toLowerCase();
     const list = row.querySelector("[data-result-list]");
     const filtered = keyword
-      ? (pool || []).filter(item => `${item.material_code || ""} ${item.name || ""} ${item.brand_model || ""} ${item.spec || ""} ${item.batch_no || ""} ${item.claim_applicant || ""}`.toLowerCase().includes(keyword))
+      ? (pool || []).filter(item => `${item.material_code || ""} ${item.name || ""} ${item.brand_model || ""} ${item.spec || ""} ${(item.batches || []).map(batch => batch.batch_no || "").join(" ")} ${item.claim_applicant || ""}`.toLowerCase().includes(keyword))
       : (pool || []);
     if (!filtered.length) {
       hideMaterialResults(row);
@@ -4051,7 +5508,7 @@
     list.innerHTML = filtered.map((item, index) => `
       <button class="material-option" type="button" data-prod-material-index="${index}">
         ${escapeHtml(item.material_code)} · ${escapeHtml(item.name)}
-        <small>批次 ${escapeHtml(item.batch_no || "")} · 可用 ${formatQty(item.available_quantity)} ${escapeHtml(item.unit || "")} · 单价 ${money(item.unit_cost || 0)} · 申领人 ${escapeHtml(item.claim_applicant || "-")} · ${escapeHtml(item.brand_model || "")} ${escapeHtml(item.spec || "")}</small>
+        <small>领用项目 ${escapeHtml(item.purchase_project || "办公")}${item.rd_item_kind === "辅料" ? " · 辅料" : ""} · 可用 ${formatQty(item.available_quantity)} ${escapeHtml(item.unit || "")} · ${(item.batches || []).length} 个批次 · 单价 ${money(item.unit_cost || 0)} · 申领人 ${escapeHtml(item.claim_applicant || "-")} · ${escapeHtml(item.brand_model || "")} ${escapeHtml(item.spec || "")}</small>
       </button>
     `).join("");
     positionMaterialResults(row, list, filtered.length);
@@ -4061,16 +5518,38 @@
     });
   }
 
-  function applyProductionMaterial(row, item) {
+  function applyProductionMaterial(row, item, selectedBatchIds) {
     row.querySelector("[data-prod-material]").value = item.material_id || "";
-    row.querySelector("[data-prod-batch]").value = item.batch_id || "";
-    row.querySelector("[data-prod-material-search]").value = `${item.material_code || ""} ${item.name || ""} ${item.batch_no || ""}`.trim();
-    fillComponentInfo(row, { name: item.name || "", brand: item.brand_model || "无", spec: item.spec || "", batch: item.batch_no || "" });
-    row.dataset.available = Number(item.available_quantity || 0);
+    row.querySelector("[data-prod-material-search]").value = `${item.material_code || ""} ${item.name || ""}`.trim();
+    fillComponentInfo(row, { name: item.name || "", brand: item.brand_model || "无", spec: item.spec || "", batch: "" });
     row.dataset.unit = item.unit || "";
-    row.dataset.cost = Number(item.unit_cost || 0);
+    renderProductionBatchPicks(row, item.batches || [], selectedBatchIds);
     hideMaterialResults(row);
     refreshComponentRows(row.parentElement.id, row.dataset.qtyId || "", row.dataset.costId || "", row.dataset.peerHostId || "");
+  }
+
+  function renderProductionBatchPicks(row, batches, selectedBatchIds) {
+    const host = row.querySelector("[data-prod-batch-picks]");
+    row.dataset.prodBatches = JSON.stringify(batches || []);
+    if (!host) return;
+    if (!(batches || []).length) {
+      host.innerHTML = "";
+      return;
+    }
+    const selected = selectedBatchIds == null ? null : new Set((selectedBatchIds || []).map(Number));
+    host.innerHTML = (batches || []).map(batch => {
+      const checked = selected ? selected.has(Number(batch.batch_id || 0)) : true;
+      return `<label><input type="checkbox" data-prod-batch-id="${Number(batch.batch_id || 0)}"${checked ? " checked" : ""}> ${escapeHtml(batch.batch_no || "")} · 可用 ${formatQty(batch.available_quantity)} ${escapeHtml(batch.unit || row.dataset.unit || "")}</label>`;
+    }).join("");
+    host.querySelectorAll("[data-prod-batch-id]").forEach(input => {
+      input.addEventListener("change", () => refreshComponentRows(row.parentElement.id, row.dataset.qtyId || "", row.dataset.costId || "", row.dataset.peerHostId || ""));
+    });
+  }
+
+  function selectedProductionBatches(row) {
+    const all = JSON.parse(row.dataset.prodBatches || "[]");
+    const checked = new Set([...row.querySelectorAll("[data-prod-batch-id]:checked")].map(input => Number(input.dataset.prodBatchId)));
+    return all.filter(batch => checked.has(Number(batch.batch_id || 0)));
   }
 
   function fillComponentInfo(row, data) {
@@ -4083,7 +5562,8 @@
     row.querySelector("[data-prod-name]").value = values.name;
     row.querySelector("[data-prod-brand]").value = values.brand;
     row.querySelector("[data-prod-spec]").value = values.spec;
-    row.querySelector("[data-prod-batch-text]").value = values.batch;
+    const batch = row.querySelector("[data-prod-batch-text]");
+    if (batch) batch.value = values.batch;
   }
 
   function addSemifinishedComponentRow(host, pool, qtyId, costId, peerHostId = "") {
@@ -4092,7 +5572,7 @@
     row.dataset.qtyId = qtyId;
     row.dataset.costId = costId;
     row.dataset.peerHostId = peerHostId;
-    row.innerHTML = `<label class="material-search">半成品<input data-prod-semi-search placeholder="搜索半成品名称/规格/制作人"><div data-result-list class="material-results"></div></label><label>名称<input data-prod-name readonly></label><label>品牌<input data-prod-brand readonly></label><label>规格<input data-prod-spec readonly></label><label>批次<input data-prod-batch-text readonly></label><label>单台用量<input data-prod-per-unit type="number" step="1" min="0" value="1"></label><label>总消耗<input data-prod-total readonly></label><span class="hint" data-prod-info></span><button type="button" data-remove>删除</button><input type="hidden" data-prod-semi>`;
+    row.innerHTML = `<label class="material-search">半成品<input data-prod-semi-search placeholder="搜索半成品名称/规格/制作人"><div data-result-list class="material-results"></div></label><label>名称<input data-prod-name readonly></label><label>品牌<input data-prod-brand readonly></label><label>规格<input data-prod-spec readonly></label><label>单台用量<input data-prod-per-unit type="number" step="1" min="0" value="1"></label><label>总消耗<input data-prod-total readonly></label><span class="hint" data-prod-info></span><button type="button" data-remove>删除</button><input type="hidden" data-prod-semi>`;
     row.querySelector("[data-remove]").addEventListener("click", () => { row.remove(); refreshComponentRows(host.id, qtyId, costId, peerHostId); });
     const search = row.querySelector("[data-prod-semi-search]");
     let timer = 0;
@@ -4122,7 +5602,9 @@
       ? (pool || []).filter(item => `${item.serial_no || ""} ${item.name || ""} ${item.spec || ""} ${item.unit || ""} ${item.maker || ""}`.toLowerCase().includes(keyword))
       : (pool || []);
     if (!filtered.length) {
-      hideMaterialResults(row);
+      list.innerHTML = `<div class="material-option">没有已领用未消耗的合格半成品</div>`;
+      positionMaterialResults(row, list, 1);
+      list.style.display = "block";
       return;
     }
     list.innerHTML = filtered.map((item, index) => `
@@ -4158,9 +5640,17 @@
         const option = select?.selectedOptions?.[0];
         const perUnit = Number(row.querySelector("[data-prod-per-unit]")?.value || 0);
         const total = perUnit * qty;
-        const available = Number((select ? option?.dataset.available : row.dataset.available) || 0);
+        const materialPicks = row.querySelector("[data-prod-batch-picks]");
+        let available = Number((select ? option?.dataset.available : row.dataset.available) || 0);
+        let unitCost = Number((select ? option?.dataset.cost : row.dataset.cost) || 0);
+        if (materialPicks) {
+          const selected = selectedProductionBatches(row);
+          available = selected.reduce((sum, batch) => sum + Number(batch.available_quantity || 0), 0);
+          const selectedQty = available;
+          const selectedAmount = selected.reduce((sum, batch) => sum + Number(batch.available_quantity || 0) * Number(batch.unit_cost || 0), 0);
+          unitCost = selectedQty > 0 ? selectedAmount / selectedQty : 0;
+        }
         const unit = (select ? option?.dataset.unit : row.dataset.unit) || "";
-        const unitCost = Number((select ? option?.dataset.cost : row.dataset.cost) || 0);
         row.querySelector("[data-prod-total]").value = formatInputQty(total);
         const selected = select ? select.value : (row.querySelector("[data-prod-material]")?.value || row.querySelector("[data-prod-semi]")?.value);
         row.querySelector("[data-prod-info]").textContent = selected ? `可用 ${formatQty(available)} ${unit}；单价 ${money(unitCost)}` : "";
@@ -4173,11 +5663,14 @@
   }
 
   function materialComponentsFrom(hostId) {
-    return [...document.querySelectorAll(`#${hostId} [data-prod-material]`)].map(input => ({
-      material_id: input.value,
-      batch_id: input.closest(".component-row").querySelector("[data-prod-batch]")?.value || "",
-      per_unit_quantity: input.closest(".component-row").querySelector("[data-prod-per-unit]").value,
-    })).filter(item => Number(item.material_id || 0) && Number(item.per_unit_quantity || 0) > 0);
+    return [...document.querySelectorAll(`#${hostId} [data-prod-material]`)].map(input => {
+      const row = input.closest(".component-row");
+      return {
+        material_id: input.value,
+        per_unit_quantity: row.querySelector("[data-prod-per-unit]").value,
+        batch_ids: selectedProductionBatches(row).map(batch => batch.batch_id),
+      };
+    }).filter(item => Number(item.material_id || 0) && Number(item.per_unit_quantity || 0) > 0);
   }
 
   function semifinishedComponentsFrom(hostId) {
@@ -4221,7 +5714,7 @@
     if (submitButton) submitButton.disabled = true;
     const payload = { ...semifinishedPayload(), validator_ids: system.selectedValidators };
     try {
-      await systemApi("/api/production/semifinished/workflows", { method: "POST", body: JSON.stringify(payload) });
+      await submitWorkflowPayload("semifinished", "/api/production/semifinished/workflows", payload);
       toast("半成品验收流程已提交");
       system.boot = null;
       await loadSystemBoot();
@@ -4237,7 +5730,7 @@
     if (submitButton) submitButton.disabled = true;
     const payload = { ...finishedPayload(), validator_ids: system.selectedValidators };
     try {
-      await systemApi("/api/production/finished/workflows", { method: "POST", body: JSON.stringify(payload) });
+      await submitWorkflowPayload("finished", "/api/production/finished/workflows", payload);
       toast("成品验收流程已提交");
       system.boot = null;
       await loadSystemBoot();
@@ -4256,6 +5749,7 @@
     const defective = data.defective_goods || [];
     const acceptances = data.acceptances || [];
     host.innerHTML = semifinishedInventoryHtml(inventory, defective) + semifinishedAcceptanceHistoryHtml(acceptances);
+    bindProductionInventoryDeleteActions();
   }
 
   async function loadFinishedList() {
@@ -4374,36 +5868,43 @@
     renderFinishedTabPage();
   }
 
+  function semifinishedQualifiedActionsHtml(item) {
+    const canWrite = hasPerm("write_semifinished_inventory");
+    if (!canWrite) return "";
+    const canDisassemble = Number(item.used_quantity || 0) <= 0 && Number(item.borrowed_quantity || 0) <= 0;
+    return `<td class="mini-actions"><button type="button" onclick="viewItemHistory('semifinished',${item.id})">查看详情</button><button type="button" data-edit-semi-inventory="${item.id}">修改</button>${canDisassemble ? `<button type="button" data-disassemble-semi-inventory="${item.id}">拆解</button>` : ""}<button type="button" class="danger" data-delete-semi-inventory="${item.id}">删除</button></td>`;
+  }
+
   function semifinishedQualifiedTableHtml(rows) {
     const canWrite = hasPerm("write_semifinished_inventory");
     const hasActions = canWrite;
-    return `<h3>半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>规格</th><th>数量</th><th>已借用</th><th>用于成品</th><th>余量</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name)}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.used_quantity || 0)}</td><td>${formatQty(item.remaining_quantity || 0)}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('semifinished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-semi-inventory="${item.id}">修改</button><button type="button" class="danger" data-delete-semi-inventory="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 11 : 10}">暂无半成品库存</td></tr>`}</tbody></table>`;
+    return `<h3>半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>规格</th><th>数量</th><th>已借用</th><th>用于成品</th><th>余量</th><th>状态</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name)}${item.project_code ? `<div class="hint">项目 ${escapeHtml(item.project_code)}</div>` : ""}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.used_quantity || 0)}</td><td>${formatQty(item.remaining_quantity || 0)}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? semifinishedQualifiedActionsHtml(item) : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 12 : 11}">暂无半成品库存</td></tr>`}</tbody></table>`;
   }
 
   function semifinishedDefectiveTableHtml(rows) {
     const canWrite = hasPerm("write_semifinished_inventory");
     const hasActions = canWrite;
-    return `<h3>不合格半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>半成品</th><th>规格</th><th>异常情况</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_semifinished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-semi="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-semi="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 6 : 5}">暂无不合格半成品</td></tr>`}</tbody></table>`;
+    return `<h3>不合格半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>半成品</th><th>规格</th><th>异常情况</th><th>状态</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_semifinished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-semi="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-semi="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 7 : 6}">暂无不合格半成品</td></tr>`}</tbody></table>`;
   }
 
   function finishedQualifiedTableHtml(rows) {
     const canWrite = hasPerm("write_finished_inventory");
     const hasActions = canWrite;
-    return `<h3>合格成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>成品</th><th>规格</th><th>数量</th><th>已借用</th><th>余量</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.product_name)}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.remaining_quantity ?? (Number(item.quantity || 0) - Number(item.borrowed_quantity || 0)))}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-finished-inventory="${item.id}">修改</button><button type="button" class="danger" data-delete-finished-inventory="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 10 : 9}">暂无合格成品库存</td></tr>`}</tbody></table>`;
+    return `<h3>合格成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>成品</th><th>规格</th><th>数量</th><th>已借用</th><th>余量</th><th>状态</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.product_name)}${item.project_code ? `<div class="hint">项目 ${escapeHtml(item.project_code)}</div>` : ""}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.remaining_quantity ?? (Number(item.quantity || 0) - Number(item.borrowed_quantity || 0)))}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-finished-inventory="${item.id}">修改</button><button type="button" class="danger" data-delete-finished-inventory="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 11 : 10}">暂无合格成品库存</td></tr>`}</tbody></table>`;
   }
 
   function finishedDefectiveTableHtml(rows) {
     const canWrite = hasPerm("write_finished_inventory");
     const hasActions = canWrite;
-    return `<h3>不合格成品库</h3><table class="flow-table"><thead><tr><th>流水号</th><th>成品</th><th>规格</th><th>异常情况</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no)}</td><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-finished="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-finished="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 6 : 5}">暂无不合格成品</td></tr>`}</tbody></table>`;
+    return `<h3>不合格成品库</h3><table class="flow-table"><thead><tr><th>流水号</th><th>成品</th><th>规格</th><th>异常情况</th><th>状态</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no)}</td><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-finished="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-finished="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 7 : 6}">暂无不合格成品</td></tr>`}</tbody></table>`;
   }
 
   function scrappedSemifinishedHtml(rows) {
-    return `<h3>报废半成品</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>规格</th><th>报废原因</th><th>报废时间</th><th>操作</th></tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml(item.scrap_reason || "")}</td><td>${escapeHtml(item.scrapped_at || item.created_at || "")}</td><td class="mini-actions"><button type="button" onclick="viewItemHistory('scrapped_semifinished',${item.id})">查看详情</button></td></tr>`).join("") || `<tr><td colspan="6">暂无报废半成品</td></tr>`}</tbody></table>`;
+    return `<h3>报废半成品</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>规格</th><th>报废原因</th><th>报废时间</th><th>状态</th><th>操作</th></tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml(item.scrap_reason || "")}</td><td>${escapeHtml(item.scrapped_at || item.created_at || "")}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td class="mini-actions"><button type="button" onclick="viewItemHistory('scrapped_semifinished',${item.id})">查看详情</button></td></tr>`).join("") || `<tr><td colspan="7">暂无报废半成品</td></tr>`}</tbody></table>`;
   }
 
   function scrappedFinishedHtml(rows) {
-    return `<h3>报废成品</h3><table class="flow-table"><thead><tr><th>编号</th><th>成品名称</th><th>规格</th><th>报废原因</th><th>报废时间</th><th>操作</th></tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.product_name || item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml(item.scrap_reason || "")}</td><td>${escapeHtml(item.scrapped_at || item.created_at || "")}</td><td class="mini-actions"><button type="button" onclick="viewItemHistory('scrapped_finished',${item.id})">查看详情</button></td></tr>`).join("") || `<tr><td colspan="6">暂无报废成品</td></tr>`}</tbody></table>`;
+    return `<h3>报废成品</h3><table class="flow-table"><thead><tr><th>编号</th><th>成品名称</th><th>规格</th><th>报废原因</th><th>报废时间</th><th>状态</th><th>操作</th></tr></thead><tbody>${(rows || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.product_name || item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml(item.scrap_reason || "")}</td><td>${escapeHtml(item.scrapped_at || item.created_at || "")}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td class="mini-actions"><button type="button" onclick="viewItemHistory('scrapped_finished',${item.id})">查看详情</button></td></tr>`).join("") || `<tr><td colspan="7">暂无报废成品</td></tr>`}</tbody></table>`;
   }
 
   function bindProductionInventoryDeleteActions() {
@@ -4412,14 +5913,19 @@
     document.querySelectorAll("[data-edit-finished-inventory]").forEach(btn => btn.addEventListener("click", () => editProductionInventory("finished", Number(btn.dataset.editFinishedInventory))));
     document.querySelectorAll("[data-edit-defective-finished]").forEach(btn => btn.addEventListener("click", () => editProductionInventory("defective", Number(btn.dataset.editDefectiveFinished))));
     document.querySelectorAll("[data-delete-semi-inventory]").forEach(btn => btn.addEventListener("click", () => deleteProductionInventory("semi", Number(btn.dataset.deleteSemiInventory))));
+    document.querySelectorAll("[data-disassemble-semi-inventory]").forEach(btn => btn.addEventListener("click", () => disassembleSemifinishedInventory(Number(btn.dataset.disassembleSemiInventory))));
     document.querySelectorAll("[data-delete-defective-semi]").forEach(btn => btn.addEventListener("click", () => deleteProductionInventory("defectiveSemi", Number(btn.dataset.deleteDefectiveSemi))));
     document.querySelectorAll("[data-delete-finished-inventory]").forEach(btn => btn.addEventListener("click", () => deleteProductionInventory("finished", Number(btn.dataset.deleteFinishedInventory))));
     document.querySelectorAll("[data-delete-defective-finished]").forEach(btn => btn.addEventListener("click", () => deleteProductionInventory("defective", Number(btn.dataset.deleteDefectiveFinished))));
   }
 
-  function shelfSelectHtml(selectedId) {
+  function shelfSelectHtml(selectedId, shelfName = "") {
     const shelves = typeof state !== "undefined" && Array.isArray(state.shelves) ? state.shelves : [];
-    return `<option value="">未指定</option>${shelves.map(shelf => `<option value="${shelf.id}" ${Number(selectedId || 0) === Number(shelf.id) ? "selected" : ""}>${escapeHtml(shelf.name)}</option>`).join("")}`;
+    const known = shelves.some(shelf => Number(shelf.id) === Number(selectedId || 0));
+    const current = selectedId && !known
+      ? `<option value="${escapeAttr(selectedId)}" selected>${escapeHtml(shelfName || `货架${selectedId}`)}</option>`
+      : "";
+    return `<option value="">未指定</option>${current}${shelves.map(shelf => `<option value="${shelf.id}" ${Number(selectedId || 0) === Number(shelf.id) ? "selected" : ""}>${escapeHtml(shelf.name)}</option>`).join("")}`;
   }
 
   function canModifyMaterial() {
@@ -4456,16 +5962,92 @@
     return parsed;
   }
 
+  function batchAmountInputValue(quantity, unitPrice) {
+    const total = Number(quantity || 0) * Number(unitPrice || 0);
+    if (!Number.isFinite(total)) return "0";
+    return String(Number(total.toFixed(4)));
+  }
+
+  function normalizeBatchAmount(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const number = Number(text);
+    if (!Number.isFinite(number)) return text;
+    return String(Number(number.toFixed(4)));
+  }
+
+  function batchProjectOptions(selected) {
+    const current = String(selected || "");
+    let html = purchaseProjectOptions(current);
+    if (current && !html.includes(`value="${escapeAttr(current)}"`)) {
+      html += `<option value="${escapeAttr(current)}" selected>${escapeHtml(current)}</option>`;
+    }
+    return html;
+  }
+
+  let materialBatchLocationSeq = 0;
+
+  function materialBatchLocationKey(batch) {
+    if (batch.id) return `batch-${batch.id}`;
+    materialBatchLocationSeq += 1;
+    return `batch-new-${materialBatchLocationSeq}`;
+  }
+
+  function ensureLocationOption(select, value, label) {
+    if (!select || value === undefined || value === null || value === "") return;
+    const text = String(value);
+    if (![...select.options].some(option => option.value === text)) {
+      const option = document.createElement("option");
+      option.value = text;
+      option.textContent = label || text;
+      select.appendChild(option);
+    }
+    select.value = text;
+    select.disabled = false;
+  }
+
+  function bindMaterialShelfLocations(root) {
+    const shelves = typeof state !== "undefined" && Array.isArray(state.shelves) ? state.shelves : [];
+    window._shelfData = shelves;
+    const scope = root || document.querySelector(".modal") || document;
+    scope.querySelectorAll("[data-shelf-location-shelf]").forEach(select => {
+      if (select.dataset.shelfLocationBound) return;
+      const preferred = {
+        layer_number: select.dataset.preferredLayer || "",
+        zone_name: select.dataset.preferredZone || "",
+      };
+      window.WarehouseShelfLocation.update(select, shelves, preferred);
+      const key = select.dataset.shelfLocationShelf;
+      const layer = scope.querySelector(`[data-shelf-location-layer="${CSS.escape(key)}"]`);
+      const zone = scope.querySelector(`[data-shelf-location-zone="${CSS.escape(key)}"]`);
+      if (preferred.layer_number && layer && layer.value !== String(preferred.layer_number)) {
+        ensureLocationOption(layer, preferred.layer_number, `${preferred.layer_number} 层`);
+        layer.dispatchEvent(new Event("change"));
+      }
+      if (preferred.zone_name && zone && zone.value !== preferred.zone_name) {
+        ensureLocationOption(zone, preferred.zone_name, `${preferred.zone_name} 区`);
+      }
+      select.dataset.shelfLocationBound = "1";
+      select.addEventListener("change", () => window.WarehouseShelfLocation.update(select, shelves));
+    });
+  }
+
   function materialBatchRowHtml(batch = {}) {
+    const locationKey = materialBatchLocationKey(batch);
     return `<tr data-material-batch-row data-batch-id="${batch.id || ""}" data-batch-version="${Number(batch.version || 0)}">
       <td><input data-batch-no value="${escapeAttr(batch.batch_no || "")}"></td>
       <td><input data-batch-date type="date" value="${escapeAttr(batch.received_date || "")}"></td>
-      <td><input data-batch-qty type="number" step="1" value="${Number(batch.quantity || 0)}"></td>
-      <td><input data-batch-total-amount type="number" min="0" step="0.01" value="${Number(batch.quantity || 0) * Number(batch.unit_price || 0)}"></td>
-      <td><input data-batch-price type="number" step="0.0001" value="${Number(batch.unit_price || 0)}" readonly></td>
-      <td><select data-batch-shelf>${shelfSelectHtml(batch.shelf_id)}</select></td>
-      <td><input data-batch-layer type="number" value="${escapeAttr(batch.layer_number || "")}"></td>
-      <td><input data-batch-zone value="${escapeAttr(batch.zone_name || "")}"></td>
+      <td><input data-batch-qty type="number" step="1" min="0" value="${escapeAttr(formatInputQty(batch.quantity || 0))}"></td>
+      <td><input data-batch-book type="number" step="1" min="0" value="${escapeAttr(formatInputQty(batch.book_quantity || 0))}"></td>
+      <td><input data-batch-pack type="number" step="1" min="1" value="${escapeAttr(formatInputQty(batch.pack_quantity || 1))}"></td>
+      <td><input data-batch-total-amount type="number" min="0" step="0.0001" value="${escapeAttr(batchAmountInputValue(batch.book_quantity, batch.unit_price))}"></td>
+      <td><input data-batch-price type="number" step="0.0001" value="${escapeAttr(formatInputQty(batch.unit_price || 0))}" readonly></td>
+      <td><select data-batch-shelf data-shelf="${locationKey}" data-shelf-location-shelf="${locationKey}" data-location-allow-empty="1" data-preferred-layer="${escapeAttr(batch.layer_number ?? "")}" data-preferred-zone="${escapeAttr(batch.zone_name || "")}">${shelfSelectHtml(batch.shelf_id, batch.shelf_name)}</select></td>
+      <td><select data-batch-layer data-layer="${locationKey}" data-shelf-location-layer="${locationKey}"></select></td>
+      <td><select data-batch-zone data-zone="${locationKey}" data-shelf-location-zone="${locationKey}"></select></td>
+      <td><select data-batch-project>${batchProjectOptions(batch.purchase_project || "")}</select></td>
+      <td><select data-batch-usage><option value="研发用料" ${(batch.usage_kind || "研发用料") === "研发用料" ? "selected" : ""}>研发用料</option><option value="生产用料" ${batch.usage_kind === "生产用料" ? "selected" : ""}>生产用料</option></select></td>
+      <td><input data-batch-applicant value="${escapeAttr(batch.purchase_applicant || "")}"></td>
       <td><input data-batch-source value="${escapeAttr(batch.source_form_no || "")}"></td>
       <td><button type="button" class="danger" data-remove-material-batch>删除</button></td>
     </tr>`;
@@ -4491,16 +6073,27 @@
       };
     });
     document.querySelectorAll("[data-material-batch-row]").forEach(row => {
-      row._syncAmountInput = window.WarehouseAmountInput?.bind({
-        quantityInput: row.querySelector("[data-batch-qty]"),
-        totalAmountInput: row.querySelector("[data-batch-total-amount]"),
-        unitPriceInput: row.querySelector("[data-batch-price]"),
-      });
-      row.querySelector("[data-batch-qty]").oninput = () => {
-        row._syncAmountInput?.();
-        updateMaterialBatchTotal();
+      const quantityInput = row.querySelector("[data-batch-qty]");
+      const bookInput = row.querySelector("[data-batch-book]");
+      const totalInput = row.querySelector("[data-batch-total-amount]");
+      const priceInput = row.querySelector("[data-batch-price]");
+      const writeTotalFromPrice = () => {
+        const qty = Number(bookInput.value || 0);
+        const price = Number(priceInput.value || 0);
+        if (!Number.isFinite(qty) || !Number.isFinite(price)) return;
+        totalInput.value = String(Number((qty * price).toFixed(4)));
       };
+      const writePriceFromTotal = () => {
+        const qty = Number(bookInput.value || 0);
+        const total = Number(totalInput.value || 0);
+        if (!(qty > 0) || !Number.isFinite(total)) return;
+        priceInput.value = String(Number((total / qty).toFixed(4)));
+      };
+      quantityInput.oninput = () => updateMaterialBatchTotal();
+      bookInput.oninput = writeTotalFromPrice;
+      totalInput.oninput = writePriceFromTotal;
     });
+    bindMaterialShelfLocations(document.querySelector(".modal"));
   }
 
   function materialBatchPayloadFromEditor(defaultLocation) {
@@ -4510,11 +6103,17 @@
       batch_no: row.querySelector("[data-batch-no]").value.trim(),
       received_date: row.querySelector("[data-batch-date]").value,
       quantity: row.querySelector("[data-batch-qty]").value,
-      total_amount: row.querySelector("[data-batch-total-amount]").value,
+      book_quantity: row.querySelector("[data-batch-book]").value,
+      pack_quantity: row.querySelector("[data-batch-pack]").value,
+      unit_price: row.querySelector("[data-batch-price]").value,
+      total_amount: normalizeBatchAmount(row.querySelector("[data-batch-total-amount]").value),
       shelf_id: row.querySelector("[data-batch-shelf]").value || defaultLocation.shelf_id,
       layer_number: row.querySelector("[data-batch-layer]").value || defaultLocation.layer_number,
       zone_name: row.querySelector("[data-batch-zone]").value || defaultLocation.zone_name,
       source_form_no: row.querySelector("[data-batch-source]").value,
+      purchase_project: row.querySelector("[data-batch-project]")?.value || "",
+      usage_kind: row.querySelector("[data-batch-usage]")?.value || "研发用料",
+      purchase_applicant: row.querySelector("[data-batch-applicant]")?.value || "",
     })).filter(batch => batch.id || batch.batch_no || Number(batch.quantity || 0) || batch.received_date || batch.shelf_id);
   }
 
@@ -4567,13 +6166,20 @@
     });
   }
 
-  async function editMaterialFromQuery(materialId) {
+  async function editMaterialFromQuery(materialId, stockSource = "formal") {
+    const temporary = stockSource === "temporary";
+    if (typeof state !== "undefined" && (!Array.isArray(state.shelves) || !state.shelves.length)) {
+      const shelves = await systemApi("/api/shelves");
+      if (Array.isArray(shelves)) state.shelves = shelves;
+    }
     const material = await systemApi(`/api/materials/${materialId}`);
-    const fallbackBatch = material.batches?.length ? [] : [{ quantity: material.quantity || 0, shelf_id: material.shelf_id, layer_number: material.layer_number, zone_name: material.zone_name, received_date: new Date().toISOString().slice(0, 10), batch_no: material.material_code ? `00000000${material.material_code}` : "" }];
-    const batches = [...(material.batches || []), ...fallbackBatch];
+    const sourceBatches = temporary ? (material.temporary_batches || []) : (material.batches || []);
+    const fallbackBatch = temporary || sourceBatches.length ? [] : [{ quantity: material.quantity || 0, shelf_id: material.shelf_id, layer_number: material.layer_number, zone_name: material.zone_name, received_date: new Date().toISOString().slice(0, 10), batch_no: material.material_code ? `00000000${material.material_code}` : "" }];
+    const batches = [...sourceBatches, ...fallbackBatch];
     const batchSnapshotVersions = Object.fromEntries(
-      (material.batches || []).map(batch => [String(batch.id), Number(batch.version || 0)])
+      sourceBatches.map(batch => [String(batch.id), Number(batch.version || 0)])
     );
+    const quantityValue = temporary ? material.temporary_quantity : material.quantity;
     openModal({
       title: "修改物料",
       body: `<div class="form-grid">
@@ -4583,7 +6189,7 @@
         <label>技术规格<input id="editMatSpec" value="${escapeAttr(material.spec || "")}"></label>
         <label>采购申请人<input id="editMatApplicant" value="${escapeAttr(material.purchase_applicant || "")}"></label>
         <label>单位<input id="editMatUnit" value="${escapeAttr(material.unit || "")}"></label>
-        <label>库存合计<input id="editMatQuantity" type="number" step="1" value="${Number(material.quantity || 0)}" readonly></label>
+        <label>库存合计<input id="editMatQuantity" type="number" step="1" value="${Number(quantityValue || 0)}" readonly></label>
         <label>仓库码<input id="editMatWarehouseCode" value="${escapeAttr(material.warehouse_code || "")}"></label>
         <label>大类码<input id="editMatMajorCode" value="${escapeAttr(material.major_code || material.category || "")}"></label>
         <label>中类码<input id="editMatMiddleCode" value="${escapeAttr(material.middle_code || "")}"></label>
@@ -4592,13 +6198,13 @@
         <label>分类名称<input id="editMatCategoryName" value="${escapeAttr(material.category_name || "")}"></label>
         <label>物料类型<input id="editMatType" value="${escapeAttr(material.material_type || "")}"></label>
         <label>图标<input id="editMatIcon" value="${escapeAttr(material.icon || "")}"></label>
-        <label>默认货架<select id="editMatShelf">${shelfSelectHtml(material.shelf_id)}</select></label>
-        <label>默认层<input id="editMatLayer" type="number" value="${escapeAttr(material.layer_number || "")}"></label>
-        <label>默认分区<input id="editMatZone" value="${escapeAttr(material.zone_name || "")}"></label>
+        <label>默认货架<select id="editMatShelf" data-shelf="editMat" data-shelf-location-shelf="editMat" data-location-allow-empty="1" data-preferred-layer="${escapeAttr(material.layer_number ?? "")}" data-preferred-zone="${escapeAttr(material.zone_name || "")}">${shelfSelectHtml(material.shelf_id, material.shelf_name)}</select></label>
+        <label>默认层<select id="editMatLayer" data-layer="editMat" data-shelf-location-layer="editMat"></select></label>
+        <label>默认分区<select id="editMatZone" data-zone="editMat" data-shelf-location-zone="editMat"></select></label>
         <label>默认格位<input id="editMatSlot" type="number" value="${escapeAttr(material.slot_index || 0)}"></label>
-        <div class="wide" style="overflow:auto;">
+        <div class="wide material-batch-editor">
           <div class="flow-tools"><button type="button" id="addMaterialBatch">新增批次</button></div>
-          <table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>数量</th><th>总金额</th><th>单价</th><th>货架</th><th>层</th><th>分区</th><th>来源</th><th>操作</th></tr></thead><tbody id="editMaterialBatchRows">${batches.map(materialBatchRowHtml).join("")}</tbody></table>
+          <table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>实际数量</th><th>账面数量</th><th>每单位数量</th><th>库存总额</th><th>单价</th><th>货架</th><th>层</th><th>分区</th><th>采购项目</th><th>用料形式</th><th>采购申请人</th><th>来源</th><th>操作</th></tr></thead><tbody id="editMaterialBatchRows">${batches.map(materialBatchRowHtml).join("")}</tbody></table>
         </div>
       </div>`,
       okText: "保存修改",
@@ -4636,17 +6242,24 @@
             layer_number: defaultLocation.layer_number,
             zone_name: defaultLocation.zone_name,
             slot_index: document.getElementById("editMatSlot").value,
+            stock_source: temporary ? "temporary" : "formal",
             batches: batchPayload,
             batch_snapshot_versions: batchSnapshotVersions,
             delete_batch_ids: deleteBatchIds,
           }),
         });
         toast("已保存");
-        await refreshMaterialsCache();
-        await runMaterialQuery();
+        if (temporary) {
+          await temporaryInventory.reload();
+        } else {
+          await refreshMaterialsCache();
+          await runMaterialQuery();
+        }
       },
     });
   }
+
+  window.editMaterialFromQuery = editMaterialFromQuery;
 
   async function deleteMaterialFromQuery(materialId) {
     const material = system.materialQueryRows.find(item => Number(item.id) === materialId) || {};
@@ -4734,6 +6347,16 @@
     else loadFinishedInventoryModule();
   }
 
+  async function disassembleSemifinishedInventory(id) {
+    if (!id) return;
+    if (!confirm("确认拆解该半成品库记录？")) return;
+    await systemApi(`/api/production/semifinished-inventory/${id}/disassemble`, { method: "POST" });
+    toast("已拆解");
+    closeModal();
+    if (document.getElementById("semiInventoryList")) loadSemifinishedInventoryModule();
+    if (document.getElementById("semiList")) loadSemifinishedList();
+  }
+
   function filterRowsByKeyword(rows, keyword, keys) {
     if (!keyword) return rows;
     return (rows || []).filter(row => keys.some(key => {
@@ -4786,7 +6409,7 @@
   function semifinishedInventoryHtml(inventory, defective = []) {
     const canWrite = hasPerm("write_semifinished_inventory");
     const hasActions = canWrite;
-    return `<h3>半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>规格</th><th>数量</th><th>已借用</th><th>用于成品</th><th>余量</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(inventory || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name)}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.used_quantity || 0)}</td><td>${formatQty(item.remaining_quantity || 0)}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('semifinished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-semi-inventory="${item.id}">修改</button><button type="button" class="danger" data-delete-semi-inventory="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 11 : 10}">暂无半成品库存</td></tr>`}</tbody></table><h3>不合格半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>半成品</th><th>规格</th><th>异常情况</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(defective || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_semifinished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-semi="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-semi="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 6 : 5}">暂无不合格半成品</td></tr>`}</tbody></table>`;
+    return `<h3>半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>规格</th><th>数量</th><th>已借用</th><th>用于成品</th><th>余量</th><th>状态</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(inventory || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name)}${item.project_code ? `<div class="hint">项目 ${escapeHtml(item.project_code)}</div>` : ""}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.used_quantity || 0)}</td><td>${formatQty(item.remaining_quantity || 0)}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? semifinishedQualifiedActionsHtml(item) : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 12 : 11}">暂无半成品库存</td></tr>`}</tbody></table><h3>不合格半成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>半成品</th><th>规格</th><th>异常情况</th><th>状态</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(defective || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.name || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_semifinished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-semi="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-semi="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 7 : 6}">暂无不合格半成品</td></tr>`}</tbody></table>`;
   }
 
   function semifinishedAcceptanceHistoryHtml(acceptances) {
@@ -4796,7 +6419,7 @@
   function finishedInventoryHtml(qualified, defective) {
     const canWrite = hasPerm("write_finished_inventory");
     const hasActions = canWrite;
-    return `<h3>合格成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>成品</th><th>规格</th><th>数量</th><th>已借用</th><th>余量</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(qualified || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.product_name)}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.remaining_quantity ?? (Number(item.quantity || 0) - Number(item.borrowed_quantity || 0)))}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-finished-inventory="${item.id}">修改</button><button type="button" class="danger" data-delete-finished-inventory="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 10 : 9}">暂无合格成品库存</td></tr>`}</tbody></table><h3>不合格成品库</h3><table class="flow-table"><thead><tr><th>流水号</th><th>成品</th><th>规格</th><th>异常情况</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(defective || []).map(item => `<tr><td>${escapeHtml(item.serial_no)}</td><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-finished="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-finished="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 6 : 5}">暂无不合格成品</td></tr>`}</tbody></table>`;
+    return `<h3>合格成品库</h3><table class="flow-table"><thead><tr><th>编号</th><th>成品</th><th>规格</th><th>数量</th><th>已借用</th><th>余量</th><th>状态</th><th>成本价</th><th>位置</th><th>日期</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(qualified || []).map(item => `<tr><td>${escapeHtml(item.serial_no || "")}</td><td>${escapeHtml(item.product_name)}${item.project_code ? `<div class="hint">项目 ${escapeHtml(item.project_code)}</div>` : ""}${item._has_warning ? ` <div class="item-warning"><span class="item-warning-icon">⚠️</span> ${escapeHtml(item._change_type || '硬件')}异常</div>` : ''}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.quantity)} ${escapeHtml(item.unit || "")}</td><td>${formatQty(item.borrowed_quantity || 0)}</td><td>${formatQty(item.remaining_quantity ?? (Number(item.quantity || 0) - Number(item.borrowed_quantity || 0)))}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${money(item.cost_price || 0)}</td><td>${escapeHtml(locationText(item))}</td><td>${escapeHtml(item.acceptance_date || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-finished-inventory="${item.id}">修改</button><button type="button" class="danger" data-delete-finished-inventory="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 11 : 10}">暂无合格成品库存</td></tr>`}</tbody></table><h3>不合格成品库</h3><table class="flow-table"><thead><tr><th>流水号</th><th>成品</th><th>规格</th><th>异常情况</th><th>状态</th><th>时间</th>${hasActions ? `<th>操作</th>` : ""}</tr></thead><tbody>${(defective || []).map(item => `<tr><td>${escapeHtml(item.serial_no)}</td><td>${escapeHtml(item.product_name)}</td><td>${escapeHtml(item.spec || "")}</td><td>${escapeHtml((item.abnormal_conditions || []).join("、"))}</td><td>${escapeHtml(item.inventory_status_label || "在库")}</td><td>${escapeHtml(item.created_at || "")}</td>${hasActions ? `<td class="mini-actions"><button type="button" onclick="viewItemHistory('defective_finished',${item.id})">查看详情</button>${canWrite ? `<button type="button" data-edit-defective-finished="${item.id}">修改</button><button type="button" class="danger" data-delete-defective-finished="${item.id}">删除</button>` : ""}</td>` : ""}</tr>`).join("") || `<tr><td colspan="${hasActions ? 7 : 6}">暂无不合格成品</td></tr>`}</tbody></table>`;
   }
 
   function finishedAcceptanceHistoryHtml(acceptances) {
@@ -4869,7 +6492,8 @@
 
   async function createStocktake(supervisorId = 0) {
     const stocktake = await systemApi("/api/stocktakes", { method: "POST", body: JSON.stringify({ warehouse_type: document.getElementById("pdWarehouse").value, date_from: document.getElementById("pdFrom").value, date_to: document.getElementById("pdTo").value, supervisor_id: supervisorId, show_zero: document.getElementById("pdShowZero").checked }) });
-    document.getElementById("stocktakeResult").innerHTML = stocktakeTable(stocktake.stocktake);
+    system.currentStocktakeId = stocktake.stocktake?.id;
+    await showStocktakeReport(system.currentStocktakeId, document.getElementById("stocktakeResult"));
     toast("盘点单已生成");
     loadStocktakes();
   }
@@ -4887,8 +6511,11 @@
 
   async function openStocktake(stocktakeId) {
     const form = await systemApi(`/api/stocktakes/${stocktakeId}`);
-    openModal({ title: form.form_no, hideOk: true, body: `<div class="print-area" id="stocktakeDetailPrint">${stocktakeTable(form)}</div><div class="mini-actions"><button id="printStocktakeDetail">\u6253\u5370</button></div>`, onReady: () => {
-      document.getElementById("printStocktakeDetail")?.addEventListener("click", () => printElement("stocktakeDetailPrint"));
+    openModal({ title: form.form_no, hideOk: true, body: `<div class="print-area" id="stocktakeDetailPrint">加载中...</div><div class="mini-actions"><button type="button" id="printStocktakeDetail">下载盘点报表</button></div>`, onReady: () => {
+      showStocktakeReport(stocktakeId, document.getElementById("stocktakeDetailPrint")).catch(error => toast(error.message));
+      document.getElementById("printStocktakeDetail")?.addEventListener("click", () => {
+        window.location.href = `/api/stocktakes/${stocktakeId}/report.xlsx`;
+      });
     }});
   }
 
@@ -5232,7 +6859,7 @@
         <label>通知自动清理时间<select id="setNotificationDays">${[7, 15, 30, 90, 180].map(day => `<option value="${day}" ${Number(settings.notification_retention_days || 90) === day ? "selected" : ""}>${day} 天</option>`).join("")}</select></label>
         <label>重复验收验证时间<select id="setDuplicateAcceptanceDays">${[7, 15, 30, 90].map(day => `<option value="${day}" ${Number(settings.duplicate_acceptance_check_days || 7) === day ? "selected" : ""}>${day} 天</option>`).join("")}</select></label>
         <label>盘点提醒日<input id="setReminderDay" type="number" min="1" max="31" value="${settings.default_stocktake_reminder_day || 25}"></label>
-        <label class="wide">项目代号（每行一个）<textarea id="setProjectCodes" rows="3">${escapeHtml((settings.project_codes || []).join("\n"))}</textarea></label>
+        <label class="wide">项目代号已改到「项目设置」。这里只保留旧配置<textarea id="setProjectCodes" rows="3">${escapeHtml((settings.project_codes || []).join("\n"))}</textarea></label>
       </div></div></details>
       <details class="settings-section" open><summary>文案设置</summary><div class="settings-inner"><div class="form-grid">
         <label class="wide">物料小助手开场白设置<textarea id="setAiWelcome" rows="3">${escapeHtml(settings.ai_welcome_message || aiWelcomeMessage())}</textarea></label>
@@ -5283,7 +6910,7 @@
       }) });
       system.boot = null;
       await loadSystemBoot();
-      if (!system.boot.workflow_settings?.temporary_inventory_enabled && system.view === "temporaryInventory") {
+      if (!system.boot.workflow_settings?.temporary_inventory_enabled && ["temporaryInventory", "temporaryFlows"].includes(system.view)) {
         system.view = "query";
         temporaryInventory.clear();
       }
@@ -5467,9 +7094,12 @@
     ["acceptance", "物料验收", [["acceptance", "验收"], ["leader_acceptance", "领导签字"], ["inbound", "入库"]]],
     ["claim", "申领/出库", [["leader_claim", "申领审批"], ["outbound", "出库"]]],
     ["borrow", "借用申请", [["leader_borrow", "审批领导审批"], ["borrow_outbound", "仓库出库"]]],
-    ["borrow_return", "借用归还", [["return_inbound", "仓库验收入库"]]],
+    ["semifinished_claim", "半成品领用", [["leader_semifinished_claim", "半成品领用审批"], ["semifinished_outbound", "半成品出库"]]],
+    ["claim_return", "领用退库", [["return_inbound", "退库入库"]]],
+    ["borrow_return", "借用归还", [["return_inbound", "仓库验收入库"], ["damage_claim", "物料损坏转领用"]]],
+    ["borrow_claim", "借用转领用", []],
     ["common_material", "常用物料申请", [["leader_common_material", "审批"]]],
-    ["supply", "供货申请", [["leader_supply", "审批"], ["supply_outbound", "出库"]]],
+    ["supply", "供货申请", [["leader_supply", "审批"], ["supply_handover_print", "打印回执单"], ["supply_outbound", "出库"], ["supply_voucher_upload", "上传交接凭证"], ["supply_voucher_review", "查阅交接凭证"]]],
     ["supply_return", "供货回寄", [["supply_return_inbound", "回寄验收"]]],
     ["supply_extension", "供货延期", [["leader_supply_extension", "延期审批"]]],
     ["semifinished", "半成品验收", [["acceptance", "验收"], ["leader_acceptance", "领导签字"], ["inbound", "入库"]]],
@@ -5478,6 +7108,7 @@
 
   function workflowStepAssigneeTable(settings) {
     return workflowStepDefinitions.map(([formType, formLabel, steps]) => {
+      if (!steps.length) return "";
       const rows = steps.map(([stepCode, stepLabel]) => {
         const raw = settings?.[formType]?.[stepCode] || {};
         const config = Array.isArray(raw) ? { roles: [], users: raw } : { roles: raw.roles || [], users: raw.users || raw.user_ids || [] };
@@ -5596,13 +7227,18 @@
       view_supply: "查看供货管理",
       start_supply: "发起供货申请",
       edit_supply: "修改供货单",
+      view_projects: "查看项目设置",
+      manage_projects: "维护项目设置",
+      start_purchase_request: "发起采购申请",
+      manage_purchase_summary: "采购汇总与赋码",
+      start_special_claim: "发起特殊用料",
     };
     const exclusiveGroup = key => key.includes("_semifinished_inventory") ? "semifinished" : (key.includes("_finished_inventory") ? "finished" : "");
     const groups = [
-      ["模块查看", ["view_query", "view_flow", "view_outbound", "view_stats", "view_stocktake", "view_borrow", "view_logs", "view_recycle", "view_my_inspections", "view_my_started"]],
-      ["流程发起", ["start_acceptance", "start_claim", "start_borrow", "start_stocktake", "add_material"]],
-      ["办理修改", ["edit_acceptance", "edit_claim", "edit_borrow", "edit_outbound", "edit_stocktake"]],
-      ["库存权限", ["read_semifinished_inventory", "write_semifinished_inventory", "read_finished_inventory", "write_finished_inventory", "view_temporary_inventory", "manage_temporary_inventory"]],
+      ["模块查看", ["view_query", "view_flow", "view_outbound", "view_stats", "view_stocktake", "view_borrow", "view_logs", "view_recycle", "view_my_inspections", "view_my_started", "view_projects", "view_supply", "view_defective_inventory"]],
+      ["流程发起", ["start_acceptance", "start_claim", "start_borrow", "start_stocktake", "add_material", "start_purchase_request", "start_special_claim", "start_common_material", "start_supply"]],
+      ["办理修改", ["edit_acceptance", "edit_claim", "edit_borrow", "edit_outbound", "edit_stocktake", "manage_projects", "manage_purchase_summary", "edit_supply", "manage_defective_inventory"]],
+      ["库存权限", ["read_semifinished_inventory", "write_semifinished_inventory", "read_finished_inventory", "write_finished_inventory", "view_temporary_inventory", "manage_temporary_inventory", "transfer_temporary_inventory"]],
       ["基础资料", ["edit_department", "edit_material", "delete_material_attachment"]],
     ];
     const usedKeys = new Set(groups.flatMap(group => group[1]));
@@ -5669,9 +7305,22 @@
     return permissions;
   }
 
+  function aiProfileFields(profile) {
+    const current = profile || {};
+    const caps = current.capabilities || {};
+    const levels = new Set(current.thinking_levels || ["off", "low", "medium", "high"]);
+    const boxes = [["off", "关闭"], ["low", "低"], ["medium", "中"], ["high", "高"]]
+      .map(([value, label]) => `<label><input type="checkbox" data-ai-thinking-level="${value}" ${levels.has(value) ? "checked" : ""}> ${label}</label>`)
+      .join("");
+    const defaultLevel = current.default_thinking || "medium";
+    const style = current.thinking_style || "reasoning_effort";
+    const option = (value, label, selected) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`;
+    return `<label>上下文长度<input id="aiContextTokens" type="number" min="1024" step="1" value="${Number(current.context_tokens || 32768)}"></label><label>最大输出<input id="aiMaxOutputTokens" type="number" min="256" step="1" value="${Number(current.max_output_tokens || 4096)}"></label><label><input id="aiCapTools" type="checkbox" ${caps.tools === false ? "" : "checked"}> 允许工具</label><label><input id="aiCapVision" type="checkbox" ${caps.vision ? "checked" : ""}> 允许看图</label><label><input id="aiCapReasoning" type="checkbox" ${caps.reasoning === false ? "" : "checked"}> 允许思考</label><div class="wide"><span class="hint">可用思考等级</span><div class="flow-tools">${boxes}</div></div><label>默认思考等级<select id="aiDefaultThinking">${option("off", "关闭", defaultLevel)}${option("low", "低", defaultLevel)}${option("medium", "中", defaultLevel)}${option("high", "高", defaultLevel)}</select></label><label>思考参数样式<select id="aiThinkingStyle">${option("reasoning_effort", "reasoning_effort", style)}${option("enable_thinking", "enable_thinking", style)}</select></label>`;
+  }
+
   async function loadAiConfig() {
     const config = await systemApi("/api/ai/config");
-    document.getElementById("aiConfig").innerHTML = `<div class="form-grid"><label>模型地址<input id="aiBaseUrl" value="${escapeAttr(config.base_url || "")}" placeholder="https://.../v1"></label><label>API Key<input id="aiKey" type="password" placeholder="${config.has_api_key ? "已保存，留空不改" : "请输入"}"></label><label>模型名称<select id="aiModel">${aiModelOptions([], config.model || "")}</select></label><label style="align-self:end;"><button id="connectAiModels" type="button">连接并获取模型</button></label><label class="wide">Skill 路径<input id="aiSkill" value="${escapeAttr(config.skill_path || "")}"></label><label class="wide">数据库 API 地址<input id="dbApi" value="${escapeAttr(config.database_api || "/api")}"></label><p class="hint wide" id="aiModelStatus">填写模型地址和 API Key 后点击连接，选择模型名称再保存。</p></div>`;
+    document.getElementById("aiConfig").innerHTML = `<div class="form-grid"><label>模型地址<input id="aiBaseUrl" value="${escapeAttr(config.base_url || "")}" placeholder="https://.../v1"></label><label>API Key<input id="aiKey" type="password" placeholder="${config.has_api_key ? "已保存，留空不改" : "请输入"}"></label><label>模型名称<select id="aiModel">${aiModelOptions([], config.model || "")}</select></label><label style="align-self:end;"><button id="connectAiModels" type="button">连接并获取模型</button></label><label class="wide">Skill 路径<input id="aiSkill" value="${escapeAttr(config.skill_path || "")}"></label><label class="wide">数据库 API 地址<input id="dbApi" value="${escapeAttr(config.database_api || "/api")}"></label>${aiProfileFields(config.profile)}<p class="hint wide" id="aiModelStatus">填写模型地址和 API Key 后点击连接，选择模型名称再保存。</p></div>`;
     document.getElementById("saveAiConfig").addEventListener("click", saveAiConfig);
     document.getElementById("connectAiModels").addEventListener("click", connectAiModels);
   }
@@ -5711,13 +7360,72 @@
   }
 
   async function saveAiConfig() {
-    await systemApi("/api/ai/config", { method: "POST", body: JSON.stringify({ ai_base_url: document.getElementById("aiBaseUrl").value, ai_model: document.getElementById("aiModel").value, ai_api_key: document.getElementById("aiKey").value, ai_skill_path: document.getElementById("aiSkill").value, database_api: document.getElementById("dbApi").value }) });
-    toast("\u7269\u6599\u5c0f\u52a9\u624b\u914d\u7f6e\u5df2\u4fdd\u5b58");
+    const levels = [...document.querySelectorAll("[data-ai-thinking-level]:checked")].map(input => input.dataset.aiThinkingLevel);
+    const body = {
+      ai_base_url: document.getElementById("aiBaseUrl").value,
+      ai_model: document.getElementById("aiModel").value,
+      ai_api_key: document.getElementById("aiKey").value,
+      ai_skill_path: document.getElementById("aiSkill").value,
+      database_api: document.getElementById("dbApi").value,
+      ai_model_profile: {
+        context_tokens: Number(document.getElementById("aiContextTokens").value),
+        max_output_tokens: Number(document.getElementById("aiMaxOutputTokens").value),
+        capabilities: {
+          tools: document.getElementById("aiCapTools").checked,
+          vision: document.getElementById("aiCapVision").checked,
+          reasoning: document.getElementById("aiCapReasoning").checked,
+        },
+        thinking_levels: levels,
+        default_thinking: document.getElementById("aiDefaultThinking").value,
+        thinking_style: document.getElementById("aiThinkingStyle").value,
+      },
+    };
+    try {
+      await systemApi("/api/ai/config", { method: "POST", body: JSON.stringify(body) });
+      toast("物料小助手配置已保存");
+    } catch (error) {
+      toast(error.message);
+    }
   }
 
   async function askAi() {
-    const data = await systemApi("/api/ai/chat", { method: "POST", body: JSON.stringify({ question: document.getElementById("aiQuestion").value }) });
-    renderAiMessage(document.getElementById("aiAnswer"), data.answer || "");
+    const host = document.getElementById("aiAnswer");
+    const question = document.getElementById("aiQuestion").value.trim();
+    if (!host) return;
+    host.textContent = "回复中...";
+    try {
+      const response = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const type = response.headers.get("content-type") || "";
+      if (!response.ok || !type.includes("ndjson")) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "发送失败");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let answer = "";
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        lines.forEach(line => {
+          if (!line.trim()) return;
+          const event = JSON.parse(line);
+          if (event.type === "text") answer = event.text || "";
+          if (event.type === "error") throw new Error(event.error || "模型返回失败");
+        });
+      }
+      host.textContent = answer || "物料小助手未返回内容";
+      applyAiSuggestion(answer);
+    } catch (error) {
+      host.textContent = error.message;
+    }
   }
 
   function itemsTable(items) {
@@ -5728,19 +7436,101 @@
     return `<table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>品牌型号</th><th>规格</th><th>余量</th><th>位置</th></tr></thead><tbody>${rows.map(m => `<tr><td>${escapeHtml(m.material_code)}</td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.brand_model || "")}</td><td>${escapeHtml(m.spec || "")}</td><td>${formatQty(m.quantity)} ${escapeHtml(m.unit || "")}</td><td>${escapeHtml(m.shelf_name || "")} ${m.layer_number || ""} ${escapeHtml(m.zone_name || "")}</td></tr>`).join("") || `<tr><td colspan="6">暂无数据</td></tr>`}</tbody></table>`;
   }
 
+  function flowProjectCode(form) {
+    const item = (form.items || [])[0] || {};
+    return String(form.data?.project_code || item.data?.project_code || "").trim();
+  }
+
+  function batchLineAmount(batches) {
+    return (batches || []).reduce((sum, batch) => sum + Number(batch.quantity || 0) * Number(batch.unit_price || 0), 0);
+  }
+
+  function batchLineQuantity(batches) {
+    return (batches || []).reduce((sum, batch) => sum + Number(batch.quantity || 0), 0);
+  }
+
+  function claimPriceBatches(item) {
+    const consumed = item?.data?.consumed_batches;
+    if (Array.isArray(consumed) && consumed.length) return consumed;
+    return item.suggested_batches || [];
+  }
+
+  function claimItemAmount(item) {
+    const batches = claimPriceBatches(item);
+    if (batches.length) return batchLineAmount(batches);
+    return Number(item.request_quantity || 0) * Number(item.unit_price || 0);
+  }
+
+  function claimItemUnitPrice(item) {
+    const batches = claimPriceBatches(item);
+    if (batches.length) {
+      const qty = batchLineQuantity(batches);
+      return qty > 0 ? batchLineAmount(batches) / qty : null;
+    }
+    if (item.unit_price == null || item.unit_price === "") return null;
+    return Number(item.unit_price);
+  }
+
+  function borrowItemUnitPrice(item) {
+    const outbound = item?.data?.borrow_outbound;
+    const batches = outbound?.consumed_batches || item?.data?.consumed_batches;
+    if (Array.isArray(batches) && batches.length) {
+      const qty = batchLineQuantity(batches);
+      return qty > 0 ? batchLineAmount(batches) / qty : null;
+    }
+    if (outbound && outbound.unit_price != null && outbound.unit_price !== "") {
+      return Number(outbound.unit_price);
+    }
+    return null;
+  }
+
+  function moneyOrBlank(value) {
+    if (value == null || value === "" || Number.isNaN(Number(value))) return "";
+    return money(Number(value));
+  }
+
   function flowItemsTable(form) {
     const items = form.items || [];
     if (isProductionFlow(form)) {
       const item = items[0] || {};
-      return `${productionHeaderTable(form, item)}${productionComponentsTable(item)}${productionSerialsTable(item)}<h3>验收结果</h3><table class="flow-table"><thead><tr><th>验收/合格/不合格</th><th>外观/功能/性能</th><th>成本价</th><th>位置</th></tr></thead><tbody>${items.map(i => `<tr><td>${formatQty(i.arrival_quantity)} / ${formatQty(i.qualified_quantity)} / ${formatQty(i.unqualified_quantity)}</td><td>${formatQty(i.data?.appearance_ok_quantity || 0)} / ${formatQty(i.data?.function_ok_quantity || 0)} / ${formatQty(i.data?.performance_ok_quantity || 0)}</td><td>${money(i.unit_price || 0)}</td><td>${escapeHtml(locationText(i.data || {}))}</td></tr>`).join("")}</tbody></table>${flowTotalHtml(items, "arrival_quantity")}`;
+      return `${productionHeaderTable(form, item)}${productionComponentsTable(item)}${productionSerialsTable(item)}<h3>验收结果</h3><table class="flow-table"><thead><tr><th>验收/合格/不合格</th><th>外观/功能/性能</th><th>单价</th><th>金额</th><th>位置</th></tr></thead><tbody>${items.map(i => `<tr><td>${formatQty(i.arrival_quantity)} / ${formatQty(i.qualified_quantity)} / ${formatQty(i.unqualified_quantity)}</td><td>${formatQty(i.data?.appearance_ok_quantity || 0)} / ${formatQty(i.data?.function_ok_quantity || 0)} / ${formatQty(i.data?.performance_ok_quantity || 0)}</td><td>${money(i.unit_price || 0)}</td><td>${money(Number(i.arrival_quantity || 0) * Number(i.unit_price || 0))}</td><td>${escapeHtml(locationText(i.data || {}))}</td></tr>`).join("")}</tbody></table>${flowTotalHtml(items, "arrival_quantity")}`;
     }
     if (form.form_type === "borrow" || form.form_type === "borrow_return") {
-      return `<table class="flow-table"><thead><tr><th>类型</th><th>来源</th><th>编号</th><th>名称</th><th>品牌</th><th>规格</th><th>申请数量</th><th>出库/入库数量</th></tr></thead><tbody>${items.map(i => `<tr><td>${borrowItemTypeLabel(i.data?.borrow_item_type || (i.material_id ? "material" : ""))}</td><td>${ClaimSourceUI.sourceBadge(i.stock_source)}</td><td>${escapeHtml(i.material_code || "")}</td><td>${escapeHtml(i.material_name || "")}</td><td>${escapeHtml(i.brand_model || "无")}</td><td>${escapeHtml(i.spec || "")}</td><td>${formatQty(i.request_quantity || 0)} ${escapeHtml(i.unit || "")}</td><td>${formatQty(i.outbound_quantity || i.approved_quantity || 0)} ${escapeHtml(i.unit || "")}</td></tr>`).join("")}</tbody></table>`;
+      return `<table class="flow-table"><thead><tr><th>类型</th><th>编号</th><th>名称</th><th>品牌</th><th>规格</th><th>申请数量</th><th>出库/入库数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${items.map(i => {
+        const qty = Number(i.outbound_quantity || i.approved_quantity || i.request_quantity || 0);
+        const unitPrice = borrowItemUnitPrice(i);
+        const amount = unitPrice == null ? "" : money(unitPrice * qty);
+        const claimed = Number(i.claimed_quantity || i.data?.claimed_quantity || 0);
+        const claimedText = claimed > 0 ? ` 其中${formatQty(claimed)}个已转领用` : "";
+        return `<tr><td>${borrowItemTypeLabel(i.data?.borrow_item_type || (i.material_id ? "material" : ""))}</td><td>${escapeHtml(i.material_code || "")}</td><td>${escapeHtml(i.material_name || "")}</td><td>${escapeHtml(i.brand_model || "无")}</td><td>${escapeHtml(i.spec || "")}</td><td>${formatQty(i.request_quantity || 0)} ${escapeHtml(i.unit || "")}${claimedText}</td><td>${formatQty(i.outbound_quantity || i.approved_quantity || 0)} ${escapeHtml(i.unit || "")}</td><td>${moneyOrBlank(unitPrice)}</td><td>${amount}</td></tr>`;
+      }).join("")}</tbody></table>${borrowFlowTotalHtml(items)}`;
+    }
+    if (form.form_type === "borrow_claim") {
+      const snapshot = form.data?.borrow_snapshot || {};
+      const snapshotItems = snapshot.items || [];
+      const snapshotTable = snapshotItems.length
+        ? `<h3>原借用单</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>品牌</th><th>规格</th><th>申请数量</th><th>出库数量</th></tr></thead><tbody>${snapshotItems.map(i => `<tr><td>${escapeHtml(i.material_code || "")}</td><td>${escapeHtml(i.material_name || "")}</td><td>${escapeHtml(i.brand_model || "无")}</td><td>${escapeHtml(i.spec || "")}</td><td>${formatQty(i.request_quantity || 0)} ${escapeHtml(i.unit || "")}</td><td>${formatQty(i.outbound_quantity || 0)} ${escapeHtml(i.unit || "")}</td></tr>`).join("")}</tbody></table>`
+        : "";
+      return `${snapshotTable}<h3>本次转领用</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>品牌</th><th>规格</th><th>转领用数量</th></tr></thead><tbody>${items.map(i => `<tr><td>${escapeHtml(i.material_code || "")}</td><td>${escapeHtml(i.material_name || "")}</td><td>${escapeHtml(i.brand_model || "无")}</td><td>${escapeHtml(i.spec || "")}</td><td>${formatQty(i.request_quantity || 0)} ${escapeHtml(i.unit || "")}</td></tr>`).join("") || `<tr><td colspan="5">暂无明细</td></tr>`}</tbody></table>`;
+    }
+    if (form.form_type === "supply") {
+      return `<table class="flow-table"><thead><tr><th>名称</th><th>品牌型号</th><th>规格</th><th>数量</th><th>单位</th><th>状态</th></tr></thead><tbody>${items.map(item => `<tr><td>${escapeHtml(item.material_name || "")}</td><td>${escapeHtml(item.brand_model || "")}</td><td>${escapeHtml(item.spec || "")}</td><td>${formatQty(item.request_quantity || 0)}</td><td>${escapeHtml(item.unit || "")}</td><td>${escapeHtml(item.data?.goods_status || "")}</td></tr>`).join("")}</tbody></table>`;
     }
     if (form.form_type === "claim") {
-      return `<table class="flow-table"><thead><tr><th>物料</th><th>来源</th><th>申领数量</th><th>该来源库存</th><th>批次库存</th><th>已出库批次</th></tr></thead><tbody>${items.map(i => `<tr><td>${escapeHtml(i.material_code)}<br>${escapeHtml(i.material_name)}<br><small>${escapeHtml(i.brand_model || "")} ${escapeHtml(i.spec || "")}</small></td><td>${ClaimSourceUI.sourceBadge(i.stock_source)}</td><td>${formatQty(i.request_quantity)} ${escapeHtml(i.unit || "")}</td><td>${formatQty(i.stock_quantity || 0)} ${escapeHtml(i.unit || "")}</td><td>${batchSummaryHtml(i.batches || [])}</td><td>${batchSummaryHtml(i.data?.consumed_batches || [])}</td></tr>`).join("")}</tbody></table>${claimOutboundTotalHtml(items)}`;
+      return `<table class="flow-table"><thead><tr><th>物料</th><th>申领数量</th><th>剩余库存数量</th><th>已出库批次</th><th>单价</th><th>金额</th></tr></thead><tbody>${items.map(i => `<tr><td>${escapeHtml(i.material_code)}<br>${escapeHtml(i.material_name)}<br><small>${escapeHtml(i.brand_model || "")} ${escapeHtml(i.spec || "")}</small></td><td>${formatQty(i.request_quantity)} ${escapeHtml(i.unit || "")}</td><td>${batchSummaryHtml(i.batches || [], i.unit)}</td><td>${batchSummaryHtml(i.data?.consumed_batches || [], i.unit)}</td><td>${moneyOrBlank(claimItemUnitPrice(i))}</td><td>${money(claimItemAmount(i))}</td></tr>`).join("")}</tbody></table>${claimOutboundTotalHtml(items)}`;
     }
-    return `<table class="flow-table"><thead><tr><th>物料</th><th>采购申请人</th><th>采购/到货/合格</th><th>入库批次</th><th>单价</th></tr></thead><tbody>${items.map(i => `<tr><td>${escapeHtml(i.material_code)}<br>${escapeHtml(i.material_name)}<br><small>${escapeHtml(i.brand_model || "")} ${escapeHtml(i.spec || "")}</small></td><td>${escapeHtml(i.purchase_applicant || i.data?.purchase_applicant || "")}</td><td>${formatQty(i.request_quantity)} / ${formatQty(i.arrival_quantity)} / ${formatQty(i.qualified_quantity)}</td><td>${escapeHtml(i.data?.inbound_batch_no || expectedInboundBatchNo(i))}</td><td>${money(i.unit_price)}</td></tr>`).join("")}</tbody></table>${flowTotalHtml(items, "arrival_quantity")}`;
+    return `<table class="flow-table"><thead><tr><th>物料</th><th>采购申请人</th><th>采购申请项目</th><th>采购/到货/合格</th><th>入库批次</th><th>单价</th><th>金额</th></tr></thead><tbody>${items.map(i => `<tr><td>${escapeHtml(i.material_code)}<br>${escapeHtml(i.material_name)}<br><small>${escapeHtml(i.brand_model || "")} ${escapeHtml(i.spec || "")}</small></td><td>${escapeHtml(i.purchase_applicant || i.data?.purchase_applicant || "")}</td><td>${escapeHtml(i.purchase_project || i.data?.purchase_project || "")}</td><td>${formatQty(i.request_quantity)} / ${formatQty(i.arrival_quantity)} / ${formatQty(i.qualified_quantity)}</td><td>${escapeHtml(i.data?.inbound_batch_no || expectedInboundBatchNo(i))}</td><td>${money(i.unit_price)}</td><td>${money(Number(i.arrival_quantity || 0) * Number(i.unit_price || 0))}</td></tr>`).join("")}</tbody></table>${flowTotalHtml(items, "arrival_quantity")}`;
+  }
+
+  function borrowFlowTotalHtml(items) {
+    const total = (items || []).reduce((sum, item) => {
+      const unitPrice = borrowItemUnitPrice(item);
+      if (unitPrice == null) return sum;
+      const qty = Number(item.outbound_quantity || item.approved_quantity || item.request_quantity || 0);
+      return sum + unitPrice * qty;
+    }, 0);
+    const hasPrice = (items || []).some(item => borrowItemUnitPrice(item) != null);
+    return hasPrice ? `<p style="text-align:right;margin-top:8px;font-weight:bold;color:#1e40af">总金额：${money(total)}</p>` : "";
   }
 
   function claimOutboundTotalHtml(items) {
@@ -5759,12 +7549,12 @@
         0,
       );
     }, 0);
-    return `<p style="text-align:right;margin-top:8px;font-weight:bold;color:#1e40af">合计金额：${money(total)}</p>`;
+    return `<p style="text-align:right;margin-top:8px;font-weight:bold;color:#1e40af">总金额：${money(total)}</p>`;
   }
 
   function flowTotalHtml(items, qtyField) {
     const total = (items || []).reduce((sum, i) => sum + (Number(i[qtyField] || 0) * Number(i.unit_price || 0)), 0);
-    return `<p style="text-align:right;margin-top:8px;font-weight:bold;color:#1e40af">合计金额：${money(total)}</p>`;
+    return `<p style="text-align:right;margin-top:8px;font-weight:bold;color:#1e40af">总金额：${money(total)}</p>`;
   }
 
   function expectedInboundBatchNo(item) {
@@ -5776,17 +7566,27 @@
   }
 
   function itemsTableV2(items) {
-    return `<table class="flow-table"><thead><tr><th>物料</th><th>申请/到货/合格</th><th>库存总量</th><th>批次库存</th><th>单价</th></tr></thead><tbody>${(items || []).map(i => `<tr><td>${escapeHtml(i.material_code)}<br>${escapeHtml(i.material_name)}<br><small>${escapeHtml(i.brand_model || "")} ${escapeHtml(i.spec || "")}</small></td><td>${formatQty(i.request_quantity)} / ${formatQty(i.arrival_quantity)} / ${formatQty(i.qualified_quantity)}</td><td>${formatQty(i.stock_quantity || 0)} ${escapeHtml(i.unit || "")}</td><td>${batchSummaryHtml(i.batches || i.data?.consumed_batches || [])}</td><td>${money(i.unit_price)}</td></tr>`).join("")}</tbody></table>`;
+    return `<table class="flow-table"><thead><tr><th>物料</th><th>申请/到货/合格</th><th>库存总量</th><th>批次库存</th><th>单价</th></tr></thead><tbody>${(items || []).map(i => `<tr><td>${escapeHtml(i.material_code)}<br>${escapeHtml(i.material_name)}<br><small>${escapeHtml(i.brand_model || "")} ${escapeHtml(i.spec || "")}</small></td><td>${formatQty(i.request_quantity)} / ${formatQty(i.arrival_quantity)} / ${formatQty(i.qualified_quantity)}</td><td>${formatQty(i.stock_quantity || 0)} ${escapeHtml(i.unit || "")}</td><td>${batchSummaryHtml(i.batches || i.data?.consumed_batches || [], i.unit)}</td><td>${money(i.unit_price)}</td></tr>`).join("")}</tbody></table>`;
   }
 
   function materialTableV2(rows) {
     const canEdit = canModifyMaterial();
     const canDelete = canDeleteMaterial();
-    return `<table class="flow-table"><thead><tr><th>\u7f16\u53f7</th><th>\u540d\u79f0</th><th>\u54c1\u724c\u578b\u53f7</th><th>\u89c4\u683c</th><th>\u91c7\u8d2d\u7533\u8bf7\u4eba</th><th>\u5e93\u5b58\u603b\u91cf</th><th>\u6279\u6b21\u4fe1\u606f</th><th>\u4f4d\u7f6e</th><th>\u64cd\u4f5c</th></tr></thead><tbody>${rows.map(m => `<tr><td>${escapeHtml(m.material_code)}</td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.brand_model || "")}</td><td>${escapeHtml(m.spec || "")}</td><td>${escapeHtml(m.purchase_applicant || "")}</td><td>${formatQty(m.quantity)} ${escapeHtml(m.unit || "")}</td><td>${escapeHtml(m.batch_summary || "")}</td><td>${escapeHtml(m.shelf_name || "")} ${m.layer_number || ""} ${escapeHtml(m.zone_name || "")}</td><td class="mini-actions"><button type="button" data-view-material="${m.id}">\u67e5\u770b\u8be6\u60c5</button>${canEdit ? `<button type="button" data-edit-material="${m.id}">\u4fee\u6539</button>` : ""}${canDelete ? `<button type="button" class="danger" data-delete-material="${m.id}">\u5220\u9664</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="9">\u6682\u65e0\u6570\u636e</td></tr>`}</tbody></table>`;
+    return `<table class="flow-table"><thead><tr><th rowspan="2">编号</th><th colspan="2">集团物料编码</th><th rowspan="2">名称</th><th rowspan="2">品牌型号</th><th rowspan="2">规格</th><th rowspan="2">采购申请人</th><th rowspan="2">正式库实际数量</th><th rowspan="2">正式库账面数量</th><th rowspan="2">临时库实际数量</th><th rowspan="2">临时库账面数量</th><th rowspan="2">批次信息</th><th rowspan="2">位置</th><th rowspan="2">操作</th></tr><tr><th>所属分类编码</th><th>物品和服务分类代码</th></tr></thead><tbody>${rows.map(m => `<tr><td>${escapeHtml(m.material_code)}</td><td>${escapeHtml(m.group_category_code || "")}</td><td>${escapeHtml(m.group_service_code || "")}</td><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.brand_model || "")}</td><td>${escapeHtml(m.spec || "")}</td><td>${escapeHtml(m.purchase_applicants || "")}</td><td>${formatQty(m.quantity)} ${escapeHtml(m.unit || "")}</td><td>${formatQty(m.book_quantity || 0)}</td><td>${formatQty(m.temporary_quantity || 0)} ${escapeHtml(m.unit || "")}</td><td>${formatQty(m.temporary_book_quantity || 0)}</td><td>${escapeHtml(m.batch_summary || "")}</td><td>${escapeHtml(m.shelf_name || "")} ${m.layer_number || ""} ${escapeHtml(m.zone_name || "")}</td><td class="mini-actions"><button type="button" data-view-material="${m.id}">查看详情</button>${canEdit ? `<button type="button" data-edit-material="${m.id}">修改</button>` : ""}${canDelete ? `<button type="button" class="danger" data-delete-material="${m.id}">删除</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="14">暂无数据</td></tr>`}</tbody></table>`;
   }
 
-  function batchSummaryHtml(batches) {
-    return (batches || []).map(batch => `${escapeHtml(batch.batch_no || "")}：${formatQty(batch.quantity || 0)}`).join("<br>") || "";
+  function batchSummaryHtml(batches, unitFallback = "") {
+    return (batches || []).map(batch => {
+      const unit = escapeHtml(String(batch.unit || unitFallback || "").trim());
+      const parts = [`实际${formatQty(batch.quantity || 0)}${unit}`];
+      if (batch.book_quantity !== undefined && batch.book_quantity !== null && batch.book_quantity !== "") {
+        parts.push(`账面${formatQty(batch.book_quantity)}${unit}`);
+      }
+      if (batch.pack_quantity !== undefined && batch.pack_quantity !== null && batch.pack_quantity !== "") {
+        parts.push(`每单位数量${formatQty(batch.pack_quantity)}`);
+      }
+      return `${escapeHtml(batch.batch_no || "")}：${parts.join("，")}`;
+    }).join("<br>") || "";
   }
 
   function productionComponentsText(item) {
@@ -5816,6 +7616,25 @@
     return `<table class="flow-table"><thead><tr><th>日期</th><th>单号</th><th>物料</th><th>批次</th><th>数量</th><th>金额</th><th>仓库</th></tr></thead><tbody>${rows.map(r => `<tr><td>${formatDateCn(r.operation_date)}</td><td>${escapeHtml(r.form_no || "")}</td><td>${escapeHtml(r.material_code)} ${escapeHtml(r.material_name)}</td><td>${escapeHtml(r.batch_no || "")}</td><td>${formatQty(r.quantity)}</td><td>${money(r.amount || 0)}</td><td>${r.warehouse_type ? (r.warehouse_type === "rd" ? "研发材料库" : "办公用品库") : ""}</td></tr>`).join("") || `<tr><td colspan="7">暂无数据</td></tr>`}</tbody></table>`;
   }
 
+  function stocktakeNumberText(value) {
+    if (value === null || value === undefined || value === "") return "";
+    return formatQty(value);
+  }
+
+  function stocktakeReportHtml(report) {
+    const sheets = report.sheets || [];
+    return sheets.map(sheet => {
+      const body = (sheet.rows || []).map(row => `<tr><td>${row.seq}</td><td>${escapeHtml(row.name || "")}</td><td>${escapeHtml(row.brand_model || "")}</td><td>${escapeHtml(row.spec || "")}</td><td>${escapeHtml(row.unit || "")}</td><td>${stocktakeNumberText(row.avg_price)}</td><td>${stocktakeNumberText(row.opening_qty)}</td><td>${stocktakeNumberText(row.opening_amount)}</td><td>${stocktakeNumberText(row.month_in_qty)}</td><td>${stocktakeNumberText(row.month_in_price)}</td><td>${stocktakeNumberText(row.month_in_amount)}</td><td>${stocktakeNumberText(row.ytd_in_qty)}</td><td>${stocktakeNumberText(row.ytd_in_amount)}</td><td>${stocktakeNumberText(row.month_out_qty)}</td><td>${stocktakeNumberText(row.month_out_amount)}</td><td>${stocktakeNumberText(row.ytd_out_qty)}</td><td>${stocktakeNumberText(row.ytd_out_amount)}</td><td>${stocktakeNumberText(row.close_qty)}</td><td>${stocktakeNumberText(row.close_amount)}</td><td>${row.age_months ?? ""}</td><td>${escapeHtml(row.project || "")}</td></tr>`).join("");
+      return `<section class="stocktake-sheet"><h2>${escapeHtml(sheet.title || "")}</h2><p>${escapeHtml(sheet.org || "")}</p><table class="flow-table"><thead><tr><th>序号</th><th>产品名称</th><th>品牌型号</th><th>技术规格</th><th>单位</th><th>库存平均单价</th><th>上年结存数量</th><th>上年结存金额</th><th>本月收入数量</th><th>本月收入单价</th><th>本月收入金额</th><th>当年累计收入数量</th><th>当年累计收入金额</th><th>本月发出数量</th><th>本月发出金额</th><th>当年累计发出数量</th><th>当年累计发出金额</th><th>月末库存数量</th><th>月末库存金额</th><th>库龄（月）</th><th>入账项目</th></tr></thead><tbody>${body || `<tr><td colspan="21">没有盘点物料</td></tr>`}</tbody></table></section>`;
+    }).join("") || `<div class="empty-state">没有可显示的月份</div>`;
+  }
+
+  async function showStocktakeReport(stocktakeId, host) {
+    if (!host || !stocktakeId) return;
+    const report = await systemApi(`/api/stocktakes/${stocktakeId}/report`);
+    host.innerHTML = stocktakeReportHtml(report);
+  }
+
   function stocktakeTable(form) {
     return `<h2>${escapeHtml(form.form_no || "")}</h2><p>\u76d8\u70b9\u8303\u56f4\uff1a${formatDateCn(form.date_from)} \u81f3 ${formatDateCn(form.date_to)}\uff0c\u76d8\u70b9\u4eba\uff1a${escapeHtml(form.checker_signature || "")}\uff0c\u65e5\u671f\uff1a${formatDateCn(form.checker_date)}</p><p>\u76d1\u76d8\u7b7e\u5b57\uff1a${escapeHtml(form.supervisor_signature || "\u5f85\u7b7e\u5b57")}\uff0c\u65e5\u671f\uff1a${formatDateCn(form.supervisor_date)}</p><table class="flow-table"><thead><tr><th>\u7269\u6599</th><th>\u4f4d\u7f6e</th><th>\u8d26\u9762\u5e93\u5b58</th><th>\u5e93\u5b58\u91d1\u989d</th><th>\u671f\u95f4\u5165\u5e93</th><th>\u671f\u95f4\u51fa\u5e93</th></tr></thead><tbody>${(form.items || []).map(i => `<tr><td>${escapeHtml(i.material_code)} ${escapeHtml(i.material_name)}</td><td>${escapeHtml(i.location_text || "")}</td><td>${formatQty(i.book_quantity)}</td><td>${money(i.stock_amount)}</td><td>${formatQty(i.period_in)}</td><td>${formatQty(i.period_out)}</td></tr>`).join("")}</tbody></table>`;
     return `<h2>${form.form_no}</h2><p>盘点范围：${form.date_from} 至 ${form.date_to}，盘点人：${escapeHtml(form.checker_signature || "")}，日期：${form.checker_date || ""}</p><table class="flow-table"><thead><tr><th>物料</th><th>位置</th><th>账面库存</th><th>库存金额</th><th>期间入库</th><th>期间出库</th></tr></thead><tbody>${form.items.map(i => `<tr><td>${escapeHtml(i.material_code)} ${escapeHtml(i.material_name)}</td><td>${escapeHtml(i.location_text || "")}</td><td>${formatQty(i.book_quantity)}</td><td>${money(i.stock_amount)}</td><td>${formatQty(i.period_in)}</td><td>${formatQty(i.period_out)}</td></tr>`).join("")}</tbody></table><p>监盘人签字：________________ 日期：__________</p>`;
@@ -5823,7 +7642,7 @@
 
   function exportTableCsv(hostId, filename) {
     const text = [...document.querySelectorAll(`#${hostId} table tr`)].map(tr => [...tr.children].map(td => `"${td.textContent.replaceAll('"', '""')}"`).join(",")).join("\n");
-    const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = filename;
@@ -5891,9 +7710,17 @@
       .then(data => {
         if (data.error) { toast(data.error); return; }
 
-        const item = data.item;
+        const item = data.item || {};
         const history = data.history || [];
         const total = data.total || 0;
+        const componentRows = Array.isArray(item.components) ? item.components : null;
+        const componentTable = componentRows
+          ? `<h3>组成物料</h3><table class="flow-table"><thead><tr><th>编号</th><th>名称</th><th>批次</th><th>单台用量</th><th>原领用人</th></tr></thead><tbody>${
+            componentRows.length
+              ? componentRows.map(row => `<tr><td>${escapeHtml(row.material_code || "")}</td><td>${escapeHtml(row.material_name || "")}</td><td>${escapeHtml(row.batch_no || "")}</td><td>${formatQty(row.per_unit_quantity)}${row.unit ? ` ${escapeHtml(row.unit)}` : ""}</td><td>${escapeHtml(row.claim_applicant || "")}</td></tr>`).join("")
+              : `<tr><td colspan="5">暂无组成明细</td></tr>`
+          }</tbody></table>`
+          : "";
 
         let rowsHtml = '';
         if (history.length === 0) {
@@ -5918,13 +7745,16 @@
           });
         }
 
+        const canDisassembleSemi = itemType === "semifinished" && hasPerm("write_semifinished_inventory");
         const body = `<div class="history-modal">
+          ${componentTable}
           <h3>变更历史 — ${escapeHtml(item.name || item.product_name || '')}</h3>
           <table class="flow-table">
             <thead><tr><th>时间</th><th>操作类型</th><th>操作人</th><th>变更类型</th><th>详情</th><th>是否正常</th></tr></thead>
             <tbody id="historyTableBody">${rowsHtml}</tbody>
           </table>
           ${total > currentPage * limit ? `<div style="text-align:center;margin-top:12px" id="loadMoreRow"><button class="btn-secondary" id="loadMoreHistoryBtn">加载更多</button></div>` : ''}
+          ${canDisassembleSemi ? `<div class="mini-actions" style="margin-top:12px"><button type="button" id="disassembleSemiFromHistory">拆解</button></div>` : ""}
         </div>`;
 
         openModal({
@@ -5938,6 +7768,10 @@
                 currentPage++;
                 loadMoreHistory(itemType, itemRefId, currentPage, limit);
               });
+            }
+            const disassembleBtn = document.getElementById("disassembleSemiFromHistory");
+            if (disassembleBtn) {
+              disassembleBtn.addEventListener("click", () => disassembleSemifinishedInventory(itemRefId));
             }
           }
         });

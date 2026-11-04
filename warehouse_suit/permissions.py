@@ -42,6 +42,11 @@ PERMISSION_KEYS = [
     "view_supply",
     "start_supply",
     "edit_supply",
+    "view_projects",
+    "manage_projects",
+    "start_purchase_request",
+    "manage_purchase_summary",
+    "start_special_claim",
 ]
 
 PERMISSION_ALIASES = {
@@ -104,6 +109,8 @@ def role_permissions(cursor):
             "view_supply": True,
             "start_supply": True,
             "edit_supply": True,
+            "view_projects": True,
+            "manage_purchase_summary": True,
         },
         "buyer": {
             "view_query": True,
@@ -118,6 +125,9 @@ def role_permissions(cursor):
             "read_semifinished_inventory": True,
             "read_finished_inventory": True,
             "view_defective_inventory": True,
+            "view_projects": True,
+            "start_purchase_request": True,
+            "manage_purchase_summary": True,
         },
         "leader": {
             "view_query": True,
@@ -128,6 +138,7 @@ def role_permissions(cursor):
             "view_my_started": True,
             "read_semifinished_inventory": True,
             "read_finished_inventory": True,
+            "view_projects": True,
         },
         "user": {
             "view_query": True,
@@ -140,6 +151,9 @@ def role_permissions(cursor):
             "start_supply": True,
             "start_common_material": True,
             "view_defective_inventory": True,
+            "view_projects": True,
+            "start_purchase_request": True,
+            "start_special_claim": True,
         },
     }
     stored = parse_json(get_setting(cursor, "role_permissions", "{}"), {})

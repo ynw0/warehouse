@@ -40,7 +40,7 @@
         main.innerHTML = '<div class="work-panel"><div class="work-body"><div class="empty-state">临时库功能已关闭或当前账号无查看权限</div></div></div>';
         return;
       }
-      main.innerHTML = moduleShell("临时库查询", `
+      main.innerHTML = moduleShell("临时库管理", `
         <div class="work-panel">
           <div class="work-head"><h2>查询临时物料和批次</h2>${canManage() ? '<button id="temporaryAddBatch" class="primary">新增临时批次</button>' : ""}</div>
           <div class="work-body">
@@ -131,7 +131,7 @@
               <td>${escape(row.location || "-")}</td>
               <td class="mini-actions">
                 <button data-temporary-batches="${Number(row.material_id)}">批次详情</button>
-                ${canManage() ? `<button data-temporary-edit="${Number(row.material_id)}">编辑物料</button><button class="primary" data-temporary-adjust="${Number(row.material_id)}">调整库存</button><button class="danger" data-temporary-delete="${Number(row.material_id)}">删除物料</button>` : ""}
+                ${canManage() ? `<button data-temporary-edit="${Number(row.material_id)}">编辑物料</button><button class="danger" data-temporary-delete="${Number(row.material_id)}">删除物料</button>` : ""}
                 ${canTransfer() ? `<button data-temporary-promote="${Number(row.material_id)}">转移到正式库</button>` : ""}
               </td>
             </tr>
@@ -147,11 +147,8 @@
       host.querySelectorAll("[data-temporary-batches]").forEach(button => {
         button.addEventListener("click", () => openBatches(Number(button.dataset.temporaryBatches)));
       });
-      host.querySelectorAll("[data-temporary-adjust]").forEach(button => {
-        button.addEventListener("click", () => chooseBatchForAdjustment(Number(button.dataset.temporaryAdjust)));
-      });
       host.querySelectorAll("[data-temporary-edit]").forEach(button => {
-        button.addEventListener("click", () => editTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryEdit))));
+        button.addEventListener("click", () => window.editMaterialFromQuery(Number(button.dataset.temporaryEdit), "temporary"));
       });
       host.querySelectorAll("[data-temporary-delete]").forEach(button => {
         button.addEventListener("click", () => deleteTemporaryMaterial(state.rows.find(row => Number(row.material_id) === Number(button.dataset.temporaryDelete))));
@@ -241,23 +238,6 @@
       }
     }
 
-
-    function editTemporaryMaterial(row) {
-      if (!row) return;
-      window.openModal({
-        title: "编辑临时库物料",
-        body: `<div class="form-grid temporary-form"><label>物料编号<input id="temporaryEditCode" value="${attr(row.material_code)}"></label><label>物料名称<input id="temporaryEditName" value="${attr(row.material_name)}"></label><label>品牌型号<input id="temporaryEditBrand" value="${attr(row.brand_model || "")}"></label><label>技术规格<input id="temporaryEditSpec" value="${attr(row.spec || "")}"></label><label>单位<input id="temporaryEditUnit" value="${attr(row.unit || "")}"></label><label>类别名称<input id="temporaryEditCategory" value="${attr(row.category_name || "")}"></label></div>`,
-        okText: "保存修改",
-        onOk: async () => {
-          await api(`/api/temporary-inventory/materials/${Number(row.material_id)}`, { method: "PUT", body: JSON.stringify({
-            material_code: document.getElementById("temporaryEditCode").value.trim(), name: document.getElementById("temporaryEditName").value.trim(),
-            brand_model: document.getElementById("temporaryEditBrand").value.trim(), spec: document.getElementById("temporaryEditSpec").value.trim(),
-            unit: document.getElementById("temporaryEditUnit").value.trim(), category_name: document.getElementById("temporaryEditCategory").value.trim(),
-          }) });
-          window.toast("临时物料已修改"); await loadRows();
-        },
-      });
-    }
 
     async function promoteTemporaryMaterial(row) {
       if (!row) return;
@@ -475,35 +455,6 @@
       });
     }
 
-    async function chooseBatchForAdjustment(materialId) {
-      const data = await api(`/api/temporary-inventory/materials/${materialId}/batches`);
-      const batches = data.items || [];
-      window.openModal({
-        title: "调整临时库存",
-        body: `<div class="form-grid temporary-form">
-          <label class="wide">批次<select id="temporaryAdjustBatch">${batches.map(batch =>
-            `<option value="${Number(batch.id)}">${escape(batch.batch_no)} · 余量 ${formatQty(batch.quantity)} · ${escape(warehouseLabel(batch.warehouse_type))}</option>`
-          ).join("")}</select></label>
-          <label>调整数量<input id="temporaryAdjustment" type="number" step="any" placeholder="正数增加，负数减少"></label>
-          <label class="wide">调整原因<input id="temporaryAdjustReason"></label>
-        </div>`,
-        okText: "确认调整",
-        onOk: async () => {
-          const batchId = document.getElementById("temporaryAdjustBatch").value;
-          await api(`/api/temporary-inventory/batches/${batchId}/adjust`, {
-            method: "POST",
-            body: JSON.stringify({
-              adjustment_quantity: document.getElementById("temporaryAdjustment").value,
-              reason: document.getElementById("temporaryAdjustReason").value,
-              operation_key: operationKey("temporary-adjust"),
-            }),
-          });
-          window.toast("临时库存已调整");
-          await Promise.all([loadRows(), loadRecords()]);
-        },
-      });
-    }
-
     function batchAttachmentHtml(batch) {
       const attachments = batch.attachments || [];
       if (!attachments.length) return '<span class="hint">暂无附件</span>';
@@ -514,11 +465,89 @@
     }
 
     function batchTable(batches) {
-      return `<div class="table-scroll"><table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>数量</th><th>仓库类型</th><th>层/分区</th><th>附件</th><th>来源</th><th>状态</th><th>转移限制</th></tr></thead>` +
-        `<tbody>${batches.map(batch => `<tr><td>${escape(batch.batch_no)}</td><td>${escape(batch.received_date)}</td><td>${formatQty(batch.quantity)}</td><td>${escape(warehouseLabel(batch.warehouse_type))}</td><td>${Number(batch.layer_number || 1)} / ${escape(batch.zone_name || "")}</td><td><div class="attachment-gallery">${batchAttachmentHtml(batch)}</div></td><td><span class="source-badge">临时库</span></td><td>可用</td><td>${batch.transfer_block_reason === "claim_return" ? '<span class="status-badge">领用退库 · 不可转移</span>' : "可转移"}</td></tr>`).join("") || '<tr><td colspan="9">暂无批次</td></tr>'}</tbody>` +
+      return `<div class="table-scroll"><table class="flow-table"><thead><tr><th>批次号</th><th>日期</th><th>实际数量</th><th>每单位数量</th><th>归属项目</th><th>用料形式</th><th>仓库类型</th><th>层/分区</th><th>附件</th><th>来源</th><th>状态</th><th>转移限制</th></tr></thead>` +
+        `<tbody>${batches.map(batch => `<tr><td>${escape(batch.batch_no)}</td><td>${escape(batch.received_date)}</td><td>${formatQty(batch.quantity)}</td><td>${formatQty(batch.pack_quantity || 1)}</td><td>${escape(batch.purchase_project || "")}</td><td>${escape(batch.usage_kind || "研发用料")}</td><td>${escape(warehouseLabel(batch.warehouse_type))}</td><td>${Number(batch.layer_number || 1)} / ${escape(batch.zone_name || "")}</td><td><div class="attachment-gallery">${batchAttachmentHtml(batch)}</div></td><td><span class="source-badge">临时库</span></td><td>可用</td><td>${batch.transfer_block_reason === "claim_return" ? '<span class="status-badge">领用退库 · 不可转移</span>' : "可转移"}</td></tr>`).join("") || '<tr><td colspan="12">暂无批次</td></tr>'}</tbody>` +
       `</table></div>`;
     }
 
+
+    const acceptanceStatusText = {
+      acceptance: "待验收",
+      leader_acceptance: "待领导验收",
+      inbound: "待入库",
+      completed: "已完成",
+      applicant_revision: "退回修改",
+      rejected: "已驳回",
+    };
+
+    function renderFlows(main) {
+      if (!enabled()) {
+        clear();
+        main.innerHTML = '<div class="work-panel"><div class="work-body"><div class="empty-state">临时库功能已关闭或当前账号无查看权限</div></div></div>';
+        return;
+      }
+      main.innerHTML = moduleShell("临时库流程管理", `
+        <div class="work-panel">
+          <div class="work-head"><h2>没有采购订单的验收流程</h2><button id="temporaryFlowRefresh" type="button">刷新</button></div>
+          <div class="work-body" id="temporaryFlowResult"><div class="empty-state">加载中...</div></div>
+        </div>
+      `);
+      document.getElementById("temporaryFlowRefresh").addEventListener("click", loadFlows);
+      loadFlows();
+    }
+
+    async function loadFlows() {
+      const host = document.getElementById("temporaryFlowResult");
+      if (!host) return;
+      try {
+        const data = await api("/api/temporary-inventory/acceptance-forms");
+        const rows = data.items || [];
+        host.innerHTML = `<div class="table-scroll"><table class="flow-table"><thead><tr><th>验收单号</th><th>标题</th><th>申请人</th><th>状态</th><th>物料</th><th>操作</th></tr></thead><tbody>${
+          rows.map(row => `<tr>
+            <td>${escape(row.form_no)}</td>
+            <td>${escape(row.title)}</td>
+            <td>${escape(row.applicant_name)}</td>
+            <td>${escape(acceptanceStatusText[row.status] || row.status || "")}</td>
+            <td>${escape((row.materials || []).join("、"))}</td>
+            <td>${flowAction(row)}</td>
+          </tr>`).join("") || '<tr><td colspan="6">暂无没有采购订单的验收流程</td></tr>'
+        }</tbody></table></div>`;
+        host.querySelectorAll("[data-promote-form]").forEach(button => {
+          button.addEventListener("click", () => promoteFlow(button.dataset.promoteForm));
+        });
+      } catch (error) {
+        if (error.message === "临时库功能已关闭") handleDisabled();
+        else host.innerHTML = `<div class="empty-state">${escape(error.message)}</div>`;
+      }
+    }
+
+    function flowAction(row) {
+      if (row.promoted) return `已转移${row.promoted_at ? " " + escape(row.promoted_at) : ""}`;
+      if (!row.inbound_ready) return "待入库";
+      if (!canTransfer()) return "";
+      return `<button type="button" data-promote-form="${Number(row.id)}">转移到正式库</button>`;
+    }
+
+    async function promoteFlow(formId) {
+      if (!confirm("确认把这张验收单下的物料全部转移到正式库？")) return;
+      try {
+        await api(`/api/temporary-inventory/acceptance-forms/${Number(formId)}/promote`, { method: "POST", body: "{}" });
+        window.toast("已转移到正式库");
+        await loadFlows();
+      } catch (error) {
+        if (error.payload?.splittable && confirm(`${error.message}\n是否拆分申领单，把临时库物料拆出来？`)) {
+          try {
+            await api(`/api/temporary-inventory/acceptance-forms/${Number(formId)}/split-claims`, { method: "POST", body: "{}" });
+            window.toast("已拆分申领单");
+            await loadFlows();
+          } catch (splitError) {
+            window.toast(splitError.message);
+          }
+          return;
+        }
+        window.toast(error.message);
+      }
+    }
 
     function renderLedger(main) {
       if (!enabled()) { main.innerHTML = '<div class="empty-state">临时库功能已关闭或当前账号无查看权限</div>'; return; }
@@ -547,7 +576,7 @@
       })[value] || value || "";
     }
 
-    return { render, renderLedger, clear, enabled, reload: loadRows };
+    return { render, renderFlows, renderLedger, clear, enabled, reload: loadRows };
   }
 
   window.WarehouseTemporaryInventory = { create };

@@ -4,12 +4,12 @@ import os
 import secrets
 import sqlite3
 import threading
-from html import escape
 
 from flask import Flask, g, has_request_context, jsonify, redirect, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from warehouse_suit import __version__
+from warehouse_suit.access_token import user_id_for_token
 from warehouse_suit.api import (
     register_acceptance_routes,
     register_ai_routes,
@@ -19,11 +19,16 @@ from warehouse_suit.api import (
     register_borrow_routes,
     register_claim_routes,
     register_claim_return_routes,
+    register_semifinished_claim_routes,
+    register_draft_routes,
     register_history_routes,
     register_extended_routes,
     register_material_routes,
     register_notification_routes,
     register_production_routes,
+    register_project_routes,
+    register_purchase_request_routes,
+    register_special_claim_routes,
     register_recycle_routes,
     register_shelf_routes,
     register_stock_routes,
@@ -37,7 +42,7 @@ from warehouse_suit.api import (
 from warehouse_suit.auth_service import configure_auth_service
 from warehouse_suit.backup_service import configure_backup_service, start_background_services
 from warehouse_suit.backup_utils import configure_backup_paths
-from warehouse_suit.content import markdownish_to_html, read_text_prefix
+from warehouse_suit.category_rules import rules_html as category_rules_html
 from warehouse_suit.database_init import configure_database_provider, init_db
 from warehouse_suit.db import connect_db, now_text, row_to_dict, today_text
 from warehouse_suit.inventory_service import (
@@ -126,17 +131,7 @@ def resolve_skill_path(path):
 
 
 def coding_rules_html(cursor):
-    skill_path = resolve_skill_path(get_setting(cursor, "ai_skill_path", DEFAULT_SKILL_PATH))
-    skill_dir = os.path.dirname(skill_path) if skill_path else os.path.join(BASE_DIR, "wuliao_skill")
-    sections = [
-        ("codeingrules / coding-rules", os.path.join(skill_dir, "references", "coding-rules.md")),
-        ("后学习到的编码规则", os.path.join(skill_dir, "references", "learned-category-rules.md")),
-    ]
-    html_parts = []
-    for title, path in sections:
-        text = read_text_prefix(path, 80000) or "暂无内容"
-        html_parts.append(f"<section><h2>{escape(title)}</h2>{markdownish_to_html(text)}</section>")
-    return "\n".join(html_parts)
+    return category_rules_html(cursor)
 
 
 
@@ -183,17 +178,40 @@ def reject_writes_during_maintenance():
     return "系统维护中，请稍后再试", 503
 
 
+def request_user_id():
+    """会话优先。没有会话时接受本次请求的 Bearer 令牌。"""
+    if session.get("user_id"):
+        return session.get("user_id")
+    if getattr(g, "token_user_id", None):
+        return g.token_user_id
+    header = request.headers.get("Authorization") or ""
+    if not header.startswith("Bearer "):
+        return None
+    token = header[7:].strip()
+    if not token:
+        return None
+    conn = get_db()
+    try:
+        user_id = user_id_for_token(conn.cursor(), token)
+    finally:
+        conn.close()
+    if user_id:
+        g.token_user_id = user_id
+    return user_id
+
+
 @app.before_request
 def require_login_for_material_system():
-    if auth_required_path() and not session.get("user_id"):
+    user_id = request_user_id()
+    if auth_required_path() and not user_id:
         if wants_json_response():
             return jsonify({"success": False, "error": "请先登录"}), 401
         return redirect("/login")
-    if MATERIAL_SYSTEM and session.get("user_id") and not password_change_allowed_path():
+    if MATERIAL_SYSTEM and user_id and not password_change_allowed_path():
         try:
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT must_change_password FROM users WHERE id = ? AND is_active = 1", (int(session["user_id"]),))
+            cursor.execute("SELECT must_change_password FROM users WHERE id = ? AND is_active = 1", (int(user_id),))
             row = cursor.fetchone()
             conn.close()
             if row and int(row["must_change_password"] or 0):
@@ -302,7 +320,7 @@ configure_auth_service(get_db)
 
 
 def current_user(cursor):
-    user_id = session.get("user_id")
+    user_id = request_user_id() if has_request_context() else session.get("user_id")
     if not user_id and not MATERIAL_SYSTEM:
         user_id = request.headers.get("X-User-Id") or request.args.get("user_id")
     if user_id:
@@ -442,8 +460,13 @@ register_workflow_routes(app, get_db=get_db, current_user_provider=current_user,
 register_acceptance_routes(app, get_db=get_db, current_user_provider=current_user)
 register_claim_routes(app, get_db=get_db, current_user_provider=current_user)
 register_claim_return_routes(app, get_db=get_db, current_user_provider=current_user)
+register_semifinished_claim_routes(app, get_db=get_db, current_user_provider=current_user)
+register_draft_routes(app, get_db=get_db, current_user_provider=current_user, optional_active_user_id_provider=optional_active_user_id)
 register_borrow_routes(app, get_db=get_db, current_user_provider=current_user)
 register_production_routes(app, get_db=get_db, current_user_provider=current_user, optional_active_user_id_provider=optional_active_user_id)
+register_project_routes(app, get_db=get_db, current_user_provider=current_user)
+register_purchase_request_routes(app, get_db=get_db, current_user_provider=current_user)
+register_special_claim_routes(app, get_db=get_db, current_user_provider=current_user)
 register_stock_routes(app, get_db=get_db, current_user_provider=current_user)
 register_ai_routes(
     app,
@@ -457,6 +480,7 @@ register_ai_routes(
     default_skill_path=DEFAULT_SKILL_PATH,
     resolve_skill_path_provider=resolve_skill_path,
     base_dir=BASE_DIR,
+    optional_active_user_id_provider=optional_active_user_id,
 )
 
 

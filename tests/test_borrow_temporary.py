@@ -58,8 +58,8 @@ def seed_material(db, formal_batches=(), temporary_batches=()):
                 INSERT INTO material_batches
                     (material_id, batch_no, quantity, unit_price, warehouse_type,
                      received_date, stock_source, inventory_status, version,
-                     created_at, updated_at)
-                VALUES (?, ?, ?, ?, 'office', ?, ?, 'available', 0, ?, ?)
+                     purchase_project, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'office', ?, ?, 'available', 0, '办公', ?, ?)
                 """,
                 (
                     material_id,
@@ -83,12 +83,19 @@ def create_borrow(client, db, items):
     leader_id = db.execute(
         "SELECT id FROM users WHERE username = 'admin'"
     ).fetchone()[0]
+    payload_items = []
+    for item in items:
+        row = dict(item)
+        if (row.get("item_type") or "material") == "material":
+            row["purchase_project"] = row.get("purchase_project") or "办公"
+        payload_items.append(row)
     response = client.post(
         "/api/borrows",
         json={
             "leader_id": leader_id,
             "expected_return_date": "2026-12-31",
-            "items": items,
+            "purpose": "办公",
+            "items": payload_items,
         },
     )
     assert response.status_code == 200, response.get_data(as_text=True)
@@ -237,6 +244,7 @@ def test_disabled_feature_excludes_temporary_from_new_borrow(client, db):
                 {
                     "material_id": material_id,
                     "request_quantity": 3,
+                    "purchase_project": "办公",
                     "stock_source": STOCK_SOURCE_TEMPORARY,
                 }
             ],
@@ -627,3 +635,87 @@ def test_completed_borrow_cannot_be_physically_deleted(client, db):
         "SELECT COUNT(*) FROM borrow_records WHERE borrow_form_id = ?",
         (form["id"],),
     ).fetchone()[0] == 1
+
+
+def test_open_borrow_reserves_remaining_quantity(client, db):
+    """未出库的借用占住余量，其他领用和借用不能再提交。"""
+    material_id, code, _ = seed_material(db, formal_batches=(5,))
+    create_borrow(client, db, [{"material_id": material_id, "request_quantity": 5}])
+    admin_id = db.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+
+    login(client)
+    claim = client.post(
+        "/api/claims",
+        json={
+            "leader_id": admin_id,
+            "purpose": "办公",
+            "items": [{"material_id": material_id, "request_quantity": 1, "purchase_project": "办公"}],
+        },
+    )
+    assert claim.status_code == 400, claim.get_data(as_text=True)
+    assert "仓库管理员已申请借用5个" in claim.get_json()["error"]
+
+    second = client.post(
+        "/api/borrows",
+        json={
+            "leader_id": admin_id,
+            "expected_return_date": "2026-12-31",
+            "purpose": "办公",
+            "items": [{"material_id": material_id, "request_quantity": 1, "purchase_project": "办公"}],
+        },
+    )
+    assert second.status_code == 400, second.get_data(as_text=True)
+    assert "仓库管理员已申请借用5个" in second.get_json()["error"]
+
+    rows = client.get(f"/api/claims/materials?keyword={code}").get_json()
+    row = next(item for item in rows if item["id"] == material_id)
+    assert row["total_available_quantity"] == 0
+    listed = client.get(f"/api/borrow/items?keyword={code}").get_json()["items"]
+    assert all(item.get("material_id") != material_id for item in listed)
+
+
+def test_promote_moves_unissued_borrow_onto_formal_batch(client, db):
+    """临时库转空后，还没出库的借用改从正式库出，归还仍回到同一批次。"""
+    enable_temporary(client)
+    material_id, _, batch_ids = seed_material(db, temporary_batches=(5,))
+    batch_id = batch_ids[STOCK_SOURCE_TEMPORARY][0]
+    form, _ = create_borrow(
+        client,
+        db,
+        [{"material_id": material_id, "request_quantity": 5}],
+    )
+    assert source_quantities(form) == [(STOCK_SOURCE_TEMPORARY, 5)]
+
+    login(client)
+    response = client.post(
+        f"/api/temporary-inventory/materials/{material_id}/promote",
+        json={"batches": [{"id": batch_id, "version": 0}]},
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    source = db.execute(
+        "SELECT stock_source FROM workflow_items WHERE form_id = ?",
+        (form["id"],),
+    ).fetchone()[0]
+    assert source == STOCK_SOURCE_FORMAL
+
+    approve_borrow(client, db, form["id"])
+    assert outbound_borrow(client, form).status_code == 200
+    record = db.execute(
+        "SELECT stock_source, data_json FROM borrow_records WHERE borrow_form_id = ?",
+        (form["id"],),
+    ).fetchone()
+    assert record["stock_source"] == STOCK_SOURCE_FORMAL
+    assert tuple(db.execute(
+        "SELECT stock_source, quantity FROM material_batches WHERE id = ?",
+        (batch_id,),
+    ).fetchone()) == (STOCK_SOURCE_FORMAL, 0)
+    record_id = db.execute(
+        "SELECT id FROM borrow_records WHERE borrow_form_id = ?",
+        (form["id"],),
+    ).fetchone()[0]
+    returned = create_return(client, record_id, 5)
+    assert inbound_return(client, returned, 5).status_code == 200
+    assert tuple(db.execute(
+        "SELECT id, stock_source, quantity FROM material_batches WHERE material_id = ?",
+        (material_id,),
+    ).fetchone()) == (batch_id, STOCK_SOURCE_FORMAL, 5)

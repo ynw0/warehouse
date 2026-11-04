@@ -6,6 +6,7 @@ import os
 from flask import jsonify, redirect, render_template, render_template_string, request, session
 
 from warehouse_suit import __version__
+from warehouse_suit.access_token import issue_access_token, revoke_access_tokens, user_id_for_token
 from warehouse_suit.auth_service import authenticate_user, public_user, update_own_password
 from warehouse_suit.auth_templates import CHANGE_PASSWORD_HTML, LOGIN_HTML
 from warehouse_suit.attachments import available_batch_material_photo_map
@@ -52,6 +53,7 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
             ok, user_or_error = authenticate_user(username, password)
             if ok:
                 session["user_id"] = user_or_error["id"]
+                _issue_login_token(get_db, user_or_error["id"])
                 return redirect("/")
             error = user_or_error
         return render_template_string(LOGIN_HTML, error=error)
@@ -91,6 +93,7 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
         if not ok:
             return jsonify({"success": False, "error": user_or_error}), 401
         session["user_id"] = user_or_error["id"]
+        _issue_login_token(get_db, user_or_error["id"])
         return jsonify({"success": True, "user": public_user(user_or_error)})
 
     def api_change_password():
@@ -116,13 +119,23 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
         return jsonify({"success": True})
 
     def api_logout():
+        user_id = session.get("user_id")
+        if user_id:
+            conn = get_db()
+            try:
+                revoke_access_tokens(conn.cursor(), user_id)
+                conn.commit()
+            finally:
+                conn.close()
         session.clear()
         return jsonify({"success": True})
 
     def api_session():
         conn = get_db()
         cursor = conn.cursor()
-        user = current_user_provider(cursor) if session.get("user_id") else None
+        header = request.headers.get("Authorization") or ""
+        token_user_id = user_id_for_token(cursor, header[7:].strip()) if header.startswith("Bearer ") else None
+        user = current_user_provider(cursor) if session.get("user_id") or token_user_id else None
         conn.close()
         return jsonify({"authenticated": bool(user), "user": public_user(user) if user else None})
 
@@ -154,3 +167,13 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
     app.add_url_rule("/api/logout", "api_logout", api_logout, methods=["POST"])
     app.add_url_rule("/api/session", "api_session", api_session, methods=["GET"])
     app.add_url_rule("/api/bootstrap", "bootstrap", bootstrap, methods=["GET"])
+
+
+def _issue_login_token(get_db, user_id):
+    """登录成功后签发该用户的令牌。"""
+    conn = get_db()
+    try:
+        issue_access_token(conn, user_id)
+        conn.commit()
+    finally:
+        conn.close()

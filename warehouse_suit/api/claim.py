@@ -6,10 +6,9 @@ import json
 from flask import jsonify, request
 
 from warehouse_suit.claim_allocation_service import (
-    allocate_claim_items,
     claim_material_rows,
 )
-from warehouse_suit.claim_service import create_claim_workflow, create_temporary_issue_obligations
+from warehouse_suit.claim_service import create_temporary_issue_obligations, execute_create_claim
 from warehouse_suit.db import now_text, today_text
 from warehouse_suit.inventory_constants import (
     BUSINESS_TYPE_CLAIM_OUTBOUND,
@@ -17,7 +16,7 @@ from warehouse_suit.inventory_constants import (
 )
 from warehouse_suit.inventory_service import begin_inventory_transaction, consume_inventory_fifo
 from warehouse_suit.settings import parse_json, temporary_inventory_enabled, workflow_settings
-from warehouse_suit.validation import quantity_value, validate_project_code, validation_rule_enabled
+from warehouse_suit.validation import quantity_value, validation_rule_enabled
 from warehouse_suit.workflow_service import (
     create_workflow_tasks,
     require_form_status,
@@ -39,11 +38,14 @@ def register_claim_routes(app, *, get_db, current_user_provider):
         cursor = conn.cursor()
         try:
             require_permission(cursor, "start_claim")
+            from warehouse_suit.usage_kind import USAGE_RD
+
             rows = claim_material_rows(
                 cursor,
                 keyword=request.args.get("keyword", ""),
                 include_temporary=temporary_inventory_enabled(cursor),
                 limit=request.args.get("limit", 100),
+                usage_kind=request.args.get("usage_kind") or USAGE_RD,
             )
         except Exception as exc:
             conn.close()
@@ -58,51 +60,7 @@ def register_claim_routes(app, *, get_db, current_user_provider):
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_claim")
-            items = data.get("items") or []
-            if not items:
-                raise ValueError("申领单至少需要一行物料")
-            begin_inventory_transaction(conn)
-            allocations = allocate_claim_items(
-                cursor,
-                items,
-                user,
-                include_temporary=temporary_inventory_enabled(cursor),
-            )
-            requested_leader_ids = [int(value) for value in data.get("leader_ids") or [] if int(value)]
-            requested_leader_id = int(data.get("leader_id") or (requested_leader_ids[0] if requested_leader_ids else 0))
-            leader_id = resolve_department_leader(cursor, user, "claim", "leader_claim", requested_leader_id)
-            leader_ids = []
-            for requested in requested_leader_ids or [leader_id]:
-                resolved = resolve_department_leader(cursor, user, "claim", "leader_claim", requested)
-                if resolved not in leader_ids:
-                    leader_ids.append(resolved)
-            purpose = str(data.get("purpose") or "研发").strip()
-            rd_item_kind = str(data.get("rd_item_kind") or "").strip()
-            project_material_kind = str(data.get("project_material_kind") or "").strip()
-            project_code = validate_project_code(data.get("project_code"))
-            if purpose not in {"办公", "研发"}:
-                raise ValueError("用途必须选择办公或研发")
-            if purpose == "研发":
-                if rd_item_kind not in {"项目物料", "辅料"}:
-                    raise ValueError("研发用途需要选择项目物料或辅料")
-                if rd_item_kind == "项目物料":
-                    if project_material_kind not in {"硬件", "结构"}:
-                        raise ValueError("项目物料需要选择硬件或结构")
-                    project_codes = workflow_settings(cursor).get("project_codes") or []
-                    if project_codes and project_code not in project_codes:
-                        raise ValueError("项目代号不在系统设置范围内")
-            created = create_claim_workflow(
-                cursor,
-                user,
-                allocations,
-                leader_id,
-                leader_ids=leader_ids or [leader_id],
-                purpose=purpose,
-                rd_item_kind=rd_item_kind,
-                project_material_kind=project_material_kind,
-                project_code=project_code,
-            )
-            form_id = created["form_id"]
+            form_id = execute_create_claim(cursor, user, data)
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:
@@ -215,6 +173,7 @@ def register_claim_routes(app, *, get_db, current_user_provider):
                     }
                 )
 
+            require_form_view(cursor, form_id)
             form = dict(require_form_status(cursor, form_id, "claim", "outbound"))
             task = dict(require_task_assignee(cursor, user, form_id, "outbound"))
             submitted_items = data.get("items") or []
@@ -249,6 +208,12 @@ def register_claim_routes(app, *, get_db, current_user_provider):
                 if validation_rule_enabled("workflow_bounds") and qty > remaining_quantity + 1e-9:
                     raise ValueError(f"{item['material_name']} 本次出库数量不能大于待出数量")
                 stock_source = validate_stock_source(item.get("stock_source"))
+                purchase_project = str(item.get("purchase_project") or item_data.get("purchase_project") or "").strip()
+                if not purchase_project:
+                    raise ValueError("申领明细缺少采购申请项目")
+                form_data = parse_json(form.get("data_json"), {})
+                from warehouse_suit.usage_kind import USAGE_RD, validate_usage_kind
+
                 consumed = consume_inventory_fifo(
                     cursor,
                     item["material_id"],
@@ -262,6 +227,10 @@ def register_claim_routes(app, *, get_db, current_user_provider):
                     operation_key=f"claim:{form_id}:{item['id']}:outbound:{operation_key}",
                     operator_id=user["id"],
                     workflow_item_id=item["id"],
+                    purchase_project=purchase_project,
+                    usage_kind=validate_usage_kind(
+                        item_data.get("usage_kind") or form_data.get("usage_kind") or USAGE_RD
+                    ),
                 )
                 create_temporary_issue_obligations(cursor, form, item, consumed)
                 consumed_history = item_data.get("consumed_batches")

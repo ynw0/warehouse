@@ -3,6 +3,7 @@
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from warehouse_suit.access_token import revoke_access_tokens
 from warehouse_suit.db import now_text, row_to_dict
 from warehouse_suit.settings import password_policy, validate_password_policy
 
@@ -79,6 +80,7 @@ def update_own_password(cursor, user_id, current_password, new_password, confirm
         "UPDATE users SET password = ?, must_change_password = 0, password_changed_at = ?, updated_at = ? WHERE id = ?",
         (generate_password_hash(new_password), now_text(), now_text(), user_id),
     )
+    revoke_access_tokens(cursor, user_id)
 
 
 def public_user(user):

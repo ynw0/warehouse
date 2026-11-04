@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
+from pathlib import Path
 
+from werkzeug.utils import secure_filename
+
+from .attachments import IMAGE_EXTENSIONS, MAX_ATTACHMENT_BYTES, upload_root
 from .db import now_text, row_to_dict, today_text
 from .inventory_constants import STOCK_SOURCE_FORMAL
 from .inventory_service import (
@@ -34,6 +40,12 @@ def _j(value, default=None):
 
 def _json(value):
     return json.dumps(value or {}, ensure_ascii=False)
+
+
+# 回执单提供单位是固定抬头。货物状态打在明细的「状态」列。
+SUPPLY_PROVIDER_COMPANY = "中光学(杭州)智能光电科技有限公司"
+SUPPLY_GOODS_STATUSES = {"样机", "产品", "备件", "展品"}
+_VOUCHER_EXTENSIONS = IMAGE_EXTENSIONS | {".pdf"}
 
 
 def _user_ids_for_role(cursor, role_code):
@@ -101,7 +113,7 @@ def evaluate_common_material_alerts(cursor, material_ids=None):
             recipients = list(dict.fromkeys([int(profile['owner_user_id']), *buyers]))
             body = '常用物料 {} {} 当前正式库可用 {}{}，低于预警数量 {}。'.format(profile.get('material_code') or '', profile.get('name') or '', current, profile.get('unit') or '', threshold)
             for user_id in recipients:
-                create_notification(cursor, user_id, '常用物料低库存预警', body, {'material_id': int(profile['material_id']), 'quantity': current, 'warning_quantity': threshold})
+                create_notification(cursor, user_id, '常用物料低库存预警', body, {'material_id': int(profile['material_id']), 'quantity': current, 'warning_quantity': threshold}, category='stock_warning')
             cursor.execute('UPDATE common_material_profiles SET alert_state=?, last_alerted_at=?, updated_at=? WHERE id=?', ('low', now_text(), now_text(), profile['id']))
         elif not below and state == 'low':
             cursor.execute('UPDATE common_material_profiles SET alert_state=?, updated_at=? WHERE id=?', ('normal', now_text(), profile['id']))
@@ -171,6 +183,34 @@ def approve_common_material_application(cursor, user, form_id, decision, remark=
     return serialize_form(cursor,form_id)
 
 
+def _require_common_material_manager(user, profile):
+    if "admin" not in set(user.get("role_codes") or []) and int(profile["owner_user_id"]) != int(user["id"]):
+        raise PermissionError("只有常用物料负责人或管理员可以关闭或删除")
+
+
+def close_common_material(cursor, user, profile_id):
+    cursor.execute("SELECT * FROM common_material_profiles WHERE id = ? AND active = 1", (int(profile_id),))
+    profile = row_to_dict(cursor.fetchone())
+    if not profile:
+        raise ValueError("常用物料不存在或已关闭")
+    _require_common_material_manager(user, profile)
+    cursor.execute(
+        "UPDATE common_material_profiles SET active = 0, updated_at = ? WHERE id = ?",
+        (now_text(), profile["id"]),
+    )
+    return {"id": profile["id"], "active": 0}
+
+
+def delete_common_material(cursor, user, profile_id):
+    cursor.execute("SELECT * FROM common_material_profiles WHERE id = ?", (int(profile_id),))
+    profile = row_to_dict(cursor.fetchone())
+    if not profile:
+        raise ValueError("常用物料不存在")
+    _require_common_material_manager(user, profile)
+    cursor.execute("DELETE FROM common_material_profiles WHERE id = ?", (profile["id"],))
+    return {"id": profile["id"]}
+
+
 def update_common_material_threshold(cursor, user, material_id, warning_quantity):
     material_id=int(material_id or 0)
     warning_quantity=quantity_value(warning_quantity,'预警数量',positive=True)
@@ -220,8 +260,12 @@ def evaluate_supply_due_alerts(cursor, today=None):
             if value and int(value) not in recipients:
                 recipients.append(int(value))
         for user_id in recipients:
-            body = '供货单 {} 已超过预计结清日期 {}，请跟进寄回或确认不回寄。'.format(order.get('form_no') or order.get('form_id'), str(order.get('expected_close_date') or '')[:10])
-            create_notification(cursor, user_id, '供货结清逾期提醒', body, {'supply_form_id': int(order['form_id']), 'expected_close_date': order.get('expected_close_date')})
+            method = str(order.get('supply_method') or '试用')
+            if method == '销售':
+                body = '供货单 {} 已超过预计结清日期 {}，请登记货款结清。'.format(order.get('form_no') or order.get('form_id'), str(order.get('expected_close_date') or '')[:10])
+            else:
+                body = '供货单 {} 已超过预计结清日期 {}，请跟进寄回或确认不回寄。'.format(order.get('form_no') or order.get('form_id'), str(order.get('expected_close_date') or '')[:10])
+            create_notification(cursor, user_id, '供货结清逾期提醒', body, {'supply_form_id': int(order['form_id']), 'expected_close_date': order.get('expected_close_date')}, category='supply')
         cursor.execute('UPDATE supply_orders SET due_alert_date=?, updated_at=? WHERE id=?', (today, now_text(), order['id']))
     return len(rows)
 
@@ -243,12 +287,31 @@ def create_supply_order(cursor, user, payload, leader_id=None):
     expected_close_date = str(payload.get("expected_close_date") or "").strip()
     if not expected_close_date:
         raise ValueError("请填写预计结清日期")
+    supply_method = str(payload.get("supply_method") or "试用").strip()
+    if supply_method not in {"销售", "试用"}:
+        raise ValueError("供货方式必须是销售或试用")
     raw_items = payload.get("items") or []
     if not raw_items:
         raise ValueError("供货申请至少需要一项物品")
+    contact_phone = str(payload.get("contact_phone") or "").strip()
+    if not contact_phone:
+        raise ValueError("请填写申请人电话")
+    prepared_items = []
+    for raw in raw_items:
+        goods_status = str(raw.get("goods_status") or "").strip()
+        if goods_status not in SUPPLY_GOODS_STATUSES:
+            raise ValueError("货物状态必须是样机、产品、备件或展品")
+        prepared_items.append((raw, goods_status))
     leader_id = resolve_department_leader(cursor, user, "supply", "leader_supply", leader_id)
     form_no = next_form_no(cursor, "GH")
-    form_data = {"recipient": values, "reason": str(payload.get("reason") or "").strip(), "expected_close_date": expected_close_date}
+    form_data = {
+        "recipient": values,
+        "reason": str(payload.get("reason") or "").strip(),
+        "expected_close_date": expected_close_date,
+        "supply_method": supply_method,
+        "contact_phone": contact_phone,
+        "handover_required": 1,
+    }
     cursor.execute(
         """
         INSERT INTO workflow_forms
@@ -261,19 +324,20 @@ def create_supply_order(cursor, user, payload, leader_id=None):
     cursor.execute(
         """
         INSERT INTO supply_orders
-            (form_id, applicant_id, recipient_company, recipient_name, recipient_phone, recipient_address, expected_close_date, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+            (form_id, applicant_id, recipient_company, recipient_name, recipient_phone, recipient_address, expected_close_date, status, supply_method, contact_phone, handover_required, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 1, ?, ?)
         """,
-        (form_id, user["id"], values["company"], values["name"], values["phone"], values["address"], expected_close_date, now_text(), now_text()),
+        (form_id, user["id"], values["company"], values["name"], values["phone"], values["address"], expected_close_date, supply_method, contact_phone, now_text(), now_text()),
     )
     order_id = int(cursor.lastrowid)
-    for raw in raw_items:
+    for raw, goods_status in prepared_items:
         item_type = str(raw.get("item_type") or "").strip()
         item_ref_id = int(raw.get("item_ref_id") or 0)
         quantity = quantity_value(raw.get("quantity"), "供货数量", positive=True)
         snap = _supply_snapshot(cursor, item_type, item_ref_id)
         if quantity > float(snap["available_quantity"]) + 1e-9:
             raise ValueError(f"{snap.get('item_name') or '物品'}库存不足")
+        item_data = {"item_type": item_type, "item_ref_id": item_ref_id, "quantity": quantity, "goods_status": goods_status}
         cursor.execute(
             """
             INSERT INTO workflow_items
@@ -281,19 +345,18 @@ def create_supply_order(cursor, user, payload, leader_id=None):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (form_id, snap.get("material_id"), snap.get("item_code") or "", snap.get("item_name") or "",
-             snap.get("brand_model") or "", snap.get("spec") or "", snap.get("unit") or "", quantity,
-             _json({"item_type": item_type, "item_ref_id": item_ref_id, "quantity": quantity})),
+             snap.get("brand_model") or "", snap.get("spec") or "", snap.get("unit") or "", quantity, _json(item_data)),
         )
         workflow_item_id = int(cursor.lastrowid)
         cursor.execute(
             """
             INSERT INTO supply_items
-                (order_id, workflow_item_id, item_type, item_ref_id, material_id, item_code, item_name, brand_model, spec, unit, approved_quantity, unit_price, data_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (order_id, workflow_item_id, item_type, item_ref_id, material_id, item_code, item_name, brand_model, spec, unit, approved_quantity, unit_price, goods_status, data_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (order_id, workflow_item_id, item_type, item_ref_id, snap.get("material_id"), snap.get("item_code") or "",
              snap.get("item_name") or "", snap.get("brand_model") or "", snap.get("spec") or "", snap.get("unit") or "",
-             quantity, float(snap.get("cost_price") or 0), _json({"item_type": item_type, "item_ref_id": item_ref_id})),
+             quantity, float(snap.get("cost_price") or 0), goods_status, _json(item_data)),
         )
     create_workflow_tasks(cursor, form_id, "supply", "leader_supply", [leader_id])
     return serialize_form(cursor, form_id)
@@ -319,9 +382,21 @@ def approve_supply(cursor, user, form_id, decision, warehouse_user_id=None, rema
                 raise ValueError("未配置有效仓库管理员")
             warehouse_user_id = ids[0]
         workflow_assignees(cursor, "supply", "supply_outbound", [warehouse_user_id])
-        cursor.execute("UPDATE supply_orders SET status = 'shipping', updated_at = ? WHERE form_id = ?", (now_text(), form_id))
-        cursor.execute("UPDATE workflow_forms SET status = 'supply_outbound', current_step = 'supply_outbound', warehouse_user_id = ?, updated_at = ? WHERE id = ?", (warehouse_user_id, now_text(), form_id))
-        create_workflow_tasks(cursor, form_id, "supply", "supply_outbound", [warehouse_user_id])
+        cursor.execute("SELECT handover_required, applicant_id FROM supply_orders WHERE form_id = ?", (form_id,))
+        order = row_to_dict(cursor.fetchone()) or {}
+        if int(order.get("handover_required") or 0):
+            applicant_id = int(order.get("applicant_id") or form.get("applicant_id") or 0)
+            if not applicant_id:
+                raise ValueError("供货单没有申请人")
+            cursor.execute(
+                "UPDATE workflow_forms SET status = 'supply_handover_print', current_step = 'supply_handover_print', warehouse_user_id = ?, updated_at = ? WHERE id = ?",
+                (warehouse_user_id, now_text(), form_id),
+            )
+            create_workflow_tasks(cursor, form_id, "supply", "supply_handover_print", [applicant_id])
+        else:
+            cursor.execute("UPDATE supply_orders SET status = 'shipping', updated_at = ? WHERE form_id = ?", (now_text(), form_id))
+            cursor.execute("UPDATE workflow_forms SET status = 'supply_outbound', current_step = 'supply_outbound', warehouse_user_id = ?, updated_at = ? WHERE id = ?", (warehouse_user_id, now_text(), form_id))
+            create_workflow_tasks(cursor, form_id, "supply", "supply_outbound", [warehouse_user_id])
     else:
         cursor.execute("UPDATE supply_orders SET status = 'rejected', updated_at = ? WHERE form_id = ?", (now_text(), form_id))
         cursor.execute("UPDATE workflow_forms SET status = 'rejected', current_step = 'completed', updated_at = ? WHERE id = ?", (now_text(), form_id))
@@ -356,6 +431,7 @@ def ship_supply(cursor, user, form_id, payload):
     order = row_to_dict(cursor.fetchone())
     if not order:
         raise ValueError("供货台账不存在")
+    _require_handover_printed(order)
     shipment_no = next_form_no(cursor, "JS")
     carrier = str(payload.get("carrier") or "").strip()
     tracking_no = str(payload.get("tracking_no") or "").strip()
@@ -382,20 +458,86 @@ def ship_supply(cursor, user, form_id, payload):
         operation_key = f"supply_out:{form_id}:{shipment_id}:{supply_item_id}"
         allocation = raw.get("allocations")
         if item["item_type"] == "material":
+            if not allocation:
+                raise ValueError("请选择出库批次")
             consumed = consume_inventory_fifo(cursor, item["item_ref_id"], quantity, shipment_no, shipped_at, "供货寄件出库", allocation, STOCK_SOURCE_FORMAL, "supply_outbound", operation_key, operator_id=user["id"], workflow_item_id=item.get("workflow_item_id"))
             material_ids.add(int(item["item_ref_id"]))
             allocation = consumed
         else:
+            chosen_ref = int(raw.get("item_ref_id") or 0)
+            if not chosen_ref:
+                raise ValueError("请选择半成品或成品编号")
+            chosen_code = str(raw.get("item_code") or "").strip()
+            if chosen_ref != int(item.get("item_ref_id") or 0) or chosen_code:
+                cursor.execute(
+                    "UPDATE supply_items SET item_ref_id = ?, item_code = ?, updated_at = ? WHERE id = ?",
+                    (chosen_ref, chosen_code or item.get("item_code") or "", now_text(), supply_item_id),
+                )
+                item["item_ref_id"] = chosen_ref
+                if chosen_code:
+                    item["item_code"] = chosen_code
             _decrement_production_inventory(cursor, item, quantity)
         cursor.execute("INSERT INTO supply_shipment_items (shipment_id, supply_item_id, quantity, allocation_json, created_at) VALUES (?, ?, ?, ?, ?)", (shipment_id, supply_item_id, quantity, json.dumps(allocation or [], ensure_ascii=False), now_text()))
         cursor.execute("UPDATE supply_items SET shipped_quantity = shipped_quantity + ?, updated_at = ? WHERE id = ?", (quantity, now_text(), supply_item_id))
     evaluate_common_material_alerts(cursor, material_ids)
     finish = bool(payload.get("finish_shipping")) or _all_approved_shipped(cursor, order["id"])
     if finish:
-        cursor.execute("UPDATE supply_orders SET status = 'external_open', updated_at = ? WHERE id = ?", (now_text(), order["id"]))
-        cursor.execute("UPDATE workflow_tasks SET status = 'completed', decision = '已寄出', signature = ?, signed_at = ?, updated_at = ? WHERE id = ?", (user.get("display_name") or "", today_text(), now_text(), task["id"]))
-        cursor.execute("UPDATE workflow_forms SET status = 'external_open', current_step = 'external_open', updated_at = ? WHERE id = ?", (now_text(), form_id))
+        _finish_supply_outbound(cursor, user, form, order, task, "已寄出")
     return serialize_form(cursor, form_id)
+
+
+def _shipment_batch_fields(cursor, supply_item_id):
+    cursor.execute(
+        "SELECT allocation_json FROM supply_shipment_items WHERE supply_item_id = ? ORDER BY id DESC LIMIT 1",
+        (supply_item_id,),
+    )
+    row = cursor.fetchone()
+    rows = parse_json(row["allocation_json"] if row else "[]", [])
+    first = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
+    return {
+        "purchase_project": str(first.get("purchase_project") or "").strip(),
+        "usage_kind": str(first.get("usage_kind") or "").strip() or "研发用料",
+        "pack_quantity": 1,
+    }
+
+
+def _closed_supply_status(order):
+    return "external_open"
+
+
+def _require_handover_printed(order):
+    if int(order.get("handover_required") or 0) and not int(order.get("handover_printed") or 0):
+        raise ValueError("请先打印产品接收回执单")
+
+
+def _finish_supply_outbound(cursor, user, form, order, task, decision):
+    """出完后：新单进入上传凭证，旧单直接外部待结清。"""
+    form_id = int(form["id"])
+    if int(order.get("handover_required") or 0):
+        applicant_id = int(order.get("applicant_id") or form.get("applicant_id") or 0)
+        if not applicant_id:
+            raise ValueError("供货单没有申请人")
+        cursor.execute("UPDATE supply_orders SET status = 'voucher', updated_at = ? WHERE id = ?", (now_text(), order["id"]))
+        cursor.execute(
+            "UPDATE workflow_tasks SET status = 'completed', decision = ?, signature = ?, signed_at = ?, updated_at = ? WHERE id = ?",
+            (decision, user.get("display_name") or "", today_text(), now_text(), task["id"]),
+        )
+        cursor.execute(
+            "UPDATE workflow_forms SET status = 'supply_voucher_upload', current_step = 'supply_voucher_upload', updated_at = ? WHERE id = ?",
+            (now_text(), form_id),
+        )
+        create_workflow_tasks(cursor, form_id, "supply", "supply_voucher_upload", [applicant_id])
+        return
+    closed_status = _closed_supply_status(order)
+    cursor.execute("UPDATE supply_orders SET status = ?, updated_at = ? WHERE id = ?", (closed_status, now_text(), order["id"]))
+    cursor.execute(
+        "UPDATE workflow_tasks SET status = 'completed', decision = ?, signature = ?, signed_at = ?, updated_at = ? WHERE id = ?",
+        (decision, user.get("display_name") or "", today_text(), now_text(), task["id"]),
+    )
+    cursor.execute(
+        "UPDATE workflow_forms SET status = ?, current_step = ?, updated_at = ? WHERE id = ?",
+        (closed_status, closed_status, now_text(), form_id),
+    )
 
 
 def finish_supply_shipping(cursor, user, form_id, payload):
@@ -408,15 +550,254 @@ def finish_supply_shipping(cursor, user, form_id, payload):
     order = row_to_dict(cursor.fetchone())
     if not order:
         raise ValueError('供货台账不存在')
+    _require_handover_printed(order)
     cancel_remaining = bool(payload.get('cancel_remaining'))
     if not cancel_remaining and not _all_approved_shipped(cursor, order['id']):
         raise ValueError('仍有批准数量未寄出，请继续分批出库或确认取消余量')
     if cancel_remaining:
         cursor.execute('UPDATE supply_items SET approved_quantity=shipped_quantity, updated_at=? WHERE order_id=? AND shipped_quantity<approved_quantity', (now_text(), order['id']))
-    cursor.execute('UPDATE supply_orders SET status=?, updated_at=? WHERE id=?', ('external_open', now_text(), order['id']))
-    cursor.execute('UPDATE workflow_tasks SET status=?, decision=?, signature=?, signed_at=?, updated_at=? WHERE id=?', ('completed', '已结束出库', user.get('display_name') or '', today_text(), now_text(), task['id']))
-    cursor.execute('UPDATE workflow_forms SET status=?, current_step=?, updated_at=? WHERE id=?', ('external_open', 'external_open', now_text(), form_id))
+    _finish_supply_outbound(cursor, user, form, order, task, '已结束出库')
     return serialize_form(cursor, form_id)
+
+
+def _supply_order_for_form(cursor, form_id):
+    cursor.execute(
+        """
+        SELECT s.*, f.form_no, f.status AS form_status, f.applicant_id AS form_applicant_id,
+               f.leader_id, u.display_name AS applicant_name
+        FROM supply_orders s
+        JOIN workflow_forms f ON f.id = s.form_id
+        LEFT JOIN users u ON u.id = f.applicant_id
+        WHERE s.form_id = ?
+        """,
+        (form_id,),
+    )
+    return row_to_dict(cursor.fetchone())
+
+
+def _receipt_item_name(item):
+    parts = [
+        str(item.get("item_name") or "").strip(),
+        str(item.get("brand_model") or "").strip(),
+        str(item.get("spec") or "").strip(),
+    ]
+    return "、".join(part for part in parts if part)
+
+
+def _qty_text(value):
+    number = float(value or 0)
+    if abs(number - round(number)) < 1e-9:
+        return str(int(round(number)))
+    text = f"{number:.4f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def supply_handover_receipt(cursor, form_id):
+    """产品接收回执单数据。提供日期取打开回执单的当天。"""
+    order = _supply_order_for_form(cursor, form_id)
+    if not order:
+        raise ValueError("供货台账不存在")
+    if not int(order.get("handover_required") or 0):
+        raise ValueError("该供货单没有产品接收回执单")
+    items = []
+    for index, item in enumerate(_supply_item_rows(cursor, order["id"]), start=1):
+        items.append({
+            "index": index,
+            "name": _receipt_item_name(item),
+            "unit": item.get("unit") or "",
+            "quantity": _qty_text(item.get("approved_quantity")),
+            "goods_status": item.get("goods_status") or "",
+            "remark": "",
+        })
+    return {
+        "form_id": int(form_id),
+        "form_no": order.get("form_no") or "",
+        "provider_company": SUPPLY_PROVIDER_COMPANY,
+        "provider_contact": order.get("applicant_name") or "",
+        "provider_phone": order.get("contact_phone") or "",
+        "recipient_company": order.get("recipient_company") or "",
+        "recipient_name": order.get("recipient_name") or "",
+        "recipient_phone": order.get("recipient_phone") or "",
+        "provide_date": today_text(),
+        "items": items,
+        "handover_printed": int(order.get("handover_printed") or 0),
+    }
+
+
+def confirm_supply_handover_print(cursor, user, form_id):
+    cursor.execute("SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'supply'", (form_id,))
+    form = row_to_dict(cursor.fetchone())
+    if not form or form["status"] != "supply_handover_print":
+        raise ValueError("供货单不在打印回执单步骤")
+    task = require_task_assignee(cursor, user, form_id, "supply_handover_print")
+    order = _supply_order_for_form(cursor, form_id)
+    if not order:
+        raise ValueError("供货台账不存在")
+    warehouse_user_id = int(form.get("warehouse_user_id") or 0)
+    if not warehouse_user_id:
+        raise ValueError("未指定库房办理人")
+    cursor.execute(
+        "UPDATE supply_orders SET handover_printed = 1, status = 'shipping', updated_at = ? WHERE id = ?",
+        (now_text(), order["id"]),
+    )
+    cursor.execute(
+        "UPDATE workflow_tasks SET status = 'completed', decision = '已打印', signature = ?, signed_at = ?, updated_at = ? WHERE id = ?",
+        (user.get("display_name") or "", today_text(), now_text(), task["id"]),
+    )
+    cursor.execute(
+        "UPDATE workflow_forms SET status = 'supply_outbound', current_step = 'supply_outbound', updated_at = ? WHERE id = ?",
+        (now_text(), form_id),
+    )
+    create_workflow_tasks(cursor, form_id, "supply", "supply_outbound", [warehouse_user_id])
+    return serialize_form(cursor, form_id)
+
+
+def list_supply_handover_vouchers(cursor, form_id):
+    cursor.execute(
+        "SELECT * FROM supply_handover_vouchers WHERE form_id = ? ORDER BY id",
+        (form_id,),
+    )
+    rows = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        item["download_url"] = f"/api/supply-handover-vouchers/{item['id']}/file"
+        rows.append(item)
+    return rows
+
+
+def _save_voucher_file(file_storage, uploaded_by):
+    if file_storage is None or not getattr(file_storage, "filename", ""):
+        raise ValueError("请选择交接凭证")
+    original_name = str(file_storage.filename)
+    suffix = Path(original_name).suffix.lower()
+    if suffix not in _VOUCHER_EXTENSIONS:
+        raise ValueError("交接凭证只接受图片或 PDF")
+    safe_base = secure_filename(Path(original_name).stem) or "voucher"
+    stored_name = f"{uuid.uuid4().hex}_{safe_base}{suffix}"
+    now = now_text()
+    month_dir = now[:7].replace("-", "/")
+    relative_dir = Path("supply_handover") / month_dir
+    absolute_dir = upload_root() / relative_dir
+    absolute_dir.mkdir(parents=True, exist_ok=True)
+    relative_path = str(relative_dir / stored_name).replace(os.sep, "/")
+    absolute_path = upload_root() / relative_path
+    file_storage.save(absolute_path)
+    file_size = absolute_path.stat().st_size
+    if file_size > MAX_ATTACHMENT_BYTES:
+        absolute_path.unlink(missing_ok=True)
+        raise ValueError("交接凭证不能超过 25MB")
+    if file_size <= 0:
+        absolute_path.unlink(missing_ok=True)
+        raise ValueError("交接凭证是空文件")
+    return {
+        "path": absolute_path,
+        "original_name": original_name,
+        "stored_name": stored_name,
+        "relative_path": relative_path,
+        "content_type": str(getattr(file_storage, "content_type", "") or ""),
+        "file_size": file_size,
+        "uploaded_by": uploaded_by,
+    }
+
+
+def upload_supply_handover_vouchers(cursor, user, form_id, files):
+    """上传后待办交给审批该单的领导。退回重传时已有凭证保留。"""
+    cursor.execute("SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'supply'", (form_id,))
+    form = row_to_dict(cursor.fetchone())
+    if not form or form["status"] != "supply_voucher_upload":
+        raise ValueError("供货单不在上传交接凭证步骤")
+    task = require_task_assignee(cursor, user, form_id, "supply_voucher_upload")
+    order = _supply_order_for_form(cursor, form_id)
+    if not order:
+        raise ValueError("供货台账不存在")
+    leader_id = int(form.get("leader_id") or order.get("leader_id") or 0)
+    if not leader_id:
+        raise ValueError("供货单没有查阅领导")
+    chosen = [item for item in (files or []) if item is not None and getattr(item, "filename", "")]
+    if not chosen:
+        raise ValueError("请选择交接凭证")
+    saved = []
+    try:
+        for file_storage in chosen:
+            saved.append(_save_voucher_file(file_storage, user.get("id")))
+        for item in saved:
+            cursor.execute(
+                """
+                INSERT INTO supply_handover_vouchers
+                    (order_id, form_id, original_name, stored_name, relative_path, content_type, file_size, uploaded_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order["id"], form_id, item["original_name"], item["stored_name"], item["relative_path"],
+                    item["content_type"], item["file_size"], item["uploaded_by"], now_text(),
+                ),
+            )
+        cursor.execute(
+            "UPDATE workflow_tasks SET status = 'completed', decision = '已上传', signature = ?, signed_at = ?, updated_at = ? WHERE id = ?",
+            (user.get("display_name") or "", today_text(), now_text(), task["id"]),
+        )
+        cursor.execute(
+            "UPDATE workflow_forms SET status = 'supply_voucher_review', current_step = 'supply_voucher_review', updated_at = ? WHERE id = ?",
+            (now_text(), form_id),
+        )
+        create_workflow_tasks(cursor, form_id, "supply", "supply_voucher_review", [leader_id])
+    except Exception:
+        for item in saved:
+            item["path"].unlink(missing_ok=True)
+        raise
+    return serialize_form(cursor, form_id)
+
+
+def review_supply_handover_voucher(cursor, user, form_id, decision, remark=""):
+    cursor.execute("SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'supply'", (form_id,))
+    form = row_to_dict(cursor.fetchone())
+    if not form or form["status"] != "supply_voucher_review":
+        raise ValueError("供货单不在查阅交接凭证步骤")
+    task = require_task_assignee(cursor, user, form_id, "supply_voucher_review")
+    order = _supply_order_for_form(cursor, form_id)
+    if not order:
+        raise ValueError("供货台账不存在")
+    decision = str(decision or "同意").strip()
+    remark = str(remark or "").strip()
+    if decision not in {"同意", "退回", "不同意", "拒绝"}:
+        raise ValueError("查阅结果不正确")
+    rejected = decision != "同意"
+    if rejected and not remark:
+        raise ValueError("退回时必须填写意见")
+    cursor.execute(
+        "UPDATE workflow_tasks SET status = 'completed', decision = ?, signature = ?, signed_at = ?, data_json = ?, updated_at = ? WHERE id = ?",
+        (decision, user.get("display_name") or "", today_text(), _json({"remark": remark}), now_text(), task["id"]),
+    )
+    if rejected:
+        applicant_id = int(order.get("applicant_id") or form.get("applicant_id") or 0)
+        if not applicant_id:
+            raise ValueError("供货单没有申请人")
+        cursor.execute(
+            "UPDATE workflow_forms SET status = 'supply_voucher_upload', current_step = 'supply_voucher_upload', updated_at = ? WHERE id = ?",
+            (now_text(), form_id),
+        )
+        create_workflow_tasks(cursor, form_id, "supply", "supply_voucher_upload", [applicant_id])
+    else:
+        cursor.execute(
+            "UPDATE supply_orders SET status = 'external_open', updated_at = ? WHERE id = ?",
+            (now_text(), order["id"]),
+        )
+        cursor.execute(
+            "UPDATE workflow_forms SET status = 'external_open', current_step = 'external_open', updated_at = ? WHERE id = ?",
+            (now_text(), form_id),
+        )
+    return serialize_form(cursor, form_id)
+
+
+def supply_handover_voucher_file(cursor, voucher_id):
+    cursor.execute("SELECT * FROM supply_handover_vouchers WHERE id = ?", (voucher_id,))
+    row = row_to_dict(cursor.fetchone())
+    if not row:
+        raise ValueError("交接凭证不存在")
+    path = upload_root() / row["relative_path"]
+    if not path.is_file():
+        raise ValueError("交接凭证文件不存在")
+    return row, path
 
 
 def create_supply_extension(cursor, user, form_id, new_date, reason, leader_id=None):
@@ -463,6 +844,43 @@ def approve_supply_extension(cursor, user, extension_form_id, decision, remark='
     return serialize_form(cursor, extension_form_id)
 
 
+def settle_supply_payment(cursor, user, form_id, payload):
+    """销售供货出库后登记货款结清，台账才变为已结清。"""
+    cursor.execute("SELECT * FROM supply_orders WHERE form_id = ?", (form_id,))
+    order = row_to_dict(cursor.fetchone())
+    if not order:
+        raise ValueError("供货台账不存在")
+    if str(order.get("supply_method") or "试用") != "销售":
+        raise ValueError("只有销售供货可以登记货款结清")
+    if order["status"] != "external_open":
+        raise ValueError("出库结束后才能登记货款结清")
+    cursor.execute("SELECT COALESCE(SUM(shipped_quantity), 0) FROM supply_items WHERE order_id = ?", (order["id"],))
+    if float(cursor.fetchone()[0] or 0) <= 1e-9:
+        raise ValueError("尚未出库，不能登记货款结清")
+    settled_at = str((payload or {}).get("settled_at") or "").strip()
+    if len(settled_at) < 10:
+        raise ValueError("请填写货款结清日期")
+    remark = str((payload or {}).get("remark") or "").strip()
+    warehouse_user_id = _supply_warehouse_user_id(cursor, form_id)
+    roles = set(user.get("role_codes") or [])
+    if "admin" not in roles and int(order.get("applicant_id") or 0) != int(user["id"]) and warehouse_user_id != int(user["id"]):
+        raise PermissionError("只有申请人或库房管理员可以登记货款结清")
+    cursor.execute("SELECT data_json FROM workflow_forms WHERE id = ?", (form_id,))
+    form = cursor.fetchone()
+    data = _j(form["data_json"] if form else "{}", {})
+    data["payment_settled_at"] = settled_at[:10]
+    data["payment_remark"] = remark
+    cursor.execute(
+        "UPDATE supply_orders SET status = 'completed', closed_at = ?, updated_at = ? WHERE id = ?",
+        (now_text(), now_text(), order["id"]),
+    )
+    cursor.execute(
+        "UPDATE workflow_forms SET status = 'completed', current_step = 'completed', data_json = ?, updated_at = ? WHERE id = ?",
+        (_json(data), now_text(), form_id),
+    )
+    return serialize_form(cursor, form_id)
+
+
 def reopen_supply(cursor, user, form_id, reason):
     reason = str(reason or '').strip()
     if not reason:
@@ -491,6 +909,8 @@ def create_supply_return(cursor, user, form_id, payload):
     order = row_to_dict(cursor.fetchone())
     if not order or order["status"] not in {"shipping", "external_open"}:
         raise ValueError("当前供货单不能登记回寄")
+    if str(order.get("supply_method") or "") == "销售":
+        raise ValueError("销售供货请登记货款结清，不能登记回寄")
     warehouse_user_id = _supply_warehouse_user_id(cursor, form_id)
     role_codes = set(user.get('role_codes') or [])
     if 'admin' not in role_codes and int(order.get('applicant_id') or 0) != int(user['id']) and warehouse_user_id != int(user['id']):
@@ -498,10 +918,25 @@ def create_supply_return(cursor, user, form_id, payload):
     raw_items = payload.get("items") or []
     if not raw_items:
         raise ValueError("回寄登记至少需要一项物品")
+    received_date = str(payload.get("received_date") or "").strip()
+    goods_info = str(payload.get("goods_info") or "").strip()
+    if not received_date:
+        raise ValueError("请填写接收日期")
+    if not goods_info:
+        raise ValueError("请填写货品信息")
+    validator_ids = []
+    for value in payload.get("validator_ids") or []:
+        user_id = int(value or 0)
+        if user_id and user_id not in validator_ids:
+            validator_ids.append(user_id)
+    if len(validator_ids) < 3:
+        raise ValueError("请至少选择 3 名验收人")
     form_no = next_form_no(cursor, "GH")
-    cursor.execute("INSERT INTO workflow_forms (form_no, form_type, title, status, current_step, applicant_id, warehouse_user_id, data_json, created_at, updated_at) VALUES (?, 'supply_return', ?, 'supply_return_inbound', 'supply_return_inbound', ?, ?, ?, ?, ?)", (form_no, f"供货回寄 {form_no}", order["applicant_id"], _supply_warehouse_user_id(cursor, form_id), _json({"supply_form_id": form_id}), now_text(), now_text()))
+    logistics = dict(payload.get("logistics") or {})
+    logistics.update({"received_date": received_date, "goods_info": goods_info})
+    cursor.execute("INSERT INTO workflow_forms (form_no, form_type, title, status, current_step, applicant_id, warehouse_user_id, data_json, created_at, updated_at) VALUES (?, 'supply_return', ?, 'supply_return_acceptance', 'supply_return_acceptance', ?, ?, ?, ?, ?)", (form_no, f"供货回寄 {form_no}", order["applicant_id"], _supply_warehouse_user_id(cursor, form_id), _json({"supply_form_id": form_id, "received_date": received_date, "goods_info": goods_info}), now_text(), now_text()))
     return_form_id = int(cursor.lastrowid)
-    cursor.execute("INSERT INTO supply_return_records (order_id, form_id, initiated_by, logistics_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (order["id"], return_form_id, user["id"], _json(payload.get("logistics") or {}), now_text(), now_text()))
+    cursor.execute("INSERT INTO supply_return_records (order_id, form_id, initiated_by, logistics_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (order["id"], return_form_id, user["id"], _json(logistics), now_text(), now_text()))
     return_id = int(cursor.lastrowid)
     supply_map = {int(row["id"]): row for row in _supply_item_rows(cursor, order["id"])}
     warehouse_id = int(_supply_warehouse_user_id(cursor, form_id) or 0)
@@ -520,8 +955,57 @@ def create_supply_return(cursor, user, form_id, payload):
         if expected > supply_outstanding(item) + 1e-9:
             raise ValueError("预计回寄数量超过外部未结数量")
         cursor.execute("INSERT INTO supply_return_items (return_id, supply_item_id, expected_quantity, data_json) VALUES (?, ?, ?, ?)", (return_id, supply_item_id, expected, _json(raw)))
-        cursor.execute("INSERT INTO workflow_items (form_id, material_id, material_code, material_name, brand_model, spec, unit, request_quantity, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (return_form_id, item.get("material_id"), item.get("item_code") or "", item.get("item_name") or "", item.get("brand_model") or "", item.get("spec") or "", item.get("unit") or "", expected, _json({"supply_return_id": return_id, "supply_item_id": supply_item_id})))
-    create_workflow_tasks(cursor, return_form_id, "supply_return", "supply_return_inbound", [warehouse_id])
+        cursor.execute("INSERT INTO workflow_items (form_id, material_id, material_code, material_name, brand_model, spec, unit, request_quantity, data_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (return_form_id, item.get("material_id"), item.get("item_code") or "", item.get("item_name") or "", item.get("brand_model") or "", item.get("spec") or "", item.get("unit") or "", expected, _json({"supply_return_id": return_id, "supply_item_id": supply_item_id, "item_type": item.get("item_type") or ""})))
+    create_workflow_tasks(cursor, return_form_id, "supply_return", "supply_return_acceptance", validator_ids)
+    return serialize_form(cursor, return_form_id)
+
+
+def _warehouse_ids_without_admin(cursor):
+    cursor.execute(
+        """
+        SELECT DISTINCT u.id
+        FROM users u
+        JOIN user_roles ur ON ur.user_id = u.id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE u.is_active = 1 AND r.code = 'warehouse'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM user_roles ur2
+              JOIN roles r2 ON r2.id = ur2.role_id
+              WHERE ur2.user_id = u.id AND r2.code = 'admin'
+          )
+        ORDER BY u.id
+        """
+    )
+    return [int(row["id"]) for row in cursor.fetchall()]
+
+
+def accept_supply_return(cursor, user, return_form_id, payload):
+    cursor.execute("SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'supply_return'", (return_form_id,))
+    form = row_to_dict(cursor.fetchone())
+    if not form or form["status"] != "supply_return_acceptance":
+        raise ValueError("回寄不在验收环节")
+    task = require_task_assignee(cursor, user, return_form_id, "supply_return_acceptance")
+    cursor.execute(
+        "UPDATE workflow_tasks SET status = 'completed', decision = ?, signature = ?, signed_at = ?, updated_at = ? WHERE id = ?",
+        ("同意", user.get("display_name") or "", today_text(), now_text(), task["id"]),
+    )
+    cursor.execute(
+        "SELECT 1 FROM workflow_tasks WHERE form_id = ? AND step_code = 'supply_return_acceptance' AND status = 'pending'",
+        (return_form_id,),
+    )
+    if cursor.fetchone():
+        return serialize_form(cursor, return_form_id)
+    warehouse_ids = _warehouse_ids_without_admin(cursor)
+    preferred = int(form.get("warehouse_user_id") or 0)
+    assignee_ids = [preferred] if preferred in warehouse_ids else warehouse_ids[:1]
+    if not assignee_ids:
+        raise ValueError("未配置库房管理员")
+    create_workflow_tasks(cursor, return_form_id, "supply_return", "supply_return_inbound", assignee_ids)
+    cursor.execute(
+        "UPDATE workflow_forms SET status = 'supply_return_inbound', current_step = 'supply_return_inbound', updated_at = ? WHERE id = ?",
+        (now_text(), return_form_id),
+    )
     return serialize_form(cursor, return_form_id)
 
 
@@ -556,7 +1040,7 @@ def inbound_supply_return(cursor, user, return_form_id, payload):
                 location = raw.get("location") or {}
                 if not location.get("shelf_id"):
                     raise ValueError("物料完好回库必须选择货架")
-                add_inventory_batch(cursor, item["material_id"], good, float(item.get("unit_price") or 0), {**location, "received_date": payload.get("received_at") or today_text(), "remark": f"供货回寄 {order.get('form_id') or ''}"}, f"GH-RETURN-{return_form_id}", STOCK_SOURCE_FORMAL, "supply_return_inbound", f"supply_return:{return_form_id}:{supply_item_id}:good", operator_id=user["id"])
+                add_inventory_batch(cursor, item["material_id"], good, float(item.get("unit_price") or 0), {**location, **_shipment_batch_fields(cursor, supply_item_id), "received_date": payload.get("received_at") or today_text(), "remark": f"供货回寄 {order.get('form_id') or ''}"}, f"GH-RETURN-{return_form_id}", STOCK_SOURCE_FORMAL, "supply_return_inbound", f"supply_return:{return_form_id}:{supply_item_id}:good", operator_id=user["id"])
             else:
                 _increment_production_inventory(cursor, item, good)
         if defective > 0:

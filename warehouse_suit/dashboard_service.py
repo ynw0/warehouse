@@ -313,9 +313,11 @@ def _borrow_metrics(cursor, today, temporary_enabled):
         f"""
         SELECT
             COUNT(CASE WHEN br.status IN ('borrowed', 'transferring', 'partially_returned')
-                          AND br.quantity > br.returned_quantity THEN 1 END) AS unreturned,
+                          AND br.quantity > COALESCE(br.returned_quantity, 0)
+                              + COALESCE(br.claimed_quantity, 0) THEN 1 END) AS unreturned,
             COUNT(CASE WHEN br.status IN ('borrowed', 'transferring', 'partially_returned')
-                          AND br.quantity > br.returned_quantity
+                          AND br.quantity > COALESCE(br.returned_quantity, 0)
+                              + COALESCE(br.claimed_quantity, 0)
                           AND json_valid(COALESCE(f.data_json, '{{}}'))
                           AND NULLIF(json_extract(f.data_json, '$.expected_return_date'), '') IS NOT NULL
                           AND json_extract(f.data_json, '$.expected_return_date') < ?

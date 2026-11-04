@@ -84,7 +84,7 @@ def test_multi_leader_claim_waits_for_all_and_closes_tasks_on_rejection(client, 
             "leader_id": admin_id,
             "leader_ids": [admin_id, second_leader_id],
             "purpose": "办公",
-            "items": [{"material_id": material["id"], "request_quantity": 2}],
+            "items": [{"material_id": material["id"], "request_quantity": 2, "purchase_project": "办公"}],
         },
     )
     assert response.status_code == 200, response.get_data(as_text=True)
@@ -123,7 +123,7 @@ def test_multi_leader_claim_waits_for_all_and_closes_tasks_on_rejection(client, 
             "leader_id": admin_id,
             "leader_ids": [admin_id, second_leader_id],
             "purpose": "办公",
-            "items": [{"material_id": material["id"], "request_quantity": 1}],
+            "items": [{"material_id": material["id"], "request_quantity": 1, "purchase_project": "办公"}],
         },
     )
     assert response.status_code == 200, response.get_data(as_text=True)

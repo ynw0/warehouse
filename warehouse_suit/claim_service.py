@@ -4,14 +4,32 @@ from __future__ import annotations
 
 import json
 
-from warehouse_suit.claim_allocation_service import insert_claim_allocations
+from warehouse_suit.claim_allocation_service import allocate_claim_items, insert_claim_allocations
 from warehouse_suit.db import now_text
 from warehouse_suit.inventory_constants import STOCK_SOURCE_TEMPORARY
+from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.numbering import next_form_no
+from warehouse_suit.purchase_project import apply_purpose_payload, require_same_purchase_project
+from warehouse_suit.settings import temporary_inventory_enabled
 from warehouse_suit.workflow_service import (
     create_workflow_tasks,
+    resolve_department_leader,
     workflow_generated_title,
 )
+
+# 申领单流程属性。实物交接是默认；流程流转只作标记，不改审批和出库。
+CLAIM_FLOW_HANDOVER = "实物交接"
+CLAIM_FLOW_TRANSFER = "流程流转"
+CLAIM_FLOW_ATTRIBUTES = (CLAIM_FLOW_HANDOVER, CLAIM_FLOW_TRANSFER)
+
+
+def claim_flow_attribute(value):
+    text = str(value or "").strip()
+    if not text:
+        return CLAIM_FLOW_HANDOVER
+    if text not in CLAIM_FLOW_ATTRIBUTES:
+        raise ValueError("流程属性只能是实物交接或流程流转")
+    return text
 
 
 def create_claim_workflow(
@@ -25,6 +43,7 @@ def create_claim_workflow(
     rd_item_kind="",
     project_material_kind="",
     project_code="",
+    purchase_project="",
     origin_type="manual",
     origin_ref_id=None,
     metadata=None,
@@ -44,6 +63,7 @@ def create_claim_workflow(
         "rd_item_kind": str(rd_item_kind or ""),
         "project_material_kind": str(project_material_kind or ""),
         "project_code": str(project_code or ""),
+        "purchase_project": str(purchase_project or ""),
         "auto_generated": origin_type != "manual",
         "immutable": bool(immutable),
     }
@@ -136,6 +156,64 @@ def create_temporary_issue_obligations(cursor, form, item, consumed_batches):
         )
         obligation_ids.append(cursor.lastrowid)
     return obligation_ids
+
+
+def execute_create_claim(cursor, user, data):
+    """Create a claim workflow from a submit payload without committing."""
+    items = data.get("items") or []
+    if not items:
+        raise ValueError("申领单至少需要一行物料")
+    begin_inventory_transaction(cursor.connection)
+    from warehouse_suit.usage_kind import USAGE_RD, validate_usage_kind
+
+    usage_kind = validate_usage_kind(data.get("usage_kind") or USAGE_RD)
+    allocations = allocate_claim_items(
+        cursor,
+        items,
+        user,
+        include_temporary=temporary_inventory_enabled(cursor),
+        usage_kind=usage_kind,
+    )
+    requested_leader_ids = [int(value) for value in data.get("leader_ids") or [] if int(value)]
+    requested_leader_id = int(data.get("leader_id") or (requested_leader_ids[0] if requested_leader_ids else 0))
+    leader_id = resolve_department_leader(cursor, user, "claim", "leader_claim", requested_leader_id)
+    leader_ids = []
+    for requested in requested_leader_ids or [leader_id]:
+        resolved = resolve_department_leader(cursor, user, "claim", "leader_claim", requested)
+        if resolved not in leader_ids:
+            leader_ids.append(resolved)
+    purpose = str(data.get("purpose") or "").strip()
+    rd_item_kind = str(data.get("rd_item_kind") or "").strip()
+    project_code = data.get("project_code")
+    purchase_project = require_same_purchase_project(
+        item.get("purchase_project") for item in items
+    )
+    purpose_fields = apply_purpose_payload(
+        cursor,
+        {
+            "purpose": purpose,
+            "rd_item_kind": rd_item_kind,
+            "project_code": project_code,
+        },
+        purchase_project,
+    )
+    created = create_claim_workflow(
+        cursor,
+        user,
+        allocations,
+        leader_id,
+        leader_ids=leader_ids or [leader_id],
+        purpose=purpose_fields["purpose"],
+        rd_item_kind=purpose_fields["rd_item_kind"],
+        project_material_kind="",
+        project_code=purpose_fields["project_code"],
+        purchase_project=purpose_fields["purchase_project"],
+        metadata={
+            "usage_kind": usage_kind,
+            "flow_attribute": claim_flow_attribute(data.get("flow_attribute")),
+        },
+    )
+    return created["form_id"]
 
 
 def claim_has_actual_outbound(cursor, form_id):

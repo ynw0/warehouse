@@ -19,11 +19,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from common import (UpgradeError, database_checks, database_metrics,
-                    migrate_database_copy, read_json, run_migrations,
-                    sha256_file, sqlite_backup, switch_current_link,
-                    timestamp, upgrade_lock, verify_package_checksums,
-                    write_report)
+from common import (UpgradeError, assert_business_metrics_unchanged,
+                    database_checks, database_metrics, migrate_database_copy,
+                    read_json, run_migrations, sha256_file, sqlite_backup,
+                    switch_current_link, timestamp, upgrade_lock,
+                    verify_package_checksums, write_report)
 
 
 PACKAGE_DIR = Path(__file__).resolve().parent.parent
@@ -319,7 +319,8 @@ def formal_upgrade(info, service=None):
             migrations = run_migrations(info["db"], release)
             after = database_metrics(info["db"])
             checks = database_checks(info["db"])
-            if before != after or checks["integrity_check"] != "ok" or checks["foreign_key_check"]:
+            assert_business_metrics_unchanged(before, after)
+            if checks["integrity_check"] != "ok" or checks["foreign_key_check"]:
                 raise UpgradeError("正式迁移后的数据对账或完整性检查失败")
             prior = switch_current_link(root / "current", release)
             previous = root / "previous"

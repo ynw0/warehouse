@@ -28,7 +28,12 @@
     const filters = state.filters || {};
     const filtered = (rows || []).filter(row => {
       const materialWarehouse = materialWarehouseCode(row);
-      return (!filters.hideZero || quantityOf(row, quantityKey) > 0)
+      const visibleQuantity = quantityOf(row, quantityKey) + Number(row.temporary_quantity || 0);
+      const usageText = String(row.usage_kinds || row.usage_kind || "");
+      const projectText = String(row.purchase_projects || row.purchase_project || "");
+      return (!filters.hideZero || visibleQuantity > 0)
+        && (!filters.usage || usageText.split(",").map(item => item.trim()).includes(filters.usage))
+        && (!filters.project || projectText.split(",").map(item => item.trim()).includes(filters.project))
         && (!filters.warehouse || materialWarehouse === filters.warehouse)
         && (!filters.major || categoryValue(row, "major") === filters.major)
         && (!filters.middle || categoryValue(row, "middle") === filters.middle)
@@ -65,12 +70,13 @@
     const rows = getRows() || [];
     const filters = state.filters || {};
     const id = value => `${key}${value}`;
+    const projects = [...new Set(rows.flatMap(row => String(row.purchase_projects || row.purchase_project || "").split(",").map(item => item.trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b, "zh-CN"));
     window.openModal({
       title: "库存筛选",
       okText: "应用筛选",
-      body: `<div class="form-grid inventory-filter-form"><label class="compact-check wide"><input id="${id("HideZero")}" type="checkbox" ${filters.hideZero ? "checked" : ""}> 隐藏 0 库存物料</label><label>物料库房<select id="${id("Warehouse")}"><option value="">全部库房</option><option value="10" ${filters.warehouse === "10" ? "selected" : ""}>办公用品库</option><option value="20" ${filters.warehouse === "20" ? "selected" : ""}>研发材料库</option></select></label><label>物料大类<select id="${id("Major")}">${optionHtml(rows, row => categoryValue(row, "major"), filters.major, "全部大类")}</select></label><label>物料中类<select id="${id("Middle")}">${optionHtml(rows, row => categoryValue(row, "middle"), filters.middle, "全部中类")}</select></label><label>物料小类<select id="${id("Small")}">${optionHtml(rows, row => categoryValue(row, "small"), filters.small, "全部小类")}</select></label></div>`,
+      body: `<div class="form-grid inventory-filter-form"><label class="compact-check wide"><input id="${id("HideZero")}" type="checkbox" ${filters.hideZero ? "checked" : ""}> 隐藏 0 库存物料</label><label>用料形式<select id="${id("Usage")}"><option value="">全部</option><option value="研发用料" ${filters.usage === "研发用料" ? "selected" : ""}>研发用料</option><option value="生产用料" ${filters.usage === "生产用料" ? "selected" : ""}>生产用料</option></select></label><label>归属项目<select id="${id("Project")}"><option value="">全部项目</option>${projects.map(value => `<option value="${escape(value)}" ${value === filters.project ? "selected" : ""}>${escape(value)}</option>`).join("")}</select></label><label>物料库房<select id="${id("Warehouse")}"><option value="">全部库房</option><option value="10" ${filters.warehouse === "10" ? "selected" : ""}>办公用品库</option><option value="20" ${filters.warehouse === "20" ? "selected" : ""}>研发材料库</option></select></label><label>物料大类<select id="${id("Major")}">${optionHtml(rows, row => categoryValue(row, "major"), filters.major, "全部大类")}</select></label><label>物料中类<select id="${id("Middle")}">${optionHtml(rows, row => categoryValue(row, "middle"), filters.middle, "全部中类")}</select></label><label>物料小类<select id="${id("Small")}">${optionHtml(rows, row => categoryValue(row, "small"), filters.small, "全部小类")}</select></label></div>`,
       onOk: () => {
-        state.filters = { hideZero: document.getElementById(id("HideZero")).checked, warehouse: document.getElementById(id("Warehouse")).value, major: document.getElementById(id("Major")).value, middle: document.getElementById(id("Middle")).value, small: document.getElementById(id("Small")).value };
+        state.filters = { hideZero: document.getElementById(id("HideZero")).checked, usage: document.getElementById(id("Usage")).value, project: document.getElementById(id("Project")).value, warehouse: document.getElementById(id("Warehouse")).value, major: document.getElementById(id("Major")).value, middle: document.getElementById(id("Middle")).value, small: document.getElementById(id("Small")).value };
         onApply(apply(getRows(), state, quantityKey));
       },
     });

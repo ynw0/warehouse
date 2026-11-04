@@ -244,6 +244,31 @@ def ai_material_similarity(question, material):
     return score
 
 
+_AI_MATERIAL_FROM = """
+    FROM materials m
+    LEFT JOIN inventory i ON i.material_id = m.id
+    LEFT JOIN material_positions mp ON mp.material_id = m.id
+    LEFT JOIN shelves s ON s.id = mp.shelf_id
+"""
+
+
+def ai_material_by_code(cursor, material_code):
+    """按完整物料编码取一条物料及其库存位置。"""
+    cursor.execute(
+        f"""
+        SELECT m.id, m.material_code, m.name, m.brand_model, m.spec, m.unit,
+               m.purchase_applicant, m.category_name, m.material_type,
+               COALESCE(i.quantity, 0) AS quantity,
+               s.name AS shelf_name, mp.layer_number, mp.zone_name
+        {_AI_MATERIAL_FROM}
+        WHERE m.material_code = ?
+        """,
+        (str(material_code or "").strip(),),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
 def ai_similar_materials(cursor, question, limit=12):
     # Multi-pass search: exact first, then fuzzy
     tokens = ai_search_terms(question)
@@ -251,15 +276,12 @@ def ai_similar_materials(cursor, question, limit=12):
     for i, term in enumerate(tokens[:8]):
         like = f"%{term}%"
         cursor.execute(
-            """
+            f"""
             SELECT m.id, m.material_code, m.name, m.brand_model, m.spec, m.unit,
                    m.purchase_applicant, m.category_name, m.material_type,
                    COALESCE(i.quantity, 0) AS quantity,
                    s.name AS shelf_name, mp.layer_number, mp.zone_name
-            FROM materials m
-            LEFT JOIN inventory i ON i.material_id = m.id
-            LEFT JOIN material_positions mp ON mp.material_id = m.id
-            LEFT JOIN shelves s ON s.id = mp.shelf_id
+            {_AI_MATERIAL_FROM}
             WHERE m.material_code LIKE ? OR m.name LIKE ? OR m.brand_model LIKE ?
                OR m.spec LIKE ? OR m.purchase_applicant LIKE ?
             ORDER BY m.id DESC
@@ -357,7 +379,8 @@ def ai_production_context(items):
     return "\n".join(lines)
 
 
-def ai_prefix_context(cursor, question, limit=24):
+def ai_ranked_prefixes(cursor, question):
+    """汇总已使用的 10 位物料编码前缀，并按问题相关度排序。"""
     cursor.execute(
         """
         SELECT material_code, name, brand_model, spec, category_name, material_type
@@ -408,7 +431,12 @@ def ai_prefix_context(cursor, question, limit=24):
         group["details"].sort()
         haystack = " ".join(group["names"] + group["category_names"] + group["full_examples"]).lower()
         group["score"] = sum(1 for token in tokens if token and token in haystack)
-    ranked = sorted(groups.values(), key=lambda item: (-item["score"], -item["count"], item["prefix"]))
+    return sorted(groups.values(), key=lambda item: (-item["score"], -item["count"], item["prefix"]))
+
+
+def ai_prefix_context(cursor, question, limit=24):
+    """把编码前缀整理成提示词文本。"""
+    ranked = ai_ranked_prefixes(cursor, question)
     if not ranked:
         return "（数据库暂无已编码物料）"
     warehouse_names = {"10": "办公用品库", "20": "研发材料库"}
@@ -470,8 +498,8 @@ def validate_and_correct_codes(cursor, answer, allowed_existing_codes=None):
     # Load DB prefix map and major categories for classification validation
     cursor.execute("SELECT DISTINCT SUBSTR(material_code,1,10) AS px, SUBSTR(material_code,3,2) AS wh, SUBSTR(material_code,5,2) AS mj, COUNT(*) AS cnt, GROUP_CONCAT(DISTINCT name) AS names FROM materials WHERE LENGTH(material_code)=14 GROUP BY px ORDER BY px")
     db_prefixes = {row["px"]: {"warehouse": row["wh"], "major": row["mj"], "count": row["cnt"], "names": str(row["names"] or "")} for row in cursor.fetchall()}
-    # Known valid major codes from coding rules
-    known_majors = {"01","02","03","04","05","06","10","17","22","23","24","26","29","30","34","37","39","40","41","42","59","90"}
+    cursor.execute("SELECT DISTINCT major_code FROM category_rules WHERE TRIM(IFNULL(major_code, '')) != ''")
+    known_majors = {str(row[0]).strip() for row in cursor.fetchall()}
     corrections = []
     for code in codes_found:
         warehouse = code[2:4]
@@ -490,20 +518,8 @@ def validate_and_correct_codes(cursor, answer, allowed_existing_codes=None):
                 notes.append(f"仓库码 {warehouse} 无效（只能 10=办公用品库 或 20=研发材料库）")
             # --- Classification check ---
             if code_valid and valid_warehouse:
-                if major == "00" or middle == "00":
-                    notes.append(f"不允许使用 00 分类（除非规则明确要求）")
-                if major in known_majors:
-                    # Check consistency with DB: same major should have same warehouse across existing codes
-                    for db_px, db_info in db_prefixes.items():
-                        if db_info["major"] == major and db_info["warehouse"] != warehouse:
-                            notes.append(
-                                f"仓库码与数据库不一致：大类 {major} 在数据库中属于"
-                                f"{'研发材料库' if db_info['warehouse']=='20' else '办公用品库'}（仓库{db_info['warehouse']}），"
-                                f"但你使用了仓库{warehouse}"
-                            )
-                            break
-                else:
-                    notes.append(f"大类 {major} 不在已知分类表中，请确认是否为新增分类")
+                if known_majors and major not in known_majors:
+                    notes.append(f"大类 {major} 不在分类规则中，请确认是否为新增分类")
                 # Check prefix consistency
                 if prefix in db_prefixes:
                     db_info = db_prefixes[prefix]

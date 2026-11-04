@@ -37,6 +37,7 @@ def duplicate_material_values(cursor, item):
         "brand_model": duplicate_norm((snap or {}).get("brand_model") or item.get("brand_model")),
         "spec": duplicate_norm((snap or {}).get("spec") or item.get("spec")),
         "purchase_applicant": duplicate_norm(item.get("purchase_applicant") or (snap or {}).get("purchase_applicant")),
+        "purchase_project": duplicate_norm(item.get("purchase_project") or (snap or {}).get("purchase_project")),
         "unit": duplicate_norm((snap or {}).get("unit") or item.get("unit")),
         "request_quantity": duplicate_float(item.get("purchase_quantity") or item.get("request_quantity")),
         "arrival_quantity": duplicate_float(item.get("arrival_quantity")),
@@ -59,6 +60,7 @@ def duplicate_acceptance_match_rows(cursor, form_type, values, days):
               AND TRIM(COALESCE(wi.brand_model, '')) = ?
               AND TRIM(COALESCE(wi.spec, '')) = ?
               AND TRIM(COALESCE(wi.purchase_applicant, '')) = ?
+              AND TRIM(COALESCE(wi.purchase_project, '')) = ?
               AND TRIM(COALESCE(wi.unit, '')) = ?
               AND ABS(COALESCE(wi.request_quantity, 0) - ?) < 0.0000001
               AND ABS(COALESCE(wi.arrival_quantity, 0) - ?) < 0.0000001
@@ -72,6 +74,7 @@ def duplicate_acceptance_match_rows(cursor, form_type, values, days):
                 values["brand_model"],
                 values["spec"],
                 values["purchase_applicant"],
+                values["purchase_project"],
                 values["unit"],
                 values["request_quantity"],
                 values["arrival_quantity"],

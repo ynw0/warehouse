@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Inventory, borrowing, scrapping, and item-history domain services."""
 
+import json
+
 from warehouse_suit.db import now_text, row_to_dict, today_text
 from warehouse_suit.inventory_constants import (
     BUSINESS_TYPE_BORROW_OUTBOUND,
@@ -17,7 +19,9 @@ from warehouse_suit.material_repository import (
     material_snapshot,
     material_stock_total,
 )
+from warehouse_suit.stock_allocation_service import held_source_quantities, pending_outbound_hold_index
 from warehouse_suit.material_utils import clean_material_name
+from warehouse_suit.purchase_project import purchase_project_from_acceptance_code
 from warehouse_suit.settings import parse_json
 from warehouse_suit.validation import positive_int_value, price_value, quantity_value, validated_number
 
@@ -238,13 +242,27 @@ def add_inventory_batch(
         return int(existing[0].get("batch_id") or 0)
 
     batch_no = f"{today_text().replace('-', '')}{material_snapshot(cursor, material_id, stock_source=stock_source).get('material_code', '')}"
+    purchase_project = str(location.get("purchase_project") or "").strip()
+    from warehouse_suit.usage_kind import USAGE_RD, pack_quantity_value, validate_usage_kind
+
+    pack_quantity = pack_quantity_value(location.get("pack_quantity") or 1)
+    usage_kind = validate_usage_kind(location.get("usage_kind") or USAGE_RD)
+    arrival_unit = str(location.get("arrival_unit") or "").strip()
+    purchase_applicant = str(location.get("purchase_applicant") or "").strip()
+    raw_book = location.get("book_quantity")
+    book_quantity = quantity_value(
+        raw_book if raw_book not in (None, "") else quantity / pack_quantity,
+        "账面入库数量",
+        positive=True,
+    )
     cursor.execute(
         """
         INSERT INTO material_batches
             (material_id, batch_no, quantity, unit_price, warehouse_type, shelf_id, layer_number,
              zone_name, source_form_no, received_date, stock_source, inventory_status, version,
-             created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+             purchase_project, pack_quantity, arrival_unit, usage_kind, book_quantity, pack_progress,
+             purchase_applicant, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         """,
         (
             material_id,
@@ -259,6 +277,12 @@ def add_inventory_batch(
             location.get("received_date") or today_text(),
             stock_source,
             INVENTORY_STATUS_AVAILABLE,
+            purchase_project,
+            pack_quantity,
+            arrival_unit,
+            usage_kind,
+            book_quantity,
+            purchase_applicant,
             now_text(),
             now_text(),
         ),
@@ -324,6 +348,8 @@ def consume_inventory_fifo(
     operation_key=None,
     operator_id=None,
     workflow_item_id=None,
+    purchase_project=None,
+    usage_kind=None,
 ):
     stock_source = validate_stock_source(stock_source)
     requested = quantity_value(quantity, "出库数量", positive=True)
@@ -345,8 +371,22 @@ def consume_inventory_fifo(
             for row in existing
         ]
 
-    batches = material_batch_rows(cursor, material_id, stock_source=stock_source)
+    all_batches = material_batch_rows(
+        cursor, material_id, stock_source=stock_source, usage_kind=usage_kind
+    )
+    if purchase_project is not None:
+        project_text = str(purchase_project or "").strip()
+        batches = material_batch_rows(
+            cursor,
+            material_id,
+            stock_source=stock_source,
+            purchase_project=project_text,
+            usage_kind=usage_kind,
+        )
+    else:
+        batches = all_batches
     by_id = {int(batch["id"]): batch for batch in batches}
+    by_id_all = {int(batch["id"]): batch for batch in all_batches}
     if sum(float(batch["quantity"]) for batch in batches) + 1e-9 < requested:
         raise ValueError("库存数量不足，无法出库")
 
@@ -354,6 +394,19 @@ def consume_inventory_fifo(
     if allocations:
         total_allocated = 0
         for allocation in parse_batch_allocations(allocations):
+            raw_batch = by_id_all.get(allocation["batch_id"])
+            if (
+                purchase_project is not None
+                and raw_batch
+                and str(raw_batch.get("purchase_project") or "").strip() != str(purchase_project or "").strip()
+            ):
+                raise ValueError("出库批次采购申请项目与单据不一致")
+            if (
+                usage_kind is not None
+                and raw_batch
+                and str(raw_batch.get("usage_kind") or "").strip() != str(usage_kind or "").strip()
+            ):
+                raise ValueError("出库批次用料形式与单据不一致")
             batch = by_id.get(allocation["batch_id"])
             if not batch:
                 raise ValueError("选择的出库批次不存在、不可用或库存为 0")
@@ -375,10 +428,18 @@ def consume_inventory_fifo(
 
     consumed = []
     for batch, take in consume_plan:
+        pack = float(batch.get("pack_quantity") or 1)
+        if pack < 1:
+            pack = 1
+        progress = float(batch.get("pack_progress") or 0) + float(take)
+        whole_units = int(progress // pack)
+        progress -= whole_units * pack
         cursor.execute(
             """
             UPDATE material_batches
             SET quantity = quantity - ?,
+                book_quantity = MAX(0, COALESCE(book_quantity, 0) - ?),
+                pack_progress = ?,
                 version = version + 1,
                 updated_at = ?
             WHERE id = ?
@@ -388,6 +449,8 @@ def consume_inventory_fifo(
             """,
             (
                 take,
+                whole_units,
+                progress,
                 now_text(),
                 batch["id"],
                 stock_source,
@@ -434,6 +497,8 @@ def consume_inventory_fifo(
                 "quantity": take,
                 "unit_price": float(batch.get("unit_price") or 0),
                 "stock_record_id": stock_record_id,
+                "purchase_project": str(batch.get("purchase_project") or "").strip(),
+                "usage_kind": str(batch.get("usage_kind") or "").strip(),
             }
         )
     return consumed
@@ -544,10 +609,13 @@ def adjust_inventory_batch(
 
 
 def production_available_quantity(item, kind):
+    """可借用数量。半成品还要扣掉已领用未消耗。"""
     quantity = float(item.get("quantity") or 0)
     borrowed = float(item.get("borrowed_quantity") or 0)
     if kind == "semifinished":
-        quantity -= float(item.get("used_quantity") or 0)
+        used = float(item.get("used_quantity") or 0)
+        claimed = float(item.get("claimed_quantity") or 0)
+        quantity -= max(used, claimed)
     return max(0, quantity - borrowed)
 
 
@@ -560,6 +628,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
         WITH source_stock AS (
             SELECT
                 b.material_id,
+                TRIM(COALESCE(b.purchase_project, '')) AS purchase_project,
                 SUM(
                     CASE WHEN b.stock_source = ? AND b.inventory_status = ?
                          THEN b.quantity
@@ -572,21 +641,28 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 SUM(CASE WHEN b.stock_source = ? THEN 1 ELSE 0 END)
                     AS formal_batch_count
             FROM material_batches b
-            GROUP BY b.material_id
+            WHERE TRIM(COALESCE(b.purchase_project, '')) <> ''
+            GROUP BY b.material_id, TRIM(COALESCE(b.purchase_project, ''))
         ),
         borrow_materials AS (
             SELECT
-                m.*,
+                m.id,
+                m.material_code,
+                m.name,
+                m.brand_model,
+                m.spec,
+                m.unit,
+                m.purchase_applicant,
+                ss.purchase_project,
                 CASE
                     WHEN COALESCE(ss.formal_batch_count, 0) > 0
                     THEN COALESCE(ss.formal_quantity, 0)
-                    ELSE COALESCE(i.quantity, 0)
+                    ELSE 0
                 END AS formal_available_quantity,
                 CASE WHEN ? THEN COALESCE(ss.temporary_quantity, 0) ELSE 0 END
                     AS temporary_available_quantity
             FROM materials m
-            LEFT JOIN inventory i ON i.material_id = m.id
-            LEFT JOIN source_stock ss ON ss.material_id = m.id
+            JOIN source_stock ss ON ss.material_id = m.id
         )
         SELECT
             bm.*,
@@ -601,6 +677,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
               OR COALESCE(bm.brand_model, '') LIKE ?
               OR COALESCE(bm.spec, '') LIKE ?
               OR COALESCE(bm.purchase_applicant, '') LIKE ?
+              OR COALESCE(bm.purchase_project, '') LIKE ?
           )
         ORDER BY
             CASE
@@ -622,13 +699,22 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
             like,
             like,
             like,
+            like,
         ),
     )
-    for row in cursor.fetchall():
-        item = dict(row)
+    fetched = [dict(row) for row in cursor.fetchall()]
+    holds = pending_outbound_hold_index(cursor)
+    for item in fetched:
         formal_quantity = float(item.get("formal_available_quantity") or 0)
         temporary_quantity = float(item.get("temporary_available_quantity") or 0)
-        total_quantity = float(item.get("total_available_quantity") or 0)
+        held_formal, held_temporary = held_source_quantities(
+            holds, item["id"], item.get("purchase_project")
+        )
+        formal_quantity = max(0.0, formal_quantity - held_formal)
+        temporary_quantity = max(0.0, temporary_quantity - held_temporary)
+        total_quantity = formal_quantity + temporary_quantity
+        if total_quantity <= 1e-9:
+            continue
         rows.append(
             {
                 "item_type": "material",
@@ -639,6 +725,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": item.get("brand_model") or "",
                 "spec": item.get("spec") or "",
                 "unit": item.get("unit") or "",
+                "purchase_project": item.get("purchase_project") or "",
                 "available_quantity": total_quantity,
                 "formal_available_quantity": formal_quantity,
                 "temporary_available_quantity": temporary_quantity,
@@ -654,9 +741,10 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
         semi_params = [like, like, like]
     cursor.execute(
         f"""
-        SELECT si.*, s.name AS shelf_name
+        SELECT si.*, s.name AS shelf_name, TRIM(COALESCE(sa.project_code, '')) AS acceptance_project_code
         FROM semifinished_inventory si
         LEFT JOIN shelves s ON s.id = si.shelf_id
+        LEFT JOIN semifinished_acceptances sa ON sa.id = si.acceptance_id
         {semi_where}
         ORDER BY si.id DESC
         """,
@@ -677,6 +765,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": "",
                 "spec": item.get("spec") or "",
                 "unit": item.get("unit") or "",
+                "purchase_project": purchase_project_from_acceptance_code(item.get("acceptance_project_code")),
                 "available_quantity": available,
                 "location_text": " ".join(str(value or "") for value in [item.get("shelf_name"), item.get("layer_number"), item.get("zone_name")]).strip(),
                 "batch_summary": "",
@@ -689,9 +778,10 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
         fin_params = [like, like, like]
     cursor.execute(
         f"""
-        SELECT fgi.*, s.name AS shelf_name
+        SELECT fgi.*, s.name AS shelf_name, TRIM(COALESCE(fa.project_code, '')) AS acceptance_project_code
         FROM finished_good_inventory fgi
         LEFT JOIN shelves s ON s.id = fgi.shelf_id
+        LEFT JOIN finished_acceptances fa ON fa.id = fgi.acceptance_id
         {fin_where}
         ORDER BY fgi.id DESC
         """,
@@ -712,6 +802,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": "",
                 "spec": item.get("spec") or "",
                 "unit": item.get("unit") or "",
+                "purchase_project": purchase_project_from_acceptance_code(item.get("acceptance_project_code")),
                 "available_quantity": available,
                 "location_text": " ".join(str(value or "") for value in [item.get("shelf_name"), item.get("layer_number"), item.get("zone_name")]).strip(),
                 "batch_summary": "",
@@ -725,8 +816,9 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
         def_semi_params = [like, like, like]
     cursor.execute(
         f"""
-        SELECT d.*, 1 AS available_quantity
+        SELECT d.*, 1 AS available_quantity, TRIM(COALESCE(sa.project_code, '')) AS acceptance_project_code
         FROM defective_semifinished_goods d
+        LEFT JOIN semifinished_acceptances sa ON sa.id = d.semifinished_acceptance_id
         {def_semi_where}
         ORDER BY d.id DESC
         """,
@@ -747,6 +839,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": "",
                 "spec": item.get("spec") or "",
                 "unit": "\u4e2a",
+                "purchase_project": purchase_project_from_acceptance_code(item.get("acceptance_project_code")),
                 "available_quantity": available,
                 "location_text": "",
                 "batch_summary": "",
@@ -760,8 +853,9 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
         def_fin_params = [like, like, like]
     cursor.execute(
         f"""
-        SELECT d.*, 1 AS available_quantity
+        SELECT d.*, 1 AS available_quantity, TRIM(COALESCE(fa.project_code, '')) AS acceptance_project_code
         FROM defective_finished_goods d
+        LEFT JOIN finished_acceptances fa ON fa.id = d.finished_acceptance_id
         {def_fin_where}
         ORDER BY d.id DESC
         """,
@@ -782,6 +876,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
                 "brand_model": "",
                 "spec": item.get("spec") or "",
                 "unit": "\u53f0",
+                "purchase_project": purchase_project_from_acceptance_code(item.get("acceptance_project_code")),
                 "available_quantity": available,
                 "location_text": "",
                 "batch_summary": "",
@@ -863,10 +958,11 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
         item.setdefault("temporary_available_quantity", 0.0)
         item.setdefault("total_available_quantity", available)
         item.setdefault("stock_source", STOCK_SOURCE_FORMAL)
+        item.setdefault("purchase_project", purchase_project_from_acceptance_code(""))
     return rows
 
 
-def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_SOURCE_FORMAL):
+def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_SOURCE_FORMAL, purchase_project=None, usage_kind=None):
     stock_source = validate_stock_source(stock_source)
     item_type = str(item_type or "material").strip()
     item_ref_id = int(item_ref_id or 0)
@@ -874,7 +970,24 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
         snap = material_snapshot(cursor, item_ref_id, stock_source=stock_source)
         if not snap:
             raise ValueError("borrow material not found")
-        snap.update({"item_type": "material", "item_ref_id": item_ref_id, "item_code": snap.get("material_code") or "", "item_name": snap.get("name") or "", "available_quantity": material_stock_total(cursor, item_ref_id, stock_source=stock_source), "stock_source": stock_source})
+        project = None if purchase_project is None else str(purchase_project or "").strip()
+        snap.update(
+            {
+                "item_type": "material",
+                "item_ref_id": item_ref_id,
+                "item_code": snap.get("material_code") or "",
+                "item_name": snap.get("name") or "",
+                "available_quantity": material_stock_total(
+                    cursor,
+                    item_ref_id,
+                    stock_source=stock_source,
+                    purchase_project=project,
+                    usage_kind=usage_kind,
+                ),
+                "stock_source": stock_source,
+                "purchase_project": project or "",
+            }
+        )
         return snap
     if item_type == "semifinished":
         cursor.execute("SELECT * FROM semifinished_inventory WHERE id = ?", (item_ref_id,))
@@ -892,6 +1005,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "unit": item.get("unit") or "",
             "available_quantity": production_available_quantity(item, "semifinished"),
             "cost_price": float(item.get("cost_price") or 0),
+            "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
     if item_type == "finished":
         cursor.execute("SELECT * FROM finished_good_inventory WHERE id = ?", (item_ref_id,))
@@ -909,6 +1023,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "unit": item.get("unit") or "",
             "available_quantity": production_available_quantity(item, "finished"),
             "cost_price": float(item.get("cost_price") or 0),
+            "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
     if item_type == "defective_semifinished":
         cursor.execute("SELECT * FROM defective_semifinished_goods WHERE id = ?", (item_ref_id,))
@@ -926,6 +1041,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "unit": "\u4e2a",
             "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0)),
             "cost_price": 0,
+            "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
     if item_type == "defective_finished":
         cursor.execute("SELECT * FROM defective_finished_goods WHERE id = ?", (item_ref_id,))
@@ -943,6 +1059,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "unit": "\u53f0",
             "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0)),
             "cost_price": 0,
+            "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
     if item_type == "scrapped_semifinished":
         cursor.execute("SELECT * FROM scrapped_semifinished_goods WHERE id = ?", (item_ref_id,))
@@ -960,6 +1077,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "unit": item.get("unit") or "\u4e2a",
             "available_quantity": float(item.get("quantity") or 0),
             "cost_price": 0,
+            "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
     if item_type == "scrapped_finished":
         cursor.execute("SELECT * FROM scrapped_finished_goods WHERE id = ?", (item_ref_id,))
@@ -977,14 +1095,37 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "unit": item.get("unit") or "\u53f0",
             "available_quantity": float(item.get("quantity") or 0),
             "cost_price": 0,
+            "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
     raise ValueError("borrow item type invalid")
+
+
+def _nonmaterial_purchase_project(cursor, item_type, item, purchase_project=None):
+    """半成品/成品项目以验收代号为准；无代号视为办公。"""
+    table_key = {
+        "semifinished": ("semifinished_acceptances", item.get("acceptance_id")),
+        "finished": ("finished_acceptances", item.get("acceptance_id")),
+        "defective_semifinished": ("semifinished_acceptances", item.get("semifinished_acceptance_id")),
+        "defective_finished": ("finished_acceptances", item.get("finished_acceptance_id")),
+    }.get(item_type)
+    derived = purchase_project_from_acceptance_code("")
+    if table_key and table_key[1]:
+        cursor.execute(f"SELECT project_code FROM {table_key[0]} WHERE id = ?", (table_key[1],))
+        row = cursor.fetchone()
+        derived = purchase_project_from_acceptance_code(row["project_code"] if row else "")
+    requested = str(purchase_project or "").strip()
+    if requested and requested != derived:
+        raise ValueError("采购申请项目与该半成品/成品不一致")
+    return derived
 
 
 def adjust_nonmaterial_borrow(cursor, item_type, item_ref_id, quantity, outbound):
     """在对应生产库存、不良品或报废品表中维护借用数量。"""
     borrowed_tables = {
-        "semifinished": ("semifinished_inventory", "quantity - used_quantity - borrowed_quantity"),
+        "semifinished": (
+            "semifinished_inventory",
+            "quantity - borrowed_quantity - MAX(used_quantity, COALESCE(claimed_quantity, 0))",
+        ),
         "finished": ("finished_good_inventory", "quantity - borrowed_quantity"),
         "defective_semifinished": ("defective_semifinished_goods", "1 - borrowed_quantity"),
         "defective_finished": ("defective_finished_goods", "1 - borrowed_quantity"),
@@ -1012,8 +1153,11 @@ def adjust_nonmaterial_borrow(cursor, item_type, item_ref_id, quantity, outbound
     elif item_type in scrapped_tables:
         table = scrapped_tables[item_type]
         if outbound:
+            claimed_guard = ""
+            if item_type == "scrapped_semifinished":
+                claimed_guard = " - COALESCE(claimed_quantity, 0)"
             cursor.execute(
-                f"UPDATE {table} SET quantity = quantity - ? WHERE id = ? AND quantity >= ?",
+                f"UPDATE {table} SET quantity = quantity - ? WHERE id = ? AND quantity{claimed_guard} >= ?",
                 (quantity, item_ref_id, quantity),
             )
         else:
@@ -1039,6 +1183,8 @@ def borrow_out_item(
     business_type=BUSINESS_TYPE_BORROW_OUTBOUND,
     operator_id=None,
     workflow_item_id=None,
+    purchase_project=None,
+    usage_kind=None,
 ):
     stock_source = validate_stock_source(stock_source)
     if quantity <= 0:
@@ -1059,6 +1205,8 @@ def borrow_out_item(
             operation_key=operation_key,
             operator_id=operator_id,
             workflow_item_id=workflow_item_id,
+            purchase_project=purchase_project,
+            usage_kind=usage_kind,
         )
         amount = sum(
             float(batch.get("quantity") or 0) * float(batch.get("unit_price") or 0)
@@ -1087,8 +1235,12 @@ def update_borrow_return_balance(
         UPDATE borrow_records
         SET returned_quantity = COALESCE(returned_quantity, 0) + ?,
             status = CASE
-                WHEN COALESCE(returned_quantity, 0) + ? >= COALESCE(quantity, 0) - 0.000000001
-                THEN 'returned'
+                WHEN COALESCE(returned_quantity, 0) + ?
+                     >= COALESCE(quantity, 0) - COALESCE(claimed_quantity, 0) - 0.000000001
+                THEN CASE
+                    WHEN COALESCE(claimed_quantity, 0) > 0.000000001 THEN 'claimed'
+                    ELSE 'returned'
+                END
                 ELSE 'borrowed'
             END,
             return_date = ?,
@@ -1096,7 +1248,8 @@ def update_borrow_return_balance(
             updated_at = ?
         WHERE id = ?
           AND status IN ('borrowed', 'transferring')
-          AND COALESCE(quantity, 0) - COALESCE(returned_quantity, 0) >= ? - 0.000000001
+          AND COALESCE(quantity, 0) - COALESCE(returned_quantity, 0)
+              - COALESCE(claimed_quantity, 0) >= ? - 0.000000001
         """,
         (
             quantity,
@@ -1129,24 +1282,23 @@ def return_borrow_item(
 ):
     if quantity <= 0:
         raise ValueError("return quantity must be greater than 0")
-    remaining = float(record["quantity"] or 0) - float(record["returned_quantity"] or 0)
+    remaining = (
+        float(record["quantity"] or 0)
+        - float(record.get("returned_quantity") or 0)
+        - float(record.get("claimed_quantity") or 0)
+    )
     if quantity > remaining + 1e-9:
         raise ValueError("return quantity exceeds borrowed balance")
-    record_data = parse_json(record.get("data_json"), {})
     if record["item_type"] == "material":
-        return_location = dict(location or {})
-        return_location["remark"] = return_location.get("remark") or f"借用单 {form_no} 归还入库"
-        add_inventory_batch(
+        restore_borrow_quantity_to_batches(
             cursor,
-            int(record["material_id"] or record["item_ref_id"]),
+            record,
             quantity,
-            float(record_data.get("unit_price") or 0),
-            return_location,
             form_no,
-            stock_source=validate_stock_source(record.get("stock_source") or STOCK_SOURCE_FORMAL),
-            business_type=business_type,
             operation_key=operation_key,
             operator_id=operator_id,
+            operation_date=(location or {}).get("received_date"),
+            business_type=business_type,
         )
     else:
         adjust_nonmaterial_borrow(
@@ -1158,6 +1310,92 @@ def return_borrow_item(
         quantity,
         return_date=(location or {}).get("received_date") or today_text(),
         return_form_id=(location or {}).get("return_form_id"),
+    )
+
+
+def restore_borrow_quantity_to_batches(
+    cursor,
+    record,
+    quantity,
+    form_no,
+    operation_key=None,
+    operator_id=None,
+    operation_date=None,
+    business_type=BUSINESS_TYPE_BORROW_RETURN_INBOUND,
+):
+    """完好归还加回出库时的原批次，不新开批次。"""
+    data = parse_json(record.get("data_json"), {})
+    batches = [batch for batch in (data.get("consumed_batches") or []) if isinstance(batch, dict)]
+    if not batches:
+        raise ValueError("借用出库批次缺失，无法归还入库")
+    returned = dict(data.get("returned_batch_quantities") or {})
+    left = float(quantity)
+    slices = []
+    for batch in batches:
+        if left <= 1e-9:
+            break
+        batch_id = int(batch.get("batch_id") or batch.get("id") or 0)
+        if not batch_id:
+            raise ValueError("借用出库批次缺失，无法归还入库")
+        key = str(batch_id)
+        already = float(returned.get(key) or 0)
+        capacity = float(batch.get("quantity") or 0) - already
+        if capacity <= 1e-9:
+            continue
+        take = min(capacity, left)
+        cursor.execute("SELECT * FROM material_batches WHERE id = ?", (batch_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError("原批次不存在，无法归还入库")
+        row = dict(row)
+        raw_price = batch.get("unit_price")
+        unit_price = float(raw_price if raw_price not in (None, "") else (row.get("unit_price") or 0))
+        slices.append((batch_id, key, already, take, row, unit_price))
+        left -= take
+    if left > 1e-9:
+        raise ValueError("原出库批次不足以归还")
+    base_key = operation_key or form_no
+    for batch_id, key, already, take, row, unit_price in slices:
+        cursor.execute(
+            """
+            UPDATE material_batches
+            SET quantity = quantity + ?, version = version + 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (take, now_text(), batch_id),
+        )
+        balance, _ = update_inventory_total(cursor, int(row["material_id"]), stock_source=row["stock_source"])
+        slice_key = base_key if len(slices) == 1 else f"{base_key}:{batch_id}"
+        cursor.execute(
+            """
+            INSERT INTO stock_records
+                (material_id, operation_type, quantity, balance_after, operation_date, remark,
+                 batch_id, form_no, unit_price, amount, stock_source, business_type, operation_key,
+                 operator_id, created_at)
+            VALUES (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(row["material_id"]),
+                take,
+                balance,
+                operation_date or today_text(),
+                f"借用单 {form_no} 归还入库",
+                batch_id,
+                form_no,
+                unit_price,
+                take * unit_price,
+                row["stock_source"],
+                business_type,
+                slice_key,
+                operator_id,
+                now_text(),
+            ),
+        )
+        returned[key] = already + take
+    data["returned_batch_quantities"] = returned
+    cursor.execute(
+        "UPDATE borrow_records SET data_json = ?, updated_at = ? WHERE id = ?",
+        (json.dumps(data, ensure_ascii=False), now_text(), int(record["id"])),
     )
 
 
@@ -1180,7 +1418,65 @@ def save_borrow_change(cursor, borrow_record_id, change_type, change_detail, ver
     return cursor.lastrowid
 
 
-def move_to_scrapped(cursor, item_type, item_data, scrap_reason, scrap_source='borrow_return'):
+def move_borrow_return_to_unqualified(cursor, record, inventory_row, quantity, reason):
+    """借用归还异常写入不合格半成品库或不合格成品库。"""
+    item_type = str(record.get("item_type") or "")
+    acceptance_id = inventory_row.get("acceptance_id")
+    if not acceptance_id:
+        raise ValueError("缺少验收单，不能写入不合格库")
+    serial_no = str(record.get("item_code") or inventory_row.get("serial_no") or "").strip()
+    if not serial_no:
+        raise ValueError("缺少流水号，不能写入不合格库")
+    table = "semifinished_inventory" if item_type == "semifinished" else "finished_good_inventory"
+    if item_type not in ("semifinished", "finished"):
+        raise ValueError("只有半成品和成品可以写入不合格库")
+    cursor.execute(
+        f"""
+        UPDATE {table}
+        SET quantity = quantity - ?, borrowed_quantity = borrowed_quantity - ?, updated_at = ?
+        WHERE id = ? AND quantity >= ? AND borrowed_quantity >= ?
+        """,
+        (quantity, quantity, now_text(), int(record["item_ref_id"]), quantity, quantity),
+    )
+    if cursor.rowcount != 1:
+        raise ValueError("归还物品余量已变化，请刷新后重试")
+    abnormal = json.dumps([reason or "借用归还异常"], ensure_ascii=False)
+    if item_type == "semifinished":
+        cursor.execute(
+            """
+            INSERT INTO defective_semifinished_goods
+                (semifinished_acceptance_id, name, spec, serial_no, abnormal_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                acceptance_id,
+                inventory_row.get("name") or record.get("item_name") or "",
+                inventory_row.get("spec") or "",
+                serial_no,
+                abnormal,
+                now_text(),
+            ),
+        )
+    else:
+        cursor.execute(
+            """
+            INSERT INTO defective_finished_goods
+                (finished_acceptance_id, product_name, spec, serial_no, abnormal_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                acceptance_id,
+                inventory_row.get("product_name") or record.get("item_name") or "",
+                inventory_row.get("spec") or "",
+                serial_no,
+                abnormal,
+                now_text(),
+            ),
+        )
+    return cursor.lastrowid
+
+
+def move_to_scrapped(cursor, item_type, item_data, scrap_reason, scrap_source='borrow_return', adjust_source_quantity=True):
     if item_type not in ("semifinished", "finished"):
         raise ValueError(f"unsupported item_type for scrapping: {item_type}")
     base_serial = item_data.get("serial_no") or ""
@@ -1209,7 +1505,7 @@ def move_to_scrapped(cursor, item_type, item_data, scrap_reason, scrap_source='b
             ),
         )
         source_id = item_data.get("original_inventory_id") or item_data.get("item_ref_id")
-        if source_id:
+        if adjust_source_quantity and source_id:
             cursor.execute(
                 "UPDATE finished_good_inventory SET quantity = MAX(0, COALESCE(quantity, 0) - ?), updated_at = ? WHERE id = ?",
                 (float(item_data.get("quantity") or 1), now_text(), source_id),
@@ -1238,7 +1534,7 @@ def move_to_scrapped(cursor, item_type, item_data, scrap_reason, scrap_source='b
             ),
         )
         source_id = item_data.get("original_inventory_id") or item_data.get("item_ref_id")
-        if source_id:
+        if adjust_source_quantity and source_id:
             cursor.execute(
                 "UPDATE semifinished_inventory SET quantity = MAX(0, COALESCE(quantity, 0) - ?), updated_at = ? WHERE id = ?",
                 (float(item_data.get("quantity") or 1), now_text(), source_id),
@@ -1379,6 +1675,10 @@ def get_item_change_history(cursor, item_type, item_ref_id, page=1, limit=20):
         "spec": item_row.get("spec") or "",
         "type": item_type,
     }
+    if item_type == "semifinished":
+        from warehouse_suit.production_service import semifinished_unit_components
+
+        item["components"] = semifinished_unit_components(cursor, item_row)
 
     history = []
     acceptance_id = item_row.get(acc_id_col)

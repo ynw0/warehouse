@@ -20,7 +20,7 @@ def test_outbound_view_permission_allows_detail_but_not_unassigned_handling(clie
         json={
             "leader_id": admin_id,
             "purpose": "办公",
-            "items": [{"material_id": material["id"], "request_quantity": 3}],
+            "items": [{"material_id": material["id"], "request_quantity": 3, "purchase_project": "办公"}],
         },
     )
     assert response.status_code == 200, response.get_data(as_text=True)
@@ -112,7 +112,7 @@ def test_admin_can_reassign_current_pending_task_to_enabled_step_assignee(client
         json={
             "leader_id": admin_id,
             "purpose": "办公",
-            "items": [{"material_id": material["id"], "request_quantity": 2}],
+            "items": [{"material_id": material["id"], "request_quantity": 2, "purchase_project": "办公"}],
         },
     )
     form = response.get_json()["form"]

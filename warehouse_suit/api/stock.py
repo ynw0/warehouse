@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Stock, stocktake, statistics, and export route registration."""
 
-from flask import jsonify, request
+from urllib.parse import quote
+
+from flask import Response, jsonify, request
 
 from warehouse_suit.db import next_stocktake_due_date, now_text, row_to_dict, today_text
 from warehouse_suit.exporting import material_cards_html
@@ -11,6 +13,7 @@ from warehouse_suit.material_repository import fetch_material, material_batch_ro
 from warehouse_suit.numbering import next_stocktake_no
 from warehouse_suit.recycle import recycle_stocktake
 from warehouse_suit.settings import get_setting, set_setting, workflow_settings
+from warehouse_suit.stocktake_report import build_stocktake_sheets, stocktake_workbook
 from warehouse_suit.validation import positive_int_value, quantity_value, unit_price_from_total_amount
 from warehouse_suit.workflow_service import require_any_permission, require_permission
 
@@ -266,6 +269,43 @@ def register_stock_routes(app, *, get_db, current_user_provider):
         return jsonify(stocktake)
 
 
+    @app.get("/api/stocktakes/<int:stocktake_id>/report")
+    def stocktake_report(stocktake_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        require_any_permission(cursor, "view_stocktake", "start_stocktake", "edit_stocktake")
+        try:
+            report = build_stocktake_sheets(cursor, stocktake_id)
+        except ValueError as exc:
+            conn.close()
+            return jsonify({"error": str(exc)}), 400
+        conn.close()
+        if not report:
+            return jsonify({"error": "盘点单不存在"}), 404
+        return jsonify(report)
+
+
+    @app.get("/api/stocktakes/<int:stocktake_id>/report.xlsx")
+    def stocktake_report_xlsx(stocktake_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        require_any_permission(cursor, "view_stocktake", "start_stocktake", "edit_stocktake")
+        try:
+            report = build_stocktake_sheets(cursor, stocktake_id)
+        except ValueError as exc:
+            conn.close()
+            return jsonify({"error": str(exc)}), 400
+        conn.close()
+        if not report:
+            return jsonify({"error": "盘点单不存在"}), 404
+        filename = quote(f"{report['form_no']}盘点报表.xlsx")
+        return Response(
+            stocktake_workbook(report),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        )
+
+
     @app.put("/api/stocktakes/<int:stocktake_id>")
     def update_stocktake(stocktake_id):
         data = request.get_json(force=True)
@@ -392,6 +432,7 @@ def register_stock_routes(app, *, get_db, current_user_provider):
                         "zone_name": data.get("zone_name") or pos.get("zone_name") or "A",
                         "received_date": data.get("operation_date") or today_text(),
                         "remark": data.get("remark") or "手工入库",
+                        "purchase_project": str(data.get("purchase_project") or "").strip(),
                     },
                     data.get("form_no") or "MANUAL",
                 )

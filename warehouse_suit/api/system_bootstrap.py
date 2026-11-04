@@ -42,6 +42,9 @@ def register_system_bootstrap_routes(app, *, get_db, current_user_provider, ai_e
         users = [dict(row) for row in cursor.fetchall()]
         permissions = role_permissions(cursor)
         settings = workflow_settings(cursor)
+        from warehouse_suit.project_service import list_projects
+
+        projects = list_projects(cursor, active_only=False)
         temporary_enabled = temporary_inventory_enabled(cursor)
         if user and "admin" not in user.get("role_codes", []):
             can_pick_people = user_has_permission(cursor, user, "start_acceptance") or user_has_permission(cursor, user, "start_claim")
@@ -156,6 +159,7 @@ def register_system_bootstrap_routes(app, *, get_db, current_user_provider, ai_e
                 "departments": departments,
                 "ai_enabled": ai_enabled,
                 "workflow_settings": settings,
+                "projects": projects,
                 "data_validation_settings": validation_settings,
                 "next_stocktake_date": next_stocktake_date,
                 "role_permissions": permissions,

@@ -54,7 +54,8 @@ def _create_acceptance(client, material_code, material_name, validator_id):
                     "spec": "S1",
                     "purchase_quantity": 2,
                     "arrival_quantity": 2,
-                    "unit_price": 3,
+                    "total_amount": 6,
+                    "purchase_project": "办公",
                 }
             ],
             "validator_ids": [validator_id],
@@ -242,7 +243,7 @@ def test_direct_batch_attachment_upload_is_listed_and_used_by_bootstrap(client, 
     _login(client, "warehouse", "test")
 
     material = _create_material_master(client, "10200101010013", "直接批次附件物料")
-    stock_resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": 5, "unit_price": 2})
+    stock_resp = client.post("/api/stock/in", json={"material_id": material["id"], "quantity": 5, "total_amount": 10, "purchase_project": "办公"})
     assert stock_resp.status_code == 200, stock_resp.get_data(as_text=True)
     stock_material = stock_resp.get_json()["material"]
     batch = stock_material["batches"][0]

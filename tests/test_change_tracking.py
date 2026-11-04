@@ -108,6 +108,7 @@ def test_get_history_no_borrows(db):
     history = result["history"]
     assert len(history) == 1
     assert history[0]["event_type"] == "入库"
+    assert result["item"]["components"] == []
 
 
 def test_get_history_pagination(db):
