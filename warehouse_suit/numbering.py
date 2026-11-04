@@ -5,12 +5,7 @@ from __future__ import annotations
 from .db import today_text
 
 
-def _next_daily_no(cursor, table, column, prefix, date_text=None):
-    """按完整数字尾号取下一个单号，并串行化并发取号。"""
-    if not cursor.connection.in_transaction:
-        cursor.connection.execute("BEGIN IMMEDIATE")
-    date_part = (date_text or today_text()).replace("-", "")
-    stem = f"{prefix}{date_part}"
+def max_daily_serial(cursor, table, column, stem):
     cursor.execute(
         f"""
         SELECT COALESCE(MAX(CAST(substr({column}, ?) AS INTEGER)), 0)
@@ -19,8 +14,23 @@ def _next_daily_no(cursor, table, column, prefix, date_text=None):
         """,
         (len(stem) + 1, f"{stem}[0-9]*"),
     )
-    serial = int(cursor.fetchone()[0] or 0) + 1
-    return f"{stem}{serial:02d}"
+    return int(cursor.fetchone()[0] or 0)
+
+
+def _next_daily_no(cursor, table, column, prefix, date_text=None):
+    """按完整数字尾号取下一个单号，并串行化并发取号。"""
+    if not cursor.connection.in_transaction:
+        cursor.connection.execute("BEGIN IMMEDIATE")
+    stem = prefix + (date_text or today_text()).replace("-", "")
+    serial = max_daily_serial(cursor, table, column, stem)
+    if prefix == "RK":
+        # 验收入库号实际写入批次和库存流水。
+        serial = max(
+            serial,
+            max_daily_serial(cursor, "material_batches", "source_form_no", stem),
+            max_daily_serial(cursor, "stock_records", "form_no", stem),
+        )
+    return f"{stem}{serial + 1:02d}"
 
 
 def next_form_no(cursor, prefix, date_text=None):

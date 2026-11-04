@@ -91,7 +91,8 @@ def test_partial_claim_keeps_remaining_borrowed(client, db):
     assert mine["total"] == 1
     assert mine["items"][0]["source_kind"] == "borrow_claim"
     assert mine["items"][0]["issued_quantity"] == 3
-    assert mine["items"][0]["can_return"] is False
+    assert mine["items"][0]["can_return"] is True
+    assert mine["items"][0]["returnable_quantity"] == 3
 
     mine = client.get("/api/borrows/mine").get_json()["items"]
     match = next(item for item in mine if int(item["id"]) == record_id)

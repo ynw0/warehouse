@@ -8,6 +8,7 @@ from warehouse_suit.db import connect_db
 from warehouse_suit.inventory_constants import STOCK_SOURCE_FORMAL, STOCK_SOURCE_TEMPORARY
 from warehouse_suit.inventory_service import add_inventory_batch
 from warehouse_suit.issued_material_service import list_issued_lots
+from warehouse_suit.numbering import next_form_no
 from warehouse_suit.migrations.v2026083101_batch_warehouse_alignment import upgrade as align_batch_warehouses
 from warehouse_suit.temporary_inventory_service import adjust_temporary_batch
 
@@ -760,7 +761,8 @@ def test_acceptance_promote_renumbers_form_and_gap_fills_same_day(client, db):
     enable_temporary(client)
     user_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
     now = app_module.now_text()
-    today8 = app_module.today_text().replace("-", "")
+    today = app_module.today_text()
+    today8 = today.replace("-", "")
     db.execute(
         """
         INSERT INTO workflow_forms
@@ -798,6 +800,7 @@ def test_acceptance_promote_renumbers_form_and_gap_fills_same_day(client, db):
         (form_id, material_id, code, json.dumps({
             "inbound_done": True,
             "inbound_batch_id": batch_id,
+            "inbound_batch_no": "20260909TEMP",
             "inbound_no": "RK2026090901",
             "inbound_batches": [{"batch_id": batch_id, "quantity": 2, "inbound_no": "RK2026090901"}],
         })),
@@ -842,23 +845,141 @@ def test_acceptance_promote_renumbers_form_and_gap_fills_same_day(client, db):
         "WHERE form_no = 'CK2026091001'",
         (claim_id,),
     )
+    def add_flow(number, form_type, status, data):
+        return db.execute(
+            """
+            INSERT INTO workflow_forms
+                (form_no, form_type, title, status, current_step, applicant_id, data_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, '2026-09-10 11:00:00', '2026-09-10 11:00:00')
+            """,
+            (number, form_type, f"QA{number}", status, status, user_id, json.dumps(data)),
+        ).lastrowid
+
+    add_flow(f"YS{today8}05", "acceptance", "completed", {"has_purchase_order": True})
+    other_batch = db.execute(
+        """
+        INSERT INTO material_batches
+            (material_id, batch_no, quantity, unit_price, warehouse_type, received_date, stock_source, source_form_no)
+        VALUES (?, '20260909TEMP', 1, 1, 'office', '2026-09-09', 'temporary', ?)
+        """,
+        (material_id, f"RK{today8}03"),
+    ).lastrowid
+    db.execute(
+        """
+        INSERT INTO workflow_items (form_id, material_id, material_code, material_name, data_json)
+        VALUES (?, ?, ?, '临时库测试物料', ?)
+        """,
+        (other_10, material_id, code, json.dumps({
+            "inbound_batch_id": other_batch,
+            "inbound_batch_no": "20260909TEMP",
+            "linked_form_no": "YS2026090911",
+        })),
+    )
+    borrow_id = add_flow("JY2026091001", "borrow", "completed", {})
+    borrow_record_id = db.execute(
+        """
+        INSERT INTO borrow_records
+            (borrow_no, material_id, borrower_id, borrow_form_id, quantity, outbound_date, data_json)
+        VALUES ('JY2026091001', ?, ?, ?, 1, '2026-09-10', ?)
+        """,
+        (material_id, user_id, borrow_id, json.dumps({
+            "consumed_batches": [{"batch_id": batch_id, "batch_no": "20260909TEMP", "quantity": 1}],
+        })),
+    ).lastrowid
+    pending_return = add_flow(
+        "GH2026091001", "borrow_return", "return_inbound", {"borrow_record_id": borrow_record_id},
+    )
+    completed_return = add_flow("TK2026091001", "claim_return", "completed", {})
+    outbound_id = db.execute(
+        "SELECT id FROM stock_records WHERE form_no = 'CK2026091001'",
+    ).fetchone()[0]
+    db.execute(
+        """
+        INSERT INTO issued_return_requests
+            (source_kind, source_id, batch_id, user_id, quantity, condition_status, status, form_id, operation_key)
+        VALUES ('claim_outbound', ?, ?, ?, 1, 'normal', 'completed', ?, 'promotion-return')
+        """,
+        (outbound_id, batch_id, user_id, completed_return),
+    )
+    return_batch = db.execute(
+        """
+        INSERT INTO material_batches
+            (material_id, batch_no, quantity, warehouse_type, received_date, stock_source)
+        VALUES (?, '退库批次', 1, 'office', '2026-09-10', 'temporary')
+        """,
+        (material_id,),
+    ).lastrowid
+    db.execute(
+        """
+        INSERT INTO stock_records
+            (material_id, batch_id, operation_type, quantity, balance_after, operation_date,
+             stock_source, business_type, form_no, operation_key)
+        VALUES (?, ?, 'in', 1, 1, '2026-09-10', 'temporary', 'claim_return_inbound',
+                'CK2026091001', 'claim-return:promotion-return')
+        """,
+        (material_id, return_batch),
+    )
+    db.executemany(
+        "INSERT INTO workflow_tasks (form_id, step_code, status, signature, signed_at) VALUES (?, ?, ?, ?, ?)",
+        [
+            (completed_return, "return_inbound", "completed", "仓管", "2026-09-10"),
+            (pending_return, "return_inbound", "pending", "", ""),
+        ],
+    )
     db.commit()
     login(client)
     response = client.post(f"/api/temporary-inventory/acceptance-forms/{form_id}/promote", json={})
     assert response.status_code == 200, response.get_data(as_text=True)
     promoted = db.execute("SELECT form_no, title FROM workflow_forms WHERE id = ?", (form_id,)).fetchone()
-    assert promoted["form_no"].startswith(f"YS{today8}")
-    assert promoted["form_no"] in promoted["title"]
-    assert db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (other_10,)).fetchone()["form_no"] == "YS2026090909"
-    assert db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (other_11,)).fetchone()["form_no"] == "YS2026090910"
+    assert tuple(promoted) == (f"YS{today8}06", f"仓管YS{today8}06")
+    for other_id, number in ((other_10, "YS2026090909"), (other_11, "YS2026090910")):
+        other = db.execute(
+            "SELECT form_no, title, created_at FROM workflow_forms WHERE id = ?", (other_id,),
+        ).fetchone()
+        assert tuple(other)[:2] == (number, f"仓管{number}")
+        assert other["created_at"].startswith("2026-09-09")
     claim = db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (claim_id,)).fetchone()
     assert claim["form_no"].startswith(f"CK{today8}")
     assert db.execute(
         "SELECT form_no FROM stock_records WHERE business_type = 'claim_outbound'"
     ).fetchone()["form_no"] == claim["form_no"]
     batch = db.execute("SELECT source_form_no, batch_no FROM material_batches WHERE id = ?", (batch_id,)).fetchone()
-    assert batch["source_form_no"].startswith(f"RK{today8}")
-    assert batch["batch_no"].startswith(today8)
+    assert batch["source_form_no"] == f"RK{today8}04"
+    assert batch["batch_no"] == f"{today8}{code}"
+    assert next_form_no(db.cursor(), "RK") == f"RK{today8}05"
+    selected_data = json.loads(db.execute(
+        "SELECT data_json FROM workflow_items WHERE form_id = ?", (form_id,),
+    ).fetchone()[0])
+    other_data = json.loads(db.execute(
+        "SELECT data_json FROM workflow_items WHERE form_id = ?", (other_10,),
+    ).fetchone()[0])
+    assert selected_data["inbound_batch_no"] == batch["batch_no"]
+    assert other_data["inbound_batch_no"] == "20260909TEMP"
+    assert other_data["linked_form_no"] == "YS2026090910"
+    borrow_data = json.loads(db.execute(
+        "SELECT data_json FROM borrow_records WHERE id = ?", (borrow_record_id,),
+    ).fetchone()[0])
+    assert borrow_data["consumed_batches"][0]["batch_no"] == batch["batch_no"]
+
+    for return_id, prefix, signed_at in ((pending_return, "GH", ""), (completed_return, "TK", today)):
+        returned = db.execute(
+            """
+            SELECT f.form_no, f.title, f.created_at, t.signed_at
+            FROM workflow_forms f JOIN workflow_tasks t ON t.form_id = f.id WHERE f.id = ?
+            """,
+            (return_id,),
+        ).fetchone()
+        assert returned["form_no"] == f"{prefix}{today8}01"
+        assert returned["title"] == f"QA{prefix}{today8}01"
+        assert returned["created_at"].startswith(today)
+        assert returned["signed_at"] == signed_at
+    returned_stock = db.execute(
+        """
+        SELECT batch_id, operation_date, stock_source FROM stock_records
+        WHERE operation_key = 'claim-return:promotion-return'
+        """,
+    ).fetchone()
+    assert tuple(returned_stock) == (return_batch, today, "temporary")
 
 
 def test_acceptance_promote_rejects_open_temporary_claim(client, db):

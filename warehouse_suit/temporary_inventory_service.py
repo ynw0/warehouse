@@ -10,7 +10,6 @@ from warehouse_suit.db import now_text, today_text
 from warehouse_suit.inventory_constants import (
     BUSINESS_TYPE_BORROW_OUTBOUND,
     BUSINESS_TYPE_BORROW_RETURN_INBOUND,
-    BUSINESS_TYPE_CLAIM_OUTBOUND,
     BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_IN,
     BUSINESS_TYPE_TEMPORARY_MANUAL_ADJUST_OUT,
     BUSINESS_TYPE_TEMPORARY_MANUAL_INBOUND,
@@ -636,6 +635,7 @@ def _sync_promoted_borrow_sources(cursor, batch_ids):
 
 def promote_temporary_material(
     cursor, material_id, selected_batches, user, ip_address="", allow_zero=False, skip_renumber=False,
+    promotion_time=None,
 ):
     """Convert selected transferable temporary batches to formal inventory."""
     material_id = int(material_id or 0)
@@ -693,8 +693,8 @@ def promote_temporary_material(
         if not allow_zero and float(batch.get("quantity") or 0) <= 0:
             raise ValueError("零库存批次不能转入正式库")
 
-    timestamp = now_text()
-    date_value = today_text()
+    timestamp = promotion_time or now_text()
+    date_value = timestamp[:10]
     cursor.execute(
         f"""
         UPDATE temporary_issue_obligations
@@ -740,17 +740,11 @@ def promote_temporary_material(
     formal_quantity, _ = update_inventory_total(cursor, material_id, STOCK_SOURCE_FORMAL)
     renumber = {"rename_map": {}, "batch_no_map": {}}
     if not skip_renumber:
-        from warehouse_suit.promote_renumber import (
-            apply_promote_renumber,
-            find_acceptance_form_ids_for_batches,
-        )
+        from warehouse_suit.promote_renumber import apply_promote_renumber
 
-        acceptance_ids = find_acceptance_form_ids_for_batches(cursor, batch_ids)
-        acceptance_form_id = next(iter(acceptance_ids), None)
         renumber = apply_promote_renumber(
             cursor,
             batch_ids,
-            acceptance_form_id=acceptance_form_id,
             date_value=date_value,
             timestamp=timestamp,
         )
@@ -840,6 +834,7 @@ def list_temporary_acceptance_forms(cursor):
 def promote_acceptance_form(cursor, form_id, user, ip_address=""):
     """把一张没有采购订单的验收单下的临时批次全部转到正式库。"""
     require_temporary_inventory_enabled(cursor)
+    begin_inventory_transaction(cursor.connection)
     cursor.execute("SELECT * FROM workflow_forms WHERE id = ? AND form_type = 'acceptance'", (int(form_id),))
     form = cursor.fetchone()
     if not form:
@@ -878,7 +873,8 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
             raise ValueError("所选批次当前不可转移")
     material_ids = {int(batch["material_id"]) for batch in temporary_batches}
     _reject_blocking_claims(cursor, [int(batch["id"]) for batch in temporary_batches], material_ids)
-    begin_inventory_transaction(cursor.connection)
+    timestamp = now_text()
+    date_value = timestamp[:10]
     grouped = {}
     for batch in temporary_batches:
         grouped.setdefault(int(batch["material_id"]), []).append(
@@ -888,10 +884,8 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
     for material_id, selections in grouped.items():
         converted.append(promote_temporary_material(
             cursor, material_id, selections, user, ip_address, allow_zero=True,
-            skip_renumber=True,
+            skip_renumber=True, promotion_time=timestamp,
         ))
-    date_value = today_text()
-    timestamp = now_text()
     from warehouse_suit.promote_renumber import apply_promote_renumber
 
     renumber = apply_promote_renumber(
@@ -1005,55 +999,3 @@ def _reject_blocking_claims(cursor, batch_ids, material_ids):
     from warehouse_suit.claim_split_service import raise_blocking_claims
 
     raise_blocking_claims(cursor, batch_ids, material_ids)
-
-
-def _shift_related_claim_times(cursor, batch_ids, date_value, timestamp):
-    if not batch_ids:
-        return
-    marks = ",".join("?" for _ in batch_ids)
-    cursor.execute(
-        f"""
-        SELECT DISTINCT wi.form_id
-        FROM stock_records sr
-        JOIN workflow_items wi ON wi.id = sr.workflow_item_id
-        JOIN workflow_forms f ON f.id = wi.form_id
-        WHERE f.form_type = 'claim'
-          AND sr.business_type = ?
-          AND sr.batch_id IN ({marks})
-        """,
-        [BUSINESS_TYPE_CLAIM_OUTBOUND, *batch_ids],
-    )
-    for row in cursor.fetchall():
-        form_id = int(row["form_id"])
-        _shift_workflow_times(cursor, form_id, date_value, timestamp)
-        cursor.execute(
-            "UPDATE claim_outbound_operations SET created_at = ? WHERE form_id = ?",
-            (timestamp, form_id),
-        )
-        cursor.execute(
-            """
-            UPDATE temporary_issue_obligations
-            SET created_at = ?, updated_at = ?,
-                settled_at = CASE WHEN COALESCE(settled_at, '') <> '' THEN ? ELSE settled_at END
-            WHERE claim_form_id = ?
-            """,
-            (timestamp, timestamp, timestamp, form_id),
-        )
-
-
-def _shift_workflow_times(cursor, form_id, date_value, timestamp):
-    """验收或申领的发起、签字和更新时间改成转移当天。不改借用单。"""
-    cursor.execute(
-        "UPDATE workflow_forms SET created_at = ?, updated_at = ? WHERE id = ? AND form_type <> 'borrow'",
-        (timestamp, timestamp, int(form_id)),
-    )
-    cursor.execute(
-        """
-        UPDATE workflow_tasks
-        SET created_at = ?, updated_at = ?,
-            signed_at = CASE WHEN COALESCE(signed_at, '') <> '' THEN ? ELSE signed_at END
-        WHERE form_id = ?
-          AND step_code NOT IN ('leader_borrow', 'borrow_outbound', 'return_inbound')
-        """,
-        (timestamp, timestamp, date_value, int(form_id)),
-    )

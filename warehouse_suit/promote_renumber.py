@@ -17,6 +17,7 @@ from warehouse_suit.inventory_constants import (
     STOCK_SOURCE_FORMAL,
 )
 from warehouse_suit.material_utils import default_edit_batch_no
+from warehouse_suit.numbering import max_daily_serial, next_form_no
 
 # 标准日流水：前缀 + YYYYMMDD + 序号（至少两位）
 _FORM_NO_RE = re.compile(r"^([A-Z]+)(\d{8})(\d+)$")
@@ -159,7 +160,7 @@ def discover_promote_tree(cursor, batch_ids, acceptance_form_id=None):
         WHERE item_type = 'material'
         """
     )
-    borrow_form_ids = set()
+    borrow_record_ids = set()
     for record in cursor.fetchall():
         record = dict(record)
         data = _load_json(record.get("data_json"))
@@ -173,120 +174,42 @@ def discover_promote_tree(cursor, batch_ids, acceptance_form_id=None):
                 break
         if not touched:
             continue
+        borrow_record_ids.add(int(record["id"]))
         if record.get("borrow_form_id"):
             form_ids.add(int(record["borrow_form_id"]))
-            borrow_form_ids.add(int(record["borrow_form_id"]))
         if record.get("return_form_id"):
             form_ids.add(int(record["return_form_id"]))
-        # 转领用：挂在该借用记录上
+    if borrow_record_ids:
+        # 归还申请创建时已关联借用记录，入库前还没有归还流水。
         cursor.execute(
-            """
+            f"""
             SELECT id FROM workflow_forms
-            WHERE form_type = 'borrow_claim'
-              AND (
-                    CAST(COALESCE(json_extract(data_json, '$.borrow_record_id'), 0) AS INTEGER) = ?
-                 OR CAST(COALESCE(json_extract(data_json, '$.borrow_form_id'), 0) AS INTEGER) = ?
-              )
+            WHERE form_type IN ('borrow_return', 'borrow_claim')
+              AND CAST(json_extract(data_json, '$.borrow_record_id') AS INTEGER)
+                  IN ({_placeholders(borrow_record_ids)})
             """,
-            (int(record["id"]), int(record.get("borrow_form_id") or 0)),
+            sorted(borrow_record_ids),
         )
-        for row in cursor.fetchall():
-            form_ids.add(int(row["id"]))
+        form_ids.update(int(row["id"]) for row in cursor.fetchall())
 
-    # 领用退库：source_form_id / source_form_no 指向树内领用单
-    if form_ids:
-        claim_marks = _placeholders(form_ids)
-        cursor.execute(
-            f"""
-            SELECT id, form_no FROM workflow_forms
-            WHERE id IN ({claim_marks}) AND form_type IN ('claim', 'special_claim', 'borrow_claim')
-            """,
-            list(form_ids),
-        )
-        source_forms = [dict(row) for row in cursor.fetchall()]
-        source_ids = [int(row["id"]) for row in source_forms]
-        source_nos = [str(row["form_no"] or "") for row in source_forms if row["form_no"]]
-        if source_ids:
-            cursor.execute(
-                f"""
-                SELECT id FROM workflow_forms
-                WHERE form_type = 'claim_return'
-                  AND CAST(COALESCE(json_extract(data_json, '$.source_form_id'), 0) AS INTEGER)
-                      IN ({_placeholders(source_ids)})
-                """,
-                source_ids,
-            )
-            for row in cursor.fetchall():
-                form_ids.add(int(row["id"]))
-        for source_no in source_nos:
-            cursor.execute(
-                """
-                SELECT id FROM workflow_forms
-                WHERE form_type = 'claim_return'
-                  AND COALESCE(json_extract(data_json, '$.source_form_no'), '') = ?
-                """,
-                (source_no,),
-            )
-            for row in cursor.fetchall():
-                form_ids.add(int(row["id"]))
-    # 退库入库流水挂本批
+    # 退库申请保存原批次 ID，入库后生成的退库批次与原批次独立。
     cursor.execute(
         f"""
-        SELECT DISTINCT wi.form_id
-        FROM stock_records sr
-        JOIN workflow_items wi ON wi.id = sr.workflow_item_id
-        JOIN workflow_forms f ON f.id = wi.form_id
-        WHERE sr.batch_id IN ({marks})
-          AND sr.business_type = ?
-          AND f.form_type = 'claim_return'
+        SELECT form_id FROM issued_return_requests
+        WHERE batch_id IN ({marks})
+          AND source_kind IN ('claim_outbound', 'borrow_claim')
+          AND form_id IS NOT NULL
         """,
-        [*ids, BUSINESS_TYPE_CLAIM_RETURN_INBOUND],
+        ids,
     )
-    for row in cursor.fetchall():
-        if row["form_id"]:
-            form_ids.add(int(row["form_id"]))
-
-    # 验收行上的 inbound_no
-    if form_ids:
-        cursor.execute(
-            f"""
-            SELECT data_json FROM workflow_items
-            WHERE form_id IN ({_placeholders(form_ids)})
-            """,
-            list(form_ids),
-        )
-        for row in cursor.fetchall():
-            data = _load_json(row["data_json"])
-            inbound_no = str(data.get("inbound_no") or "").strip()
-            parsed = parse_daily_no(inbound_no)
-            if parsed and parsed[0] == "RK":
-                rk_nos.add(inbound_no)
-            for batch in data.get("inbound_batches") or []:
-                if isinstance(batch, dict):
-                    inbound_no = str(batch.get("inbound_no") or batch.get("form_no") or "").strip()
-                    parsed = parse_daily_no(inbound_no)
-                    if parsed and parsed[0] == "RK":
-                        rk_nos.add(inbound_no)
-
+    form_ids.update(int(row["form_id"]) for row in cursor.fetchall())
     return {"form_ids": form_ids, "rk_nos": rk_nos, "batch_ids": ids}
-
-
-def _max_serial_for_stem(cursor, table, column, stem):
-    cursor.execute(
-        f"""
-        SELECT COALESCE(MAX(CAST(substr({column}, ?) AS INTEGER)), 0)
-        FROM {table}
-        WHERE {column} GLOB ?
-        """,
-        (len(stem) + 1, f"{stem}[0-9]*"),
-    )
-    return int(cursor.fetchone()[0] or 0)
 
 
 def _list_stem_form_nos(cursor, stem):
     cursor.execute(
         """
-        SELECT id, form_no, title, form_type
+        SELECT form_no
         FROM workflow_forms
         WHERE form_no GLOB ?
         ORDER BY CAST(substr(form_no, ?) AS INTEGER), id
@@ -297,23 +220,47 @@ def _list_stem_form_nos(cursor, stem):
 
 
 def _collect_rk_domain_nos(cursor, stem):
-    """RK 不进 workflow_forms，从批次与流水收集当日域。"""
-    nos = set()
+    """RK 当日流水由批次和库存流水共同记录。"""
     cursor.execute(
-        "SELECT DISTINCT source_form_no AS no FROM material_batches WHERE source_form_no GLOB ?",
-        (f"{stem}[0-9]*",),
+        """
+        SELECT source_form_no AS no FROM material_batches WHERE source_form_no GLOB ?
+        UNION
+        SELECT form_no FROM stock_records WHERE form_no GLOB ?
+        """,
+        (f"{stem}[0-9]*", f"{stem}[0-9]*"),
     )
-    for row in cursor.fetchall():
-        if row["no"]:
-            nos.add(str(row["no"]))
+    return {row["no"] for row in cursor.fetchall()}
+
+
+def _check_rk_ownership(cursor, rename_map):
+    """同一 RK 可覆盖多条入库明细，但不同验收单共用旧号时无法安全补位。"""
+    rk_nos = [number for number in rename_map if number.startswith("RK")]
+    if not rk_nos:
+        return
+    marks = _placeholders(rk_nos)
     cursor.execute(
-        "SELECT DISTINCT form_no AS no FROM stock_records WHERE form_no GLOB ?",
-        (f"{stem}[0-9]*",),
+        f"""
+        SELECT form_no AS no, batch_id, operation_key FROM stock_records
+        WHERE operation_type = 'in' AND form_no IN ({marks})
+        UNION ALL
+        SELECT source_form_no AS no, id AS batch_id, NULL FROM material_batches
+        WHERE source_form_no IN ({marks})
+        """,
+        [*rk_nos, *rk_nos],
     )
+    batches = {}
+    owners = {}
     for row in cursor.fetchall():
-        if row["no"]:
-            nos.add(str(row["no"]))
-    return nos
+        number, batch_id, operation_key = row
+        batches.setdefault(number, set()).add(batch_id)
+        key = (operation_key or "").split(":")
+        if len(key) == 4 and key[0] == "acceptance" and key[3] == "inbound":
+            owners.setdefault(number, {}).setdefault(batch_id, set()).add(key[1])
+    for number, batch_ids in batches.items():
+        by_batch = owners.get(number, {})
+        form_ids = {form_id for ids in by_batch.values() for form_id in ids}
+        if len(form_ids) > 1 or (len(batch_ids) > 1 and batch_ids - by_batch.keys()):
+            raise ValueError(f"入库单号 {number} 对应多个入库来源，请先核对单号归属")
 
 
 def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
@@ -344,7 +291,7 @@ def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
         key = (prefix, promote8)
         if key not in next_serial:
             stem = f"{prefix}{promote8}"
-            next_serial[key] = _max_serial_for_stem(cursor, "workflow_forms", "form_no", stem) + 1
+            next_serial[key] = max_daily_serial(cursor, "workflow_forms", "form_no", stem) + 1
         serial = next_serial[key]
         next_serial[key] = serial + 1
         return format_daily_no(prefix, promote8, serial)
@@ -370,18 +317,8 @@ def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
 
     def alloc_rk():
         nonlocal rk_next
-        stem = f"RK{promote8}"
         if rk_next is None:
-            # 真实域 MAX
-            domain = _collect_rk_domain_nos(cursor, stem)
-            max_serial = 0
-            for no in domain:
-                parsed = parse_daily_no(no)
-                if parsed:
-                    max_serial = max(max_serial, parsed[2])
-            # 也看 workflow_forms 以免预览占号
-            max_serial = max(max_serial, _max_serial_for_stem(cursor, "workflow_forms", "form_no", stem))
-            rk_next = max_serial + 1
+            rk_next = parse_daily_no(next_form_no(cursor, "RK", promote_date_text))[2]
         serial = rk_next
         rk_next = serial + 1
         return format_daily_no("RK", promote8, serial)
@@ -432,26 +369,17 @@ def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
         day_nos = list(_collect_rk_domain_nos(cursor, stem))
         _gap_fill_serials(day_nos, removed, "RK", date8)
 
+    _check_rk_ownership(cursor, rename_map)
     return rename_map
 
 
-def _replace_text(value, rename_map):
-    text = str(value)
-    # 长单号优先，避免短串误伤
-    for old_no in sorted(rename_map.keys(), key=len, reverse=True):
-        new_no = rename_map[old_no]
-        if old_no in text:
-            text = text.replace(old_no, new_no)
-    return text
-
-
-def _replace_json_value(value, rename_map):
+def _replace_json_value(value, replace_text):
     if isinstance(value, dict):
-        return {key: _replace_json_value(item, rename_map) for key, item in value.items()}
+        return {key: _replace_json_value(item, replace_text) for key, item in value.items()}
     if isinstance(value, list):
-        return [_replace_json_value(item, rename_map) for item in value]
+        return [_replace_json_value(item, replace_text) for item in value]
     if isinstance(value, str):
-        return _replace_text(value, rename_map)
+        return replace_text(value)
     return value
 
 
@@ -463,21 +391,18 @@ def _two_phase_update_form_nos(cursor, form_rows, rename_map, timestamp):
         new_no = rename_map.get(old_no)
         if not new_no or new_no == old_no:
             continue
-        pending.append((row["id"], old_no, new_no, row.get("title") or ""))
+        pending.append((row["id"], new_no))
 
-    for form_id, _old_no, _new_no, _title in pending:
+    for form_id, _ in pending:
         cursor.execute(
             "UPDATE workflow_forms SET form_no = ?, updated_at = ? WHERE id = ?",
             (f"__RENUM__{form_id}", timestamp, form_id),
         )
 
-    for form_id, old_no, new_no, title in pending:
-        new_title = _replace_text(title, {old_no: new_no}) if title else new_no
-        # 标题里可能还有其它被补位的单号
-        new_title = _replace_text(new_title, rename_map)
+    for form_id, new_no in pending:
         cursor.execute(
-            "UPDATE workflow_forms SET form_no = ?, title = ?, updated_at = ? WHERE id = ?",
-            (new_no, new_title, timestamp, form_id),
+            "UPDATE workflow_forms SET form_no = ?, updated_at = ? WHERE id = ?",
+            (new_no, timestamp, form_id),
         )
 
 
@@ -488,10 +413,18 @@ def apply_rename_map(cursor, rename_map, timestamp=None):
     timestamp = timestamp or now_text()
 
     # 所有被改到的旧单号对应的流程行（含原日补位的无关单）
-    old_nos = list(rename_map.keys())
+    old_nos = list(rename_map)
     marks = _placeholders(old_nos)
+    # 从原文匹配一次，保留连在部门或姓名后的单号，并避免命中更长流水。
+    pattern = re.compile(
+        "(?:" + "|".join(re.escape(no) for no in sorted(old_nos, key=len, reverse=True)) + r")(?![0-9])"
+    )
+
+    def replace_text(value):
+        return pattern.sub(lambda match: rename_map[match[0]], value)
+
     cursor.execute(
-        f"SELECT id, form_no, title FROM workflow_forms WHERE form_no IN ({marks})",
+        f"SELECT id, form_no FROM workflow_forms WHERE form_no IN ({marks})",
         old_nos,
     )
     form_rows = [dict(row) for row in cursor.fetchall()]
@@ -510,7 +443,7 @@ def apply_rename_map(cursor, rename_map, timestamp=None):
         row = dict(row)
         new_form_no = rename_map.get(row["form_no"] or "", row["form_no"])
         remark = row.get("remark") or ""
-        new_remark = _replace_text(remark, rename_map) if remark else remark
+        new_remark = replace_text(remark) if remark else remark
         if new_form_no != row["form_no"] or new_remark != remark:
             cursor.execute(
                 "UPDATE stock_records SET form_no = ?, remark = ? WHERE id = ?",
@@ -528,29 +461,29 @@ def apply_rename_map(cursor, rename_map, timestamp=None):
             (rename_map[row["source_form_no"]], timestamp, row["id"]),
         )
 
-    # borrow_records.borrow_no（含转借子行同号）
-    cursor.execute(
-        f"SELECT id, borrow_no, data_json FROM borrow_records WHERE borrow_no IN ({marks})",
-        old_nos,
-    )
+    # 转借记录可能共用借用单号，快照也可能引用其他改号的流程。
+    cursor.execute("SELECT id, borrow_no, data_json FROM borrow_records")
     for row in cursor.fetchall():
-        row = dict(row)
-        data = _replace_json_value(_load_json(row.get("data_json")), rename_map)
-        cursor.execute(
-            "UPDATE borrow_records SET borrow_no = ?, data_json = ?, updated_at = ? WHERE id = ?",
-            (rename_map[row["borrow_no"]], json.dumps(data, ensure_ascii=False), timestamp, row["id"]),
-        )
+        borrow_no = rename_map.get(row["borrow_no"], row["borrow_no"])
+        raw = row["data_json"]
+        if pattern.search(raw):
+            raw = json.dumps(_replace_json_value(json.loads(raw), replace_text), ensure_ascii=False)
+        if borrow_no != row["borrow_no"] or raw != row["data_json"]:
+            cursor.execute(
+                "UPDATE borrow_records SET borrow_no = ?, data_json = ?, updated_at = ? WHERE id = ?",
+                (borrow_no, raw, timestamp, row["id"]),
+            )
 
-    # workflow_forms.data_json（全表扫含旧号代价大：先扫树外补位涉及的行）
+    # 标题和流程数据从原值一起更新，补位单也只替换一次。
     cursor.execute("SELECT id, data_json, title FROM workflow_forms")
     for row in cursor.fetchall():
         row = dict(row)
         raw = row.get("data_json") or ""
         title = row.get("title") or ""
-        if not any(old in raw or old in title for old in rename_map):
+        if not (pattern.search(raw) or pattern.search(title)):
             continue
-        data = _replace_json_value(_load_json(raw), rename_map)
-        new_title = _replace_text(title, rename_map) if title else title
+        data = _replace_json_value(_load_json(raw), replace_text)
+        new_title = replace_text(title) if title else title
         cursor.execute(
             "UPDATE workflow_forms SET data_json = ?, title = ?, updated_at = ? WHERE id = ?",
             (json.dumps(data, ensure_ascii=False), new_title, timestamp, row["id"]),
@@ -560,9 +493,9 @@ def apply_rename_map(cursor, rename_map, timestamp=None):
     cursor.execute("SELECT id, data_json FROM workflow_items")
     for row in cursor.fetchall():
         raw = row["data_json"] or ""
-        if not any(old in raw for old in rename_map):
+        if not pattern.search(raw):
             continue
-        data = _replace_json_value(_load_json(raw), rename_map)
+        data = _replace_json_value(_load_json(raw), replace_text)
         cursor.execute(
             "UPDATE workflow_items SET data_json = ? WHERE id = ?",
             (json.dumps(data, ensure_ascii=False), row["id"]),
@@ -571,100 +504,102 @@ def apply_rename_map(cursor, rename_map, timestamp=None):
     cursor.execute("SELECT id, data_json FROM workflow_tasks WHERE COALESCE(data_json, '') <> ''")
     for row in cursor.fetchall():
         raw = row["data_json"] or ""
-        if not any(old in raw for old in rename_map):
+        if not pattern.search(raw):
             continue
-        data = _replace_json_value(_load_json(raw), rename_map)
+        data = _replace_json_value(_load_json(raw), replace_text)
         cursor.execute(
             "UPDATE workflow_tasks SET data_json = ? WHERE id = ?",
             (json.dumps(data, ensure_ascii=False), row["id"]),
         )
 
     cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_outbound_operations'"
+        "SELECT id, payload_json FROM claim_outbound_operations WHERE COALESCE(payload_json, '') <> ''"
     )
-    if cursor.fetchone():
+    for row in cursor.fetchall():
+        raw = row["payload_json"]
+        if not pattern.search(raw):
+            continue
+        payload = _replace_json_value(json.loads(raw), replace_text)
         cursor.execute(
-            "SELECT id, payload_json FROM claim_outbound_operations WHERE COALESCE(payload_json, '') <> ''"
+            "UPDATE claim_outbound_operations SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload, ensure_ascii=False), row["id"]),
         )
-        for row in cursor.fetchall():
-            raw = row["payload_json"] or ""
-            if not any(old in raw for old in rename_map):
-                continue
-            try:
-                payload = json.loads(raw)
-            except (TypeError, ValueError):
-                payload = raw
-            if isinstance(payload, (dict, list)):
-                payload = _replace_json_value(payload, rename_map)
-                text = json.dumps(payload, ensure_ascii=False)
-            else:
-                text = _replace_text(str(payload), rename_map)
-            cursor.execute(
-                "UPDATE claim_outbound_operations SET payload_json = ? WHERE id = ?",
-                (text, row["id"]),
-            )
 
     return len(rename_map)
 
 
-def sync_batch_numbers(cursor, batch_ids, promote_date_text, timestamp=None):
-    """按转正日重算 batch_no，并刷 JSON 快照中的批号。"""
-    ids = [int(item) for item in batch_ids if int(item or 0)]
-    if not ids:
+def _sync_batch_snapshot(node, numbers, date_value):
+    """按批次 ID 更新实际引用的批号及已有入库日期。"""
+    if isinstance(node, list):
+        for item in node:
+            _sync_batch_snapshot(item, numbers, date_value)
+        return
+    if not isinstance(node, dict):
+        return
+    for id_key, number_key in (("batch_id", "batch_no"), ("inbound_batch_id", "inbound_batch_no")):
+        batch_id = node.get(id_key)
+        number = numbers.get(str(batch_id))
+        if number is None:
+            continue
+        if number_key in node:
+            node[number_key] = number
+        if node.get("received_date"):
+            node["received_date"] = date_value
+    for value in node.values():
+        _sync_batch_snapshot(value, numbers, date_value)
+
+
+def sync_batch_numbers(cursor, batch_ids, date_value, timestamp):
+    """更新批次主记录和通过 ID 引用该批次的流程快照。"""
+    if not batch_ids:
         return {}
-    timestamp = timestamp or now_text()
-    date_value = promote_date_text or today_text()
-    marks = _placeholders(ids)
+    marks = _placeholders(batch_ids)
     cursor.execute(
         f"""
-        SELECT b.id, b.batch_no, b.material_id, m.material_code
-        FROM material_batches b
-        JOIN materials m ON m.id = b.material_id
+        SELECT b.id, b.batch_no, m.material_code
+        FROM material_batches b JOIN materials m ON m.id = b.material_id
         WHERE b.id IN ({marks})
         """,
-        ids,
+        batch_ids,
     )
     batch_no_map = {}
+    numbers = {}
     for row in cursor.fetchall():
-        row = dict(row)
+        batch_id = row["id"]
         new_no = default_edit_batch_no(date_value, row["material_code"])
-        old_no = row["batch_no"] or ""
-        if old_no != new_no:
-            batch_no_map[old_no] = new_no
+        numbers[str(batch_id)] = new_no
+        if row["batch_no"] != new_no:
+            batch_no_map[batch_id] = {"old": row["batch_no"], "new": new_no}
         cursor.execute(
-            """
-            UPDATE material_batches
-            SET batch_no = ?, received_date = ?, updated_at = ?
-            WHERE id = ?
+            "UPDATE material_batches SET batch_no = ?, received_date = ?, updated_at = ? WHERE id = ?",
+            (new_no, date_value, timestamp, batch_id),
+        )
+
+    for table, column in (
+        ("workflow_forms", "data_json"),
+        ("workflow_items", "data_json"),
+        ("workflow_tasks", "data_json"),
+        ("borrow_records", "data_json"),
+        ("claim_outbound_operations", "payload_json"),
+    ):
+        cursor.execute(
+            f"""
+            SELECT entry.id, entry.{column} AS payload FROM {table} AS entry
+            WHERE json_valid(entry.{column}) AND EXISTS (
+                SELECT 1 FROM json_tree(entry.{column}) AS field
+                WHERE field.key IN ('batch_id', 'inbound_batch_id')
+                  AND CAST(field.value AS TEXT) IN ({marks})
+            )
             """,
-            (new_no, date_value, timestamp, row["id"]),
+            list(numbers),
         )
-
-    if not batch_no_map:
-        return batch_no_map
-
-    # 刷 items / borrow JSON 中的批号文本
-    cursor.execute("SELECT id, data_json FROM workflow_items")
-    for row in cursor.fetchall():
-        raw = row["data_json"] or ""
-        if not any(old in raw for old in batch_no_map):
-            continue
-        data = _replace_json_value(_load_json(raw), batch_no_map)
-        cursor.execute(
-            "UPDATE workflow_items SET data_json = ? WHERE id = ?",
-            (json.dumps(data, ensure_ascii=False), row["id"]),
-        )
-
-    cursor.execute("SELECT id, data_json FROM borrow_records WHERE COALESCE(data_json, '') <> ''")
-    for row in cursor.fetchall():
-        raw = row["data_json"] or ""
-        if not any(old in raw for old in batch_no_map):
-            continue
-        data = _replace_json_value(_load_json(raw), batch_no_map)
-        cursor.execute(
-            "UPDATE borrow_records SET data_json = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(data, ensure_ascii=False), timestamp, row["id"]),
-        )
+        for row in cursor.fetchall():
+            payload = json.loads(row["payload"])
+            _sync_batch_snapshot(payload, numbers, date_value)
+            cursor.execute(
+                f"UPDATE {table} SET {column} = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
     return batch_no_map
 
 
@@ -674,8 +609,14 @@ def shift_tree_times(cursor, form_ids, batch_ids, date_value, timestamp):
     if ids:
         marks = _placeholders(ids)
         cursor.execute(
-            f"UPDATE workflow_forms SET created_at = ?, updated_at = ? WHERE id IN ({marks})",
-            [timestamp, timestamp, *ids],
+            f"""
+            UPDATE workflow_forms SET created_at = ?, updated_at = ?,
+                data_json = CASE WHEN form_type = 'borrow_claim'
+                                 AND COALESCE(json_extract(data_json, '$.claimed_date'), '') <> ''
+                    THEN json_set(data_json, '$.claimed_date', ?) ELSE data_json END
+            WHERE id IN ({marks})
+            """,
+            [timestamp, timestamp, date_value, *ids],
         )
         cursor.execute(
             f"""
@@ -687,9 +628,38 @@ def shift_tree_times(cursor, form_ids, batch_ids, date_value, timestamp):
             [timestamp, timestamp, date_value, *ids],
         )
         cursor.execute(
-            f"UPDATE claim_outbound_operations SET created_at = ? WHERE form_id IN ({marks})",
-            [timestamp, *ids],
+            f"""
+            UPDATE workflow_items
+            SET data_json = json_set(data_json, '$.claimed_date', ?)
+            WHERE form_id IN ({marks}) AND COALESCE(json_extract(data_json, '$.claimed_date'), '') <> ''
+            """,
+            [date_value, *ids],
         )
+        cursor.execute(
+            f"""
+            UPDATE claim_outbound_operations SET created_at = ?,
+                payload_json = CASE WHEN COALESCE(json_extract(payload_json, '$.signed_at'), '') <> ''
+                    THEN json_set(payload_json, '$.signed_at', ?) ELSE payload_json END
+            WHERE form_id IN ({marks})
+            """,
+            [timestamp, date_value, *ids],
+        )
+        cursor.execute(
+            f"""
+            SELECT id, data_json FROM workflow_tasks
+            WHERE form_id IN ({marks}) AND json_type(data_json, '$.outbound_operations') = 'array'
+            """,
+            ids,
+        )
+        for row in cursor.fetchall():
+            data = _load_json(row["data_json"])
+            for operation in data["outbound_operations"]:
+                if operation.get("signed_at"):
+                    operation["signed_at"] = date_value
+            cursor.execute(
+                "UPDATE workflow_tasks SET data_json = ? WHERE id = ?",
+                (json.dumps(data, ensure_ascii=False), row["id"]),
+            )
         cursor.execute(
             f"""
             UPDATE temporary_issue_obligations
@@ -721,6 +691,22 @@ def shift_tree_times(cursor, form_ids, batch_ids, date_value, timestamp):
             """,
             [date_value, timestamp, STOCK_SOURCE_FORMAL, *batch_list],
         )
+        # 退库会另建临时批次，流水改期时沿用其独立的库存来源。
+        cursor.execute(
+            f"""
+            UPDATE stock_records SET operation_date = ?, created_at = ?
+            WHERE id IN (
+                SELECT ret.inbound_record_id FROM claim_returns ret
+                JOIN stock_records outbound ON outbound.id = ret.outbound_record_id
+                WHERE outbound.batch_id IN ({marks})
+            ) OR operation_key IN (
+                SELECT 'claim-return:' || operation_key FROM issued_return_requests
+                WHERE batch_id IN ({marks})
+                  AND source_kind IN ('claim_outbound', 'borrow_claim')
+            )
+            """,
+            [date_value, timestamp, *batch_list, *batch_list],
+        )
 
 
 def apply_promote_renumber(cursor, batch_ids, acceptance_form_id=None, date_value=None, timestamp=None):
@@ -739,24 +725,3 @@ def apply_promote_renumber(cursor, batch_ids, acceptance_form_id=None, date_valu
         "rename_count": applied,
         "batch_no_map": batch_no_map,
     }
-
-
-def find_acceptance_form_ids_for_batches(cursor, batch_ids):
-    """从入库流水反查验收单 id。"""
-    ids = [int(item) for item in batch_ids if int(item or 0)]
-    found = set()
-    if not ids:
-        return found
-    cursor.execute(
-        f"""
-        SELECT operation_key FROM stock_records
-        WHERE batch_id IN ({_placeholders(ids)})
-          AND operation_key GLOB 'acceptance:*:inbound'
-        """,
-        ids,
-    )
-    for row in cursor.fetchall():
-        parts = str(row["operation_key"] or "").split(":")
-        if len(parts) >= 2 and parts[1].isdigit():
-            found.add(int(parts[1]))
-    return found
