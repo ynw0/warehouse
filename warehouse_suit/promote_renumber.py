@@ -17,7 +17,7 @@ from warehouse_suit.inventory_constants import (
     STOCK_SOURCE_FORMAL,
 )
 from warehouse_suit.material_utils import default_edit_batch_no
-from warehouse_suit.numbering import max_daily_serial, next_form_no
+from warehouse_suit.numbering import max_daily_serial
 
 # 标准日流水：前缀 + YYYYMMDD + 序号（至少两位）
 _FORM_NO_RE = re.compile(r"^([A-Z]+)(\d{8})(\d+)$")
@@ -232,38 +232,7 @@ def _collect_rk_domain_nos(cursor, stem):
     return {row["no"] for row in cursor.fetchall()}
 
 
-def _check_rk_ownership(cursor, rename_map):
-    """同一 RK 可覆盖多条入库明细，但不同验收单共用旧号时无法安全补位。"""
-    rk_nos = [number for number in rename_map if number.startswith("RK")]
-    if not rk_nos:
-        return
-    marks = _placeholders(rk_nos)
-    cursor.execute(
-        f"""
-        SELECT form_no AS no, batch_id, operation_key FROM stock_records
-        WHERE operation_type = 'in' AND form_no IN ({marks})
-        UNION ALL
-        SELECT source_form_no AS no, id AS batch_id, NULL FROM material_batches
-        WHERE source_form_no IN ({marks})
-        """,
-        [*rk_nos, *rk_nos],
-    )
-    batches = {}
-    owners = {}
-    for row in cursor.fetchall():
-        number, batch_id, operation_key = row
-        batches.setdefault(number, set()).add(batch_id)
-        key = (operation_key or "").split(":")
-        if len(key) == 4 and key[0] == "acceptance" and key[3] == "inbound":
-            owners.setdefault(number, {}).setdefault(batch_id, set()).add(key[1])
-    for number, batch_ids in batches.items():
-        by_batch = owners.get(number, {})
-        form_ids = {form_id for ids in by_batch.values() for form_id in ids}
-        if len(form_ids) > 1 or (len(batch_ids) > 1 and batch_ids - by_batch.keys()):
-            raise ValueError(f"入库单号 {number} 对应多个入库来源，请先核对单号归属")
-
-
-def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
+def build_rename_map(cursor, form_ids, vacated_rk, promote_date_text):
     """构建 old_no -> new_no（含迁到转正日 + 原日补位）。"""
     promote8 = _date8(promote_date_text)
     rename_map = {}
@@ -302,30 +271,11 @@ def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
         rename_map[old_no] = new_no
         vacated.setdefault((prefix, date8), set()).add(old_no)
 
-    # RK：迁到转正日 + 记录 vacated
-    rk_moving = []
-    for old_no in sorted(rk_nos):
+    for old_no in vacated_rk:
         parsed = parse_daily_no(old_no)
-        if not parsed or parsed[0] != "RK":
-            continue
-        prefix, date8, serial = parsed
-        if date8 == promote8:
-            continue
-        rk_moving.append((old_no, prefix, date8, serial))
-
-    rk_next = None
-
-    def alloc_rk():
-        nonlocal rk_next
-        if rk_next is None:
-            rk_next = parse_daily_no(next_form_no(cursor, "RK", promote_date_text))[2]
-        serial = rk_next
-        rk_next = serial + 1
-        return format_daily_no("RK", promote8, serial)
-
-    for old_no, prefix, date8, _serial in rk_moving:
-        rename_map[old_no] = alloc_rk()
-        vacated.setdefault((prefix, date8), set()).add(old_no)
+        if parsed:
+            prefix, date8, _ = parsed
+            vacated.setdefault((prefix, date8), set()).add(old_no)
 
     def _gap_fill_serials(old_nos, removed_nos, prefix, date8):
         """大于被迁走流水的号依次减 1，填掉空位（例 09 迁走后 10→09、11→10）。"""
@@ -369,7 +319,6 @@ def build_rename_map(cursor, form_ids, rk_nos, promote_date_text):
         day_nos = list(_collect_rk_domain_nos(cursor, stem))
         _gap_fill_serials(day_nos, removed, "RK", date8)
 
-    _check_rk_ownership(cursor, rename_map)
     return rename_map
 
 
@@ -714,11 +663,34 @@ def apply_promote_renumber(cursor, batch_ids, acceptance_form_id=None, date_valu
     date_value = date_value or today_text()
     timestamp = timestamp or now_text()
     tree = discover_promote_tree(cursor, batch_ids, acceptance_form_id=acceptance_form_id)
-    rename_map = build_rename_map(cursor, tree["form_ids"], tree["rk_nos"], date_value)
+    from warehouse_suit.acceptance_promotion import migrate_receipt_numbers
+
+    rk_changes, vacated_rk = migrate_receipt_numbers(cursor, tree["batch_ids"], date_value)
+    rename_map = build_rename_map(cursor, tree["form_ids"], vacated_rk, date_value)
     applied = apply_rename_map(cursor, rename_map, timestamp=timestamp)
     batch_no_map = sync_batch_numbers(cursor, tree["batch_ids"], date_value, timestamp=timestamp)
     shift_tree_times(cursor, tree["form_ids"], tree["batch_ids"], date_value, timestamp)
+    for form_id in tree["form_ids"]:
+        cursor.execute(
+            """
+            UPDATE workflow_items SET stock_source = ?
+            WHERE form_id = ? AND EXISTS (
+                SELECT 1 FROM workflow_forms f
+                WHERE f.id = workflow_items.form_id AND f.form_type IN ('acceptance','claim','special_claim','borrow_claim')
+            )
+            """,
+            (STOCK_SOURCE_FORMAL, form_id),
+        )
+        cursor.execute(
+            """
+            UPDATE workflow_forms SET data_json = json_set(data_json, '$.promoted_to_formal', json('true'),
+                                                               '$.promoted_at', ?)
+            WHERE id = ? AND form_type = 'acceptance'
+            """,
+            (date_value, form_id),
+        )
     return {
+        "rk_changes": rk_changes,
         "form_ids": sorted(tree["form_ids"]),
         "rk_nos": sorted(tree["rk_nos"]),
         "rename_map": rename_map,

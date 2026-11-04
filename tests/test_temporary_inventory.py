@@ -1175,11 +1175,6 @@ def test_split_cross_acceptance_line_keeps_quantities_and_form_no(client, db):
     )
     db.commit()
     login(client)
-    blocked = client.post(f"/api/temporary-inventory/acceptance-forms/{acceptance_a}/promote", json={})
-    assert blocked.status_code == 400
-    body = blocked.get_json()
-    assert body["splittable"] is True
-    assert "两张验收单" in body["error"]
     split = client.post(f"/api/temporary-inventory/acceptance-forms/{acceptance_a}/split-claims", json={})
     assert split.status_code == 200, split.get_data(as_text=True)
     created = split.get_json()["created"]
@@ -1303,10 +1298,6 @@ def test_split_mixed_and_two_temporary_materials(client, db):
     _insert_outbound(db, second_material, two_batch_b, second_item, "CK-TWO", 2)
     db.commit()
     login(client)
-    mixed_blocked = client.post(f"/api/temporary-inventory/acceptance-forms/{mixed_acceptance}/promote", json={})
-    assert mixed_blocked.status_code == 400
-    assert mixed_blocked.get_json()["splittable"] is True
-    assert "同时领用了临时库和正式库" in mixed_blocked.get_json()["error"]
     mixed_split = client.post(f"/api/temporary-inventory/acceptance-forms/{mixed_acceptance}/split-claims", json={})
     assert mixed_split.status_code == 200, mixed_split.get_data(as_text=True)
     mixed_new = mixed_split.get_json()["created"][0]["form_no"]
@@ -1316,10 +1307,100 @@ def test_split_mixed_and_two_temporary_materials(client, db):
     ).fetchone()[0] == "formal"
     assert db.execute("SELECT form_no FROM stock_records WHERE id = ?", (mixed_out,)).fetchone()[0] == mixed_new
     assert db.execute("SELECT quantity FROM material_batches WHERE id = ?", (mixed_batch,)).fetchone()[0] == 3
-    two_blocked = client.post(f"/api/temporary-inventory/acceptance-forms/{two_acceptance}/promote", json={})
-    assert two_blocked.status_code == 400
-    assert "两种临时库物料" in two_blocked.get_json()["error"]
-    two_split = client.post(f"/api/temporary-inventory/acceptance-forms/{two_acceptance}/split-claims", json={})
-    assert two_split.status_code == 200, two_split.get_data(as_text=True)
     promoted = client.post(f"/api/temporary-inventory/acceptance-forms/{two_acceptance}/promote", json={})
     assert promoted.status_code == 200, promoted.get_data(as_text=True)
+
+def test_selected_batch_splits_acceptance_and_mixed_claim_with_shared_rk(client, db):
+    material_id, code = seed_material(db, name="滤光片")
+    enable_temporary(client)
+    user_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
+    old_rk = "RK2026092401"
+    chosen = _insert_batch(db, material_id, "FILTER-A", 4, "2026-09-24")
+    kept = _insert_batch(db, material_id, "FILTER-B", 5, "2026-09-24")
+    unrelated = _insert_batch(db, material_id, "FILTER-C", 2, "2026-09-24")
+    old_form = _insert_acceptance(db, user_id, "YS2026092401", chosen, material_id, code, "滤光片")
+    other_form = _insert_acceptance(db, user_id, "YS2026092402", unrelated, material_id, code, "滤光片")
+    item_id = db.execute(
+        """
+        INSERT INTO workflow_items
+            (form_id, material_id, material_code, material_name, stock_source, qualified_quantity, data_json)
+        VALUES (?, ?, ?, '滤光片', 'temporary', 5, ?)
+        """,
+        (old_form, material_id, code, json.dumps({
+            "inbound_done": True, "inbound_batch_id": kept, "inbound_no": old_rk,
+        })),
+    ).lastrowid
+    db.execute(
+        """
+        INSERT INTO stock_records
+            (material_id, batch_id, operation_type, quantity, balance_after, operation_date,
+             stock_source, business_type, form_no, operation_key)
+        VALUES (?, ?, 'in', 5, 5, '2026-09-24', 'temporary', 'temporary_acceptance_inbound', ?, ?)
+        """,
+        (material_id, kept, old_rk, f"acceptance:{old_form}:{item_id}:inbound"),
+    )
+    db.executemany(
+        "UPDATE material_batches SET source_form_no = ? WHERE id = ?",
+        [(old_rk, batch) for batch in (chosen, kept, unrelated)],
+    )
+    db.executemany(
+        "UPDATE stock_records SET form_no = ? WHERE operation_type = 'in' AND batch_id = ?",
+        [(old_rk, batch) for batch in (chosen, unrelated)],
+    )
+    claim = _insert_claim_form(db, user_id, "CK2026092401")
+    claim_item = _insert_claim_item(db, claim, material_id, code, "滤光片", 3, "temporary")
+    out_chosen = _insert_outbound(db, material_id, chosen, claim_item, "CK2026092401", 2)
+    out_kept = _insert_outbound(db, material_id, kept, claim_item, "CK2026092401", 1)
+    db.execute(
+        "UPDATE workflow_items SET data_json = ? WHERE id = ?",
+        (json.dumps({"consumed_batches": [
+            {"batch_id": chosen, "quantity": 2, "stock_record_id": out_chosen},
+            {"batch_id": kept, "quantity": 1, "stock_record_id": out_kept},
+        ]}), claim_item),
+    )
+    db.commit()
+    login(client)
+
+    response = client.post(
+        f"/api/temporary-inventory/materials/{material_id}/promote",
+        json={"batches": [{"id": chosen, "version": 0}]},
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    today = app_module.today_text()
+    today8 = today.replace("-", "")
+    stock = db.execute(
+        "SELECT source_form_no, received_date, quantity FROM material_batches WHERE id = ?", (chosen,),
+    ).fetchone()
+    new_rk = stock["source_form_no"]
+    assert new_rk.startswith(f"RK{today8}")
+    assert tuple(stock)[1:] == (today, 4)
+    for batch, quantity in ((kept, 5), (unrelated, 2)):
+        row = db.execute(
+            "SELECT source_form_no, received_date, quantity FROM material_batches WHERE id = ?", (batch,),
+        ).fetchone()
+        assert tuple(row) == (old_rk, "2026-09-24", quantity)
+
+    def search_ids(number):
+        response = client.get("/api/workflows", query_string={"form_no": number})
+        assert response.status_code == 200, response.get_data(as_text=True)
+        return {row["id"] for row in response.get_json()}
+
+    assert search_ids(old_rk) == {old_form, other_form}
+    (new_form,) = search_ids(new_rk)
+    assert new_form not in {old_form, other_form}
+    assert db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (old_form,)).fetchone()[0] == "YS2026092401"
+    assert db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (new_form,)).fetchone()[0].startswith(f"YS{today8}")
+    for out_id, old, quantity in ((out_chosen, False, 2), (out_kept, True, 1)):
+        row = db.execute(
+            """
+            SELECT sr.form_no, sr.quantity, wi.request_quantity
+            FROM stock_records sr JOIN workflow_items wi ON wi.id = sr.workflow_item_id
+            WHERE sr.id = ?
+            """,
+            (out_id,),
+        ).fetchone()
+        assert tuple(row)[1:] == (quantity, quantity)
+        if old:
+            assert row["form_no"] == "CK2026092401"
+        else:
+            assert row["form_no"].startswith(f"CK{today8}")

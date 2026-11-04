@@ -719,3 +719,150 @@ def test_promote_moves_unissued_borrow_onto_formal_batch(client, db):
         "SELECT id, stock_source, quantity FROM material_batches WHERE material_id = ?",
         (material_id,),
     ).fetchone()) == (batch_id, STOCK_SOURCE_FORMAL, 5)
+
+def test_promote_splits_borrow_and_pending_return_by_batch(client, db):
+    enable_temporary(client)
+    material_id, _, batches = seed_material(db, temporary_batches=(5, 5))
+    kept, chosen = batches[STOCK_SOURCE_TEMPORARY]
+    form, _ = create_borrow(client, db, [{
+        "item_type": "material", "item_ref_id": material_id, "request_quantity": 7,
+    }])
+    approve_borrow(client, db, form["id"])
+    outbound = outbound_borrow(client, form)
+    assert outbound.status_code == 200, outbound.get_data(as_text=True)
+    original = db.execute(
+        "SELECT id FROM borrow_records WHERE borrow_form_id = ?", (form["id"],),
+    ).fetchone()[0]
+    pending = create_return(client, original, 6)
+    batch = db.execute("SELECT version FROM material_batches WHERE id = ?", (chosen,)).fetchone()
+
+    response = client.post(
+        f"/api/temporary-inventory/materials/{material_id}/promote",
+        json={"batches": [{"id": chosen, "version": batch["version"]}]},
+    )
+    assert response.status_code == 200, response.get_data(as_text=True)
+    loans = db.execute(
+        "SELECT id, borrow_form_id, quantity, stock_source FROM borrow_records WHERE material_id = ? ORDER BY id",
+        (material_id,),
+    ).fetchall()
+    assert len(loans) == 2
+    assert tuple(loans[0]) == (original, form["id"], 5, STOCK_SOURCE_TEMPORARY)
+    assert loans[1]["borrow_form_id"] != form["id"]
+    assert tuple(loans[1])[2:] == (2, STOCK_SOURCE_FORMAL)
+
+    returned = db.execute(
+        """
+        SELECT f.id, wi.request_quantity, json_extract(f.data_json, '$.borrow_record_id') AS record_id
+        FROM workflow_forms f JOIN workflow_items wi ON wi.form_id = f.id
+        WHERE f.form_type = 'borrow_return'
+        ORDER BY f.id
+        """,
+    ).fetchall()
+    assert len(returned) == 2
+    assert tuple(returned[0]) == (pending["id"], 5, original)
+    assert tuple(returned[1])[1:] == (1, loans[1]["id"])
+    completed = inbound_return(client, {"id": returned[1]["id"]}, 1)
+    assert completed.status_code == 200, completed.get_data(as_text=True)
+    quantities = db.execute(
+        "SELECT id, quantity FROM material_batches WHERE material_id = ? ORDER BY id", (material_id,),
+    ).fetchall()
+    assert [tuple(row) for row in quantities] == [(kept, 0), (chosen, 4)]
+
+def test_promote_keeps_rejected_transfer_on_its_own_batch(client, db):
+    enable_temporary(client)
+    material_id, _, batches = seed_material(db, temporary_batches=(5, 5))
+    kept, chosen = batches[STOCK_SOURCE_TEMPORARY]
+    form, borrower = create_borrow(client, db, [{
+        "item_type": "material", "item_ref_id": material_id, "request_quantity": 7,
+    }])
+    approve_borrow(client, db, form["id"])
+    assert outbound_borrow(client, form).status_code == 200
+    record_id = db.execute(
+        "SELECT id FROM borrow_records WHERE borrow_form_id = ?", (form["id"],),
+    ).fetchone()[0]
+    receiver = db.execute("SELECT id FROM users WHERE username = 'testuser'").fetchone()[0]
+    transfer = client.post(f"/api/borrows/{record_id}/transfer", json={"receiver_id": receiver, "quantity": 2})
+    assert transfer.status_code == 200, transfer.get_data(as_text=True)
+    transfer_id = transfer.get_json()["borrow_record_id"]
+    version = db.execute("SELECT version FROM material_batches WHERE id = ?", (chosen,)).fetchone()[0]
+    promoted = client.post(
+        f"/api/temporary-inventory/materials/{material_id}/promote",
+        json={"batches": [{"id": chosen, "version": version}]},
+    )
+    assert promoted.status_code == 200, promoted.get_data(as_text=True)
+    login(client, "testuser", "test")
+    rejected = client.post(f"/api/transfers/{transfer_id}/reject")
+    assert rejected.status_code == 200, rejected.get_data(as_text=True)
+    loans = db.execute(
+        "SELECT id, quantity, status, stock_source, borrower_id FROM borrow_records WHERE material_id = ? ORDER BY id",
+        (material_id,),
+    ).fetchall()
+    assert [tuple(row) for row in loans] == [
+        (record_id, 5, "borrowed", STOCK_SOURCE_TEMPORARY, borrower["id"]),
+        (transfer_id, 2, "borrowed", STOCK_SOURCE_FORMAL, borrower["id"]),
+    ]
+    returned = create_return(client, transfer_id, 2)
+    completed = inbound_return(client, returned, 2)
+    assert completed.status_code == 200, completed.get_data(as_text=True)
+    stock = db.execute(
+        "SELECT id, quantity FROM material_batches WHERE material_id = ? ORDER BY id", (material_id,),
+    ).fetchall()
+    assert [tuple(row) for row in stock] == [(kept, 0), (chosen, 5)]
+
+
+def test_promote_rebinds_pending_return_from_split_borrow_claim(client, db):
+    enable_temporary(client)
+    material_id, _, batches = seed_material(db, temporary_batches=(5, 5))
+    kept, chosen = batches[STOCK_SOURCE_TEMPORARY]
+    form, _ = create_borrow(client, db, [{
+        "item_type": "material", "item_ref_id": material_id, "request_quantity": 8,
+    }])
+    approve_borrow(client, db, form["id"])
+    assert outbound_borrow(client, form).status_code == 200
+    record = db.execute("SELECT id FROM borrow_records WHERE borrow_form_id = ?", (form["id"],)).fetchone()[0]
+    claimed = client.post(f"/api/borrows/{record}/claim", json={"quantity": 7})
+    assert claimed.status_code == 200, claimed.get_data(as_text=True)
+    lots = client.get("/api/my-claims").get_json()["items"]
+    lot = next(row for row in lots if row["batch_id"] == chosen)
+    warehouse_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
+    submitted = client.post(f"/api/my-claims/{lot['source_id']}/return", json={
+        "source_kind": "borrow_claim",
+        "batch_id": chosen,
+        "quantity": 1,
+        "operation_key": "split-borrow-claim-return",
+        "warehouse_user_id": warehouse_id,
+    })
+    assert submitted.status_code == 200, submitted.get_data(as_text=True)
+    return_id = submitted.get_json()["form_id"]
+    damaged = client.post(f"/api/my-claims/{lot['source_id']}/return", json={
+        "source_kind": "borrow_claim",
+        "batch_id": chosen,
+        "quantity": 1,
+        "operation_key": "split-borrow-claim-damaged",
+        "warehouse_user_id": warehouse_id,
+        "condition_status": "损坏",
+        "remark": "测试不良品",
+    })
+    assert damaged.status_code == 200, damaged.get_data(as_text=True)
+    damaged_form = damaged.get_json()["form_id"]
+    decision = client.post(f"/api/claim-returns/{damaged_form}/inbound", json={"decision": "同意"})
+    assert decision.status_code == 200, decision.get_data(as_text=True)
+    version = db.execute("SELECT version FROM material_batches WHERE id = ?", (chosen,)).fetchone()[0]
+    promoted = client.post(
+        f"/api/temporary-inventory/materials/{material_id}/promote",
+        json={"batches": [{"id": chosen, "version": version}]},
+    )
+    assert promoted.status_code == 200, promoted.get_data(as_text=True)
+    lots = {row["batch_id"]: row for row in client.get("/api/my-claims").get_json()["items"]}
+    assert lots[kept]["source_id"] == lot["source_id"]
+    assert lots[kept]["issued_quantity"] == 5
+    assert lots[chosen]["source_id"] != lot["source_id"]
+    assert lots[chosen]["issued_quantity"] == 2
+    request = db.execute("SELECT source_id FROM issued_return_requests WHERE form_id = ?", (return_id,)).fetchone()
+    assert request["source_id"] == lots[chosen]["source_id"]
+    defective = db.execute(
+        "SELECT source_ref_id FROM defective_inventory WHERE source_batch_id = ?", (chosen,),
+    ).fetchone()
+    assert defective["source_ref_id"] == lots[chosen]["source_id"]
+    completed = client.post(f"/api/claim-returns/{return_id}/inbound", json={"decision": "同意"})
+    assert completed.status_code == 200, completed.get_data(as_text=True)

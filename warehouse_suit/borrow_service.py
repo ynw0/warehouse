@@ -572,6 +572,8 @@ def borrow_origin_workflow_item_id(cursor, record):
     if item_id:
         return item_id
     data = parse_json(record.get("data_json"), {})
+    if data.get("origin_workflow_item_id"):
+        return int(data["origin_workflow_item_id"])
     parent_id = int(data.get("transfer_from_record_id") or 0)
     seen = set()
     while parent_id and parent_id not in seen:
@@ -584,7 +586,10 @@ def borrow_origin_workflow_item_id(cursor, record):
         item_id = int(parent.get("workflow_item_id") or 0)
         if item_id:
             return item_id
-        parent_id = int(parse_json(parent.get("data_json"), {}).get("transfer_from_record_id") or 0)
+        parent_data = parse_json(parent.get("data_json"), {})
+        if parent_data.get("origin_workflow_item_id"):
+            return int(parent_data["origin_workflow_item_id"])
+        parent_id = int(parent_data.get("transfer_from_record_id") or 0)
     return 0
 
 

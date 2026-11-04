@@ -16,6 +16,7 @@ from warehouse_suit.inventory_constants import (
 )
 from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.numbering import next_form_no
+from warehouse_suit.promote_renumber import parse_daily_no
 
 
 class ClaimSplitRequired(ValueError):
@@ -108,8 +109,49 @@ def split_claim(cursor, claim_id):
     formal_items, groups = _claim_groups(cursor, form)
     if not _needs_split(formal_items, groups):
         raise ValueError(f"申领单 {form['form_no']} 不需要拆分")
-    ordered = {key: groups[key] for key in sorted(groups, key=lambda item: (item[0], item[1]))}
+    ordered = {key: groups[key] for key in sorted(groups)}
     stay_key = None if formal_items else next(iter(ordered))
+    return _split_claim_groups(cursor, form, ordered, stay_key)
+
+
+def split_claims_for_promotion(cursor, batch_ids, date_value):
+    """已完成领用单按本次选中的出库批次拆分。"""
+    selected = set(batch_ids)
+    marks = ",".join("?" for _ in selected)
+    cursor.execute(
+        f"""
+        SELECT DISTINCT f.id, f.form_no, f.status
+        FROM stock_records sr
+        JOIN workflow_items wi ON wi.id = sr.workflow_item_id
+        JOIN workflow_forms f ON f.id = wi.form_id
+        WHERE f.form_type IN ('claim', 'special_claim') AND sr.business_type = ?
+          AND sr.batch_id IN ({marks})
+        ORDER BY f.id
+        """,
+        [BUSINESS_TYPE_CLAIM_OUTBOUND, *selected],
+    )
+    for row in cursor.fetchall():
+        cursor.execute("SELECT * FROM workflow_items WHERE form_id = ? ORDER BY id", (row["id"],))
+        groups = defaultdict(list)
+        for item in map(dict, cursor.fetchall()):
+            partitions = defaultdict(list)
+            for record in _outbound_records(cursor, item["id"]):
+                partitions[record["batch_id"] in selected].append(record)
+            if len(partitions) == 2:
+                _require_closed_quantity(row, item, partitions)
+            for promote, records in (partitions or {False: []}).items():
+                groups[promote].append({"item": item, "records": records})
+        if True not in groups:
+            continue
+        if row["status"] != "completed":
+            raise ValueError(f"申领单 {row['form_no']} 尚未完成，不能转移到正式库")
+        if False in groups:
+            cursor.execute("SELECT * FROM workflow_forms WHERE id = ?", (row["id"],))
+            form = dict(cursor.fetchone())
+            _split_claim_groups(cursor, form, groups, False, date_value)
+
+
+def _split_claim_groups(cursor, form, ordered, stay_key, date_value=None):
     targets = {}
     created = []
     task_maps = {int(form["id"]): _task_identity(cursor, form["id"])}
@@ -117,9 +159,9 @@ def split_claim(cursor, claim_id):
         if key == stay_key:
             targets[key] = form
             continue
-        new_form = _create_split_form(cursor, form)
+        new_form = create_split_form(cursor, form, date_value=date_value)
         targets[key] = new_form
-        task_maps[int(new_form["id"])] = _copy_tasks(cursor, form["id"], new_form["id"])
+        task_maps[int(new_form["id"])] = copy_tasks(cursor, form["id"], new_form["id"])
         created.append({
             "form_id": int(new_form["id"]),
             "form_no": new_form["form_no"],
@@ -245,11 +287,12 @@ def _apply_groups(cursor, form, ordered, targets, stay_key):
                 _rewrite_item(cursor, item, target["id"], quantity, piece_consumed)
             else:
                 piece_id = _insert_split_item(cursor, item, target["id"], quantity, piece_consumed)
-            _bind_records(cursor, part["records"], piece_id, target)
+            _bind_records(cursor, part["records"], piece_id, target, form["form_no"])
             derived[int(item["id"])].append({
                 "item_id": piece_id,
                 "form_id": int(target["id"]),
                 "quantity": quantity,
+                "records": part["records"],
             })
     return derived
 
@@ -261,14 +304,25 @@ def _move_whole_item(cursor, item, source_form, target_form):
     )
     cursor.execute(
         """
-        UPDATE stock_records SET form_no = ?
+        UPDATE stock_records SET form_no = ?, remark = replace(remark, ?, ?)
         WHERE workflow_item_id = ? AND form_no = ?
         """,
-        (target_form["form_no"], item["id"], source_form["form_no"]),
+        (target_form["form_no"], source_form["form_no"], target_form["form_no"], item["id"], source_form["form_no"]),
     )
     cursor.execute(
         "UPDATE temporary_issue_obligations SET claim_form_id = ? WHERE claim_item_id = ?",
         (target_form["id"], item["id"]),
+    )
+    cursor.execute(
+        """
+        UPDATE material_batches SET source_form_no = ?
+        WHERE source_form_no = ? AND id IN (
+            SELECT sr.batch_id FROM stock_records sr
+            JOIN claim_returns ret ON ret.inbound_record_id = sr.id
+            WHERE sr.workflow_item_id = ?
+        )
+        """,
+        (target_form["form_no"], source_form["form_no"], item["id"]),
     )
     cursor.execute(
         "UPDATE material_attachments SET workflow_form_id = ? WHERE workflow_item_id = ?",
@@ -298,7 +352,7 @@ def _insert_split_item(cursor, item, form_id, quantity, consumed):
     data = _load_json(item.get("data_json"))
     data["consumed_batches"] = consumed
     approved = quantity if abs(float(item.get("approved_quantity") or 0) - float(item.get("request_quantity") or 0)) <= 1e-4 else 0
-    return _insert_copy(cursor, "workflow_items", item, {
+    return insert_copy(cursor, "workflow_items", item, {
         "form_id": form_id,
         "request_quantity": quantity,
         "outbound_quantity": quantity,
@@ -307,11 +361,11 @@ def _insert_split_item(cursor, item, form_id, quantity, consumed):
     })
 
 
-def _bind_records(cursor, records, item_id, form):
+def _bind_records(cursor, records, item_id, form, old_no):
     for record in records:
         cursor.execute(
-            "UPDATE stock_records SET workflow_item_id = ?, form_no = ? WHERE id = ?",
-            (item_id, form["form_no"], record["id"]),
+            "UPDATE stock_records SET workflow_item_id = ?, form_no = ?, remark = replace(remark, ?, ?) WHERE id = ?",
+            (item_id, form["form_no"], old_no, form["form_no"], record["id"]),
         )
         cursor.execute(
             """
@@ -320,6 +374,24 @@ def _bind_records(cursor, records, item_id, form):
             WHERE stock_record_id = ?
             """,
             (item_id, form["id"], record["id"]),
+        )
+        cursor.execute(
+            """
+            UPDATE stock_records SET workflow_item_id = ?, form_no = ?, remark = replace(remark, ?, ?)
+            WHERE id IN (SELECT inbound_record_id FROM claim_returns WHERE outbound_record_id = ?)
+            """,
+            (item_id, form["form_no"], old_no, form["form_no"], record["id"]),
+        )
+        cursor.execute(
+            """
+            UPDATE material_batches SET source_form_no = ?
+            WHERE id IN (
+                SELECT sr.batch_id FROM stock_records sr
+                JOIN claim_returns ret ON ret.inbound_record_id = sr.id
+                WHERE ret.outbound_record_id = ?
+            )
+            """,
+            (form["form_no"], record["id"]),
         )
 
 
@@ -331,7 +403,7 @@ def _retarget_operations(cursor, form, task_maps, derived):
     operations = [dict(row) for row in cursor.fetchall()]
     for operation in operations:
         payload = _load_json(operation.get("payload_json"))
-        buckets = _bucket_items(cursor, payload.get("items") or [], derived, form["form_no"])
+        buckets = _bucket_items(cursor, payload.get("items") or [], derived, form, operation["operation_key"])
         stayed = buckets.get(int(form["id"])) or []
         if stayed:
             payload["items"] = stayed
@@ -347,7 +419,7 @@ def _retarget_operations(cursor, form, task_maps, derived):
             copied = dict(payload)
             copied["items"] = items
             old_task_id = int(operation.get("task_id") or 0)
-            _insert_copy(cursor, "claim_outbound_operations", operation, {
+            insert_copy(cursor, "claim_outbound_operations", operation, {
                 "form_id": form_id,
                 "task_id": task_maps.get(form_id, {}).get(old_task_id),
                 "operation_key": f"{operation['operation_key']}:split:{form_id}",
@@ -372,7 +444,7 @@ def _retarget_tasks(cursor, forms, derived):
             for operation in operations:
                 if not isinstance(operation, dict):
                     continue
-                items = _bucket_items(cursor, operation.get("items") or [], derived, form["form_no"]).get(form_id) or []
+                items = _bucket_items(cursor, operation.get("items") or [], derived, form, operation.get("operation_key")).get(form_id) or []
                 if not items:
                     continue
                 copied = dict(operation)
@@ -385,7 +457,8 @@ def _retarget_tasks(cursor, forms, derived):
             )
 
 
-def _bucket_items(cursor, entries, derived, form_no):
+def _bucket_items(cursor, entries, derived, form, operation_key):
+    form_no = form["form_no"]
     buckets = defaultdict(list)
     for entry in entries:
         if not isinstance(entry, dict):
@@ -393,14 +466,29 @@ def _bucket_items(cursor, entries, derived, form_no):
         source_id = int(entry.get("item_id") or 0)
         pieces = derived.get(source_id)
         if pieces:
-            piece_sum = sum(float(piece["quantity"]) for piece in pieces)
-            if abs(float(entry.get("quantity") or 0) - piece_sum) > 1e-4:
-                raise ValueError(f"申领单 {form_no} 出库操作记录无法按验收单拆开，不能拆分")
+            totals = []
+            all_qty = sum(piece["quantity"] for piece in pieces)
+            operation_qty = float(entry.get("quantity") or 0)
+            key = f"claim:{form['id']}:{source_id}:outbound:{operation_key}"
             for piece in pieces:
-                buckets[int(piece["form_id"])].append({
-                    "item_id": int(piece["item_id"]),
-                    "quantity": float(piece["quantity"]),
-                    "cumulative_quantity": float(piece["quantity"]),
+                records = piece["records"]
+                if abs(operation_qty - all_qty) > 1e-4:
+                    records = [
+                        row for row in records
+                        if row["operation_key"] == key or row["operation_key"] == f"{key}:{row['batch_id']}"
+                    ]
+                if records:
+                    last_id = max(row["id"] for row in records)
+                    totals.append((piece, sum(row["quantity"] for row in records), last_id))
+            if abs(sum(qty for _, qty, _ in totals) - operation_qty) > 1e-4:
+                raise ValueError(f"申领单 {form_no} 出库操作记录与实际批次不一致，不能拆分")
+            for piece, qty, last_id in totals:
+                buckets[piece["form_id"]].append({
+                    "item_id": piece["item_id"],
+                    "quantity": qty,
+                    "cumulative_quantity": sum(
+                        row["quantity"] for row in piece["records"] if row["id"] <= last_id
+                    ),
                 })
             continue
         cursor.execute("SELECT form_id FROM workflow_items WHERE id = ?", (source_id,))
@@ -413,13 +501,19 @@ def _bucket_items(cursor, entries, derived, form_no):
     return buckets
 
 
-def _create_split_form(cursor, form):
+def create_split_form(cursor, form, *, date_value=None, prefix=None):
     data = _load_json(form.get("data_json"))
     data.pop("split_form_nos", None)
     data["split_from_form_no"] = form["form_no"]
     data["split_from_form_id"] = int(form["id"])
-    new_id = _insert_copy(cursor, "workflow_forms", form, {
-        "form_no": next_form_no(cursor, "CK"),
+    parsed = parse_daily_no(form["form_no"])
+    prefix = prefix or (parsed[0] if parsed else "CK")
+    number = next_form_no(cursor, prefix, date_value)
+    title = form["title"]
+    title = title.replace(form["form_no"], number) if form["form_no"] in title else f"{title} {number}".strip()
+    new_id = insert_copy(cursor, "workflow_forms", form, {
+        "form_no": number,
+        "title": title,
         "data_json": json.dumps(data, ensure_ascii=False),
         "updated_at": now_text(),
     })
@@ -427,12 +521,12 @@ def _create_split_form(cursor, form):
     return dict(cursor.fetchone())
 
 
-def _copy_tasks(cursor, source_form_id, new_form_id):
+def copy_tasks(cursor, source_form_id, new_form_id):
     cursor.execute("SELECT * FROM workflow_tasks WHERE form_id = ? ORDER BY id", (source_form_id,))
     mapping = {}
     for task in cursor.fetchall():
         task = dict(task)
-        mapping[int(task["id"])] = _insert_copy(cursor, "workflow_tasks", task, {"form_id": new_form_id})
+        mapping[int(task["id"])] = insert_copy(cursor, "workflow_tasks", task, {"form_id": new_form_id})
     return mapping
 
 
@@ -529,7 +623,7 @@ def _consumed_for(records, consumed):
     return chosen
 
 
-def _insert_copy(cursor, table, row, overrides):
+def insert_copy(cursor, table, row, overrides):
     columns = [name for name in _table_columns(cursor, table) if name != "id"]
     data = dict(row)
     data.update(overrides)

@@ -160,8 +160,17 @@ def register_workflow_routes(app, *, get_db, current_user_provider, notify_todos
             )
             params.extend([f"%{applicant}%", f"%{applicant}%", f"%{applicant}%", f"%{applicant}%", f"%{applicant}%"])
         if form_no:
-            where.append("f.form_no LIKE ?")
-            params.append(f"%{form_no}%")
+            where.append(
+                """
+                (f.form_no LIKE ? OR (f.form_type = 'acceptance' AND f.id IN (
+                    SELECT CAST(substr(sr.operation_key, length('acceptance:') + 1) AS INTEGER)
+                    FROM stock_records sr
+                    WHERE sr.operation_key GLOB 'acceptance:*:*:inbound'
+                      AND sr.form_no GLOB 'RK[0-9]*' AND sr.form_no LIKE ?
+                )))
+                """
+            )
+            params.extend([f"%{form_no}%", f"%{form_no}%"])
         if maker:
             where.append(
                 """

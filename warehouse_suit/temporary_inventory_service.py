@@ -695,6 +695,8 @@ def promote_temporary_material(
 
     timestamp = promotion_time or now_text()
     date_value = timestamp[:10]
+    if not skip_renumber:
+        _prepare_promotion_flows(cursor, batch_ids, date_value)
     cursor.execute(
         f"""
         UPDATE temporary_issue_obligations
@@ -765,6 +767,7 @@ def promote_temporary_material(
             "converted_date": date_value,
             "rename_map": renumber.get("rename_map") or {},
             "batch_no_map": renumber.get("batch_no_map") or {},
+            "rk_changes": renumber.get("rk_changes") or [],
         },
         ip_address,
     )
@@ -778,6 +781,7 @@ def promote_temporary_material(
         "converted_date": date_value,
         "rename_map": renumber.get("rename_map") or {},
         "batch_no_map": renumber.get("batch_no_map") or {},
+        "rk_changes": renumber.get("rk_changes") or [],
     }
 
 
@@ -872,9 +876,13 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
         if batch.get("inventory_status") != INVENTORY_STATUS_AVAILABLE:
             raise ValueError("所选批次当前不可转移")
     material_ids = {int(batch["material_id"]) for batch in temporary_batches}
-    _reject_blocking_claims(cursor, [int(batch["id"]) for batch in temporary_batches], material_ids)
+    selected_ids = [int(batch["id"]) for batch in temporary_batches]
     timestamp = now_text()
     date_value = timestamp[:10]
+    acceptance_ids = _prepare_promotion_flows(
+        cursor, selected_ids, date_value, whole_form_id=form["id"], material_ids=material_ids,
+    )
+    promoted_form_id = acceptance_ids.get(form["id"], form["id"])
     grouped = {}
     for batch in temporary_batches:
         grouped.setdefault(int(batch["material_id"]), []).append(
@@ -890,12 +898,12 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
 
     renumber = apply_promote_renumber(
         cursor,
-        [int(batch["id"]) for batch in temporary_batches],
-        acceptance_form_id=form["id"],
+        selected_ids,
+        acceptance_form_id=promoted_form_id,
         date_value=date_value,
         timestamp=timestamp,
     )
-    cursor.execute("SELECT form_no, data_json FROM workflow_forms WHERE id = ?", (form["id"],))
+    cursor.execute("SELECT form_no, data_json FROM workflow_forms WHERE id = ?", (promoted_form_id,))
     form_row = dict(cursor.fetchone())
     data = _load_json(form_row["data_json"])
     data["promoted_to_formal"] = True
@@ -903,30 +911,32 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
     data["promote_rename_map"] = renumber.get("rename_map") or {}
     cursor.execute(
         "UPDATE workflow_forms SET data_json = ?, updated_at = ? WHERE id = ?",
-        (json.dumps(data, ensure_ascii=False), timestamp, form["id"]),
+        (json.dumps(data, ensure_ascii=False), timestamp, promoted_form_id),
     )
     write_audit_log(
         cursor,
         user,
         "temporary_inventory.acceptance_promoted",
         "workflow_form",
-        form["id"],
+        promoted_form_id,
         "验收单临时库转正式库并改号补位",
         {
             "form_no": form_row["form_no"],
             "rename_map": renumber.get("rename_map") or {},
             "batch_no_map": renumber.get("batch_no_map") or {},
+            "rk_changes": renumber.get("rk_changes") or [],
             "converted_date": date_value,
         },
         ip_address,
     )
     return {
-        "form_id": form["id"],
+        "form_id": promoted_form_id,
         "form_no": form_row["form_no"],
         "converted_date": date_value,
         "materials": converted,
         "rename_map": renumber.get("rename_map") or {},
         "batch_no_map": renumber.get("batch_no_map") or {},
+        "rk_changes": renumber.get("rk_changes") or [],
     }
 
 
@@ -994,8 +1004,16 @@ def split_acceptance_form_claims(cursor, form_id, user, ip_address=""):
     return split_blocking_claims(cursor, batch_ids, material_ids, user, ip_address)
 
 
-def _reject_blocking_claims(cursor, batch_ids, material_ids):
-    """未完成的申领单不能转。混合、两种临时物料或跨两张验收单的，要先拆开。"""
-    from warehouse_suit.claim_split_service import raise_blocking_claims
+def _prepare_promotion_flows(cursor, batch_ids, date_value, *, whole_form_id=None, material_ids=()):
+    from warehouse_suit.acceptance_promotion import prepare_acceptances
+    from warehouse_suit.borrow_promotion import split_borrows_for_promotion
+    from warehouse_suit.claim_split_service import blocking_claim_problems, split_claims_for_promotion
 
-    raise_blocking_claims(cursor, batch_ids, material_ids)
+    if material_ids:
+        for problem in blocking_claim_problems(cursor, batch_ids, material_ids):
+            if not problem["splittable"]:
+                raise ValueError(problem["reason"])
+    acceptance_ids = prepare_acceptances(cursor, batch_ids, date_value, whole_form_id=whole_form_id)
+    split_claims_for_promotion(cursor, batch_ids, date_value)
+    split_borrows_for_promotion(cursor, batch_ids, date_value)
+    return acceptance_ids
