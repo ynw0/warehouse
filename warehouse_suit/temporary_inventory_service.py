@@ -478,7 +478,7 @@ def delete_temporary_material(cursor, material_id, user, ip_address=""):
                     "删除临时库物料", {"material_code": material["material_code"], "name": material["name"]}, ip_address)
 
 
-# 借用出库和归还不跟随临时库转正式库改来源、改日期。
+# 库存转换阶段仍先跳过借用流水日期；完整改号/改日在 promote_renumber 中统一处理。
 _BORROW_BUSINESS_TYPES = (BUSINESS_TYPE_BORROW_OUTBOUND, BUSINESS_TYPE_BORROW_RETURN_INBOUND)
 
 
@@ -634,7 +634,9 @@ def _sync_promoted_borrow_sources(cursor, batch_ids):
     _follow_unissued_promoted_lines(cursor, ids)
 
 
-def promote_temporary_material(cursor, material_id, selected_batches, user, ip_address="", allow_zero=False):
+def promote_temporary_material(
+    cursor, material_id, selected_batches, user, ip_address="", allow_zero=False, skip_renumber=False,
+):
     """Convert selected transferable temporary batches to formal inventory."""
     material_id = int(material_id or 0)
     selections = selected_batches if isinstance(selected_batches, list) else []
@@ -736,6 +738,22 @@ def promote_temporary_material(cursor, material_id, selected_batches, user, ip_a
     converted_records = int(cursor.rowcount or 0)
     _sync_promoted_borrow_sources(cursor, batch_ids)
     formal_quantity, _ = update_inventory_total(cursor, material_id, STOCK_SOURCE_FORMAL)
+    renumber = {"rename_map": {}, "batch_no_map": {}}
+    if not skip_renumber:
+        from warehouse_suit.promote_renumber import (
+            apply_promote_renumber,
+            find_acceptance_form_ids_for_batches,
+        )
+
+        acceptance_ids = find_acceptance_form_ids_for_batches(cursor, batch_ids)
+        acceptance_form_id = next(iter(acceptance_ids), None)
+        renumber = apply_promote_renumber(
+            cursor,
+            batch_ids,
+            acceptance_form_id=acceptance_form_id,
+            date_value=date_value,
+            timestamp=timestamp,
+        )
     write_audit_log(
         cursor,
         user,
@@ -751,6 +769,8 @@ def promote_temporary_material(cursor, material_id, selected_batches, user, ip_a
             "converted_stock_records": converted_records,
             "settled_obligations": settled_obligations,
             "converted_date": date_value,
+            "rename_map": renumber.get("rename_map") or {},
+            "batch_no_map": renumber.get("batch_no_map") or {},
         },
         ip_address,
     )
@@ -762,6 +782,8 @@ def promote_temporary_material(cursor, material_id, selected_batches, user, ip_a
         "settled_obligations": settled_obligations,
         "formal_quantity": formal_quantity,
         "converted_date": date_value,
+        "rename_map": renumber.get("rename_map") or {},
+        "batch_no_map": renumber.get("batch_no_map") or {},
     }
 
 
@@ -866,22 +888,51 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
     for material_id, selections in grouped.items():
         converted.append(promote_temporary_material(
             cursor, material_id, selections, user, ip_address, allow_zero=True,
+            skip_renumber=True,
         ))
     date_value = today_text()
     timestamp = now_text()
-    _shift_related_claim_times(cursor, [int(batch["id"]) for batch in temporary_batches], date_value, timestamp)
-    _shift_workflow_times(cursor, form["id"], date_value, timestamp)
+    from warehouse_suit.promote_renumber import apply_promote_renumber
+
+    renumber = apply_promote_renumber(
+        cursor,
+        [int(batch["id"]) for batch in temporary_batches],
+        acceptance_form_id=form["id"],
+        date_value=date_value,
+        timestamp=timestamp,
+    )
+    cursor.execute("SELECT form_no, data_json FROM workflow_forms WHERE id = ?", (form["id"],))
+    form_row = dict(cursor.fetchone())
+    data = _load_json(form_row["data_json"])
     data["promoted_to_formal"] = True
     data["promoted_at"] = date_value
+    data["promote_rename_map"] = renumber.get("rename_map") or {}
     cursor.execute(
         "UPDATE workflow_forms SET data_json = ?, updated_at = ? WHERE id = ?",
         (json.dumps(data, ensure_ascii=False), timestamp, form["id"]),
     )
+    write_audit_log(
+        cursor,
+        user,
+        "temporary_inventory.acceptance_promoted",
+        "workflow_form",
+        form["id"],
+        "验收单临时库转正式库并改号补位",
+        {
+            "form_no": form_row["form_no"],
+            "rename_map": renumber.get("rename_map") or {},
+            "batch_no_map": renumber.get("batch_no_map") or {},
+            "converted_date": date_value,
+        },
+        ip_address,
+    )
     return {
         "form_id": form["id"],
-        "form_no": form["form_no"],
+        "form_no": form_row["form_no"],
         "converted_date": date_value,
         "materials": converted,
+        "rename_map": renumber.get("rename_map") or {},
+        "batch_no_map": renumber.get("batch_no_map") or {},
     }
 
 

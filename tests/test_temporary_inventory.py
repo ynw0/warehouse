@@ -670,6 +670,7 @@ def test_temporary_batch_uploads_are_returned_with_batch_details(client, db):
 
 
 def test_acceptance_promote_moves_claim_dates_and_leaves_borrow(client, db):
+    """转正后借用流水也随方案 A 对齐正式库与转正日。"""
     material_id, code = seed_material(db)
     enable_temporary(client)
     user_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
@@ -728,16 +729,17 @@ def test_acceptance_promote_moves_claim_dates_and_leaves_borrow(client, db):
     response = client.post(f"/api/temporary-inventory/acceptance-forms/{form_id}/promote", json={})
     assert response.status_code == 200, response.get_data(as_text=True)
     batch = db.execute(
-        "SELECT stock_source, received_date FROM material_batches WHERE id = ?",
+        "SELECT stock_source, received_date, batch_no FROM material_batches WHERE id = ?",
         (batch_id,),
     ).fetchone()
     assert batch["stock_source"] == STOCK_SOURCE_FORMAL
     assert batch["received_date"] == app_module.today_text()
+    assert batch["batch_no"].startswith(app_module.today_text().replace("-", ""))
     borrow = db.execute(
         "SELECT stock_source, operation_date FROM stock_records WHERE business_type = 'borrow_outbound'"
     ).fetchone()
-    assert borrow["stock_source"] == STOCK_SOURCE_TEMPORARY
-    assert borrow["operation_date"] == "2026-01-03"
+    assert borrow["stock_source"] == STOCK_SOURCE_FORMAL
+    assert borrow["operation_date"] == app_module.today_text()
     inbound = db.execute(
         "SELECT stock_source, operation_date, business_type FROM stock_records WHERE operation_type = 'in'"
     ).fetchone()
@@ -750,6 +752,113 @@ def test_acceptance_promote_moves_claim_dates_and_leaves_borrow(client, db):
     again = client.post(f"/api/temporary-inventory/acceptance-forms/{form_id}/promote", json={})
     assert again.status_code == 400
     assert "已转移" in again.get_json()["error"]
+
+
+def test_acceptance_promote_renumbers_form_and_gap_fills_same_day(client, db):
+    """转正日迁号，原日同前缀后续单号向前补位。"""
+    material_id, code = seed_material(db)
+    enable_temporary(client)
+    user_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
+    now = app_module.now_text()
+    today8 = app_module.today_text().replace("-", "")
+    db.execute(
+        """
+        INSERT INTO workflow_forms
+            (form_no, form_type, title, status, current_step, applicant_id, data_json, created_at, updated_at)
+        VALUES
+            ('YS2026090909', 'acceptance', '仓管YS2026090909', 'completed', 'completed', ?, ?, '2026-09-09 08:00:00', '2026-09-09 08:00:00'),
+            ('YS2026090910', 'acceptance', '仓管YS2026090910', 'completed', 'completed', ?, ?, '2026-09-09 09:00:00', '2026-09-09 09:00:00'),
+            ('YS2026090911', 'acceptance', '仓管YS2026090911', 'completed', 'completed', ?, ?, '2026-09-09 10:00:00', '2026-09-09 10:00:00')
+        """,
+        (
+            user_id, json.dumps({"has_purchase_order": False}, ensure_ascii=False),
+            user_id, json.dumps({"has_purchase_order": True}, ensure_ascii=False),
+            user_id, json.dumps({"has_purchase_order": True}, ensure_ascii=False),
+        ),
+    )
+    form_id = db.execute("SELECT id FROM workflow_forms WHERE form_no = 'YS2026090909'").fetchone()[0]
+    other_10 = db.execute("SELECT id FROM workflow_forms WHERE form_no = 'YS2026090910'").fetchone()[0]
+    other_11 = db.execute("SELECT id FROM workflow_forms WHERE form_no = 'YS2026090911'").fetchone()[0]
+    db.execute(
+        """
+        INSERT INTO material_batches
+            (material_id, batch_no, quantity, unit_price, warehouse_type, received_date,
+             stock_source, inventory_status, version, source_form_no, created_at, updated_at)
+        VALUES (?, '20260909TEMP', 2, 1, 'office', '2026-09-09', 'temporary', 'available', 0, 'RK2026090901', ?, ?)
+        """,
+        (material_id, now, now),
+    )
+    batch_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.execute(
+        """
+        INSERT INTO workflow_items
+            (form_id, material_id, material_code, material_name, unit, qualified_quantity, stock_source, data_json)
+        VALUES (?, ?, ?, '临时库测试物料', '个', 2, 'temporary', ?)
+        """,
+        (form_id, material_id, code, json.dumps({
+            "inbound_done": True,
+            "inbound_batch_id": batch_id,
+            "inbound_no": "RK2026090901",
+            "inbound_batches": [{"batch_id": batch_id, "quantity": 2, "inbound_no": "RK2026090901"}],
+        })),
+    )
+    db.execute(
+        """
+        INSERT INTO stock_records
+            (material_id, batch_id, operation_type, quantity, balance_after, operation_date,
+             stock_source, business_type, form_no, operation_key, created_at)
+        VALUES (?, ?, 'in', 2, 2, '2026-09-09', 'temporary', 'temporary_acceptance_inbound', 'RK2026090901', ?, ?)
+        """,
+        (material_id, batch_id, f"acceptance:{form_id}:1:inbound", now),
+    )
+    db.execute(
+        """
+        INSERT INTO stock_records
+            (material_id, batch_id, operation_type, quantity, balance_after, operation_date,
+             stock_source, business_type, form_no, created_at)
+        VALUES (?, ?, 'out', 1, 1, '2026-09-10', 'temporary', 'claim_outbound', 'CK2026091001', ?)
+        """,
+        (material_id, batch_id, now),
+    )
+    db.execute(
+        """
+        INSERT INTO workflow_forms
+            (form_no, form_type, title, status, current_step, applicant_id, data_json, created_at, updated_at)
+        VALUES ('CK2026091001', 'claim', '仓管CK2026091001', 'completed', 'completed', ?, '{}', '2026-09-10 11:00:00', '2026-09-10 11:00:00')
+        """,
+        (user_id,),
+    )
+    claim_id = db.execute("SELECT id FROM workflow_forms WHERE form_no = 'CK2026091001'").fetchone()[0]
+    db.execute(
+        """
+        INSERT INTO workflow_items
+            (form_id, material_id, material_code, material_name, unit, request_quantity, stock_source, data_json)
+        VALUES (?, ?, ?, '临时库测试物料', '个', 1, 'temporary', '{}')
+        """,
+        (claim_id, material_id, code),
+    )
+    db.execute(
+        "UPDATE stock_records SET workflow_item_id = (SELECT id FROM workflow_items WHERE form_id = ?) "
+        "WHERE form_no = 'CK2026091001'",
+        (claim_id,),
+    )
+    db.commit()
+    login(client)
+    response = client.post(f"/api/temporary-inventory/acceptance-forms/{form_id}/promote", json={})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    promoted = db.execute("SELECT form_no, title FROM workflow_forms WHERE id = ?", (form_id,)).fetchone()
+    assert promoted["form_no"].startswith(f"YS{today8}")
+    assert promoted["form_no"] in promoted["title"]
+    assert db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (other_10,)).fetchone()["form_no"] == "YS2026090909"
+    assert db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (other_11,)).fetchone()["form_no"] == "YS2026090910"
+    claim = db.execute("SELECT form_no FROM workflow_forms WHERE id = ?", (claim_id,)).fetchone()
+    assert claim["form_no"].startswith(f"CK{today8}")
+    assert db.execute(
+        "SELECT form_no FROM stock_records WHERE business_type = 'claim_outbound'"
+    ).fetchone()["form_no"] == claim["form_no"]
+    batch = db.execute("SELECT source_form_no, batch_no FROM material_batches WHERE id = ?", (batch_id,)).fetchone()
+    assert batch["source_form_no"].startswith(f"RK{today8}")
+    assert batch["batch_no"].startswith(today8)
 
 
 def test_acceptance_promote_rejects_open_temporary_claim(client, db):
