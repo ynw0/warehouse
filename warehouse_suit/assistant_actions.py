@@ -105,13 +105,16 @@ def perform_action(conn, user, action, payload, ip="", *, confirmed=False, optio
     if spec["confirm"] and not confirmed:
         summary = spec["summarize"](cursor, payload)
         confirmation_id = _insert_confirmation(conn, user, spec["name"], summary, payload)
-        return {
+        result = {
             "needs_confirmation": True,
             "confirmation_id": confirmation_id,
             "action": spec["name"],
             "summary": summary,
             "message": f"{summary}。尚未执行，请在对话里点击确认执行。",
         }
+        if action == "create_workflow":
+            result["preview"] = _plain(payload)
+        return result
     result = spec["run"](cursor, user, payload, ip or "", optional_active_user_id)
     conn.commit()
     result = result or {}
@@ -167,14 +170,21 @@ def cancel_action(conn, user, confirmation_id):
 def list_pending_actions(cursor, user):
     cursor.execute(
         """
-        SELECT id, action, summary, created_at
+        SELECT id, action, summary, payload_json, created_at
         FROM assistant_confirmations
         WHERE user_id = ? AND status = 'pending' AND expires_at > ?
         ORDER BY id
         """,
         (int(user["id"]), now_text()),
     )
-    return [dict(row) for row in cursor.fetchall()]
+    results = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        payload = item.pop("payload_json")
+        if item["action"] == "create_workflow":
+            item["preview"] = json.loads(payload)
+        results.append(item)
+    return results
 
 
 def peel_action_block(answer):

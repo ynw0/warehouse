@@ -15,6 +15,7 @@
     thinkingLevels: [],
   };
   let ready = Promise.resolve();
+  let popupListeners;
 
   function html(welcome) {
     state.welcome = welcome || "";
@@ -38,14 +39,17 @@
           <div class="ai-composer">
             <div class="ai-file-chips" id="aiFileChips"></div>
             <textarea id="aiFloatQuestion" aria-label="输入消息" placeholder="问库存、查流程，或告诉我你要填写的单据"></textarea>
-            <div class="ai-thinking" id="aiThinkingControl">
-              <label for="aiThinkingLevel">思考</label>
-              <input id="aiThinkingLevel" type="range" min="0" max="0" step="1" value="0" aria-label="思考等级">
-              <output id="aiThinkingLabel" for="aiThinkingLevel"></output>
-            </div>
             <div class="ai-send-row">
               <label class="ai-file-button">＋ 添加附件<input id="aiFileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.csv,.json" multiple hidden></label>
-              <span class="ai-input-hint">Enter 发送 · Alt + Enter 换行</span>
+              <span class="ai-input-hint">Enter 发送</span>
+              <div class="ai-thinking-anchor">
+                <button class="ai-thinking-trigger" id="aiThinkingToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="aiThinkingControl">✦ <span id="aiThinkingButtonLabel">思考</span></button>
+                <div class="ai-thinking-popover" id="aiThinkingControl" role="dialog" aria-label="思考等级" hidden>
+                  <div class="ai-thinking-title"><span aria-hidden="true">✦</span><output id="aiThinkingLabel" for="aiThinkingLevel"></output><span></span></div>
+                  <div class="ai-thinking-model" id="aiThinkingModel"></div>
+                  <div class="ai-thinking-track"><div class="ai-thinking-marks" id="aiThinkingMarks" aria-hidden="true"></div><input id="aiThinkingLevel" type="range" min="0" max="0" step="1" value="0" aria-label="思考等级"></div>
+                </div>
+              </div>
               <button class="primary" id="aiFloatSend" type="button">发送 <span aria-hidden="true">↑</span></button>
             </div>
           </div>
@@ -74,6 +78,28 @@
       document.getElementById("aiMemoryToggle").setAttribute("aria-expanded", String(!panel.hidden));
     });
     document.getElementById("aiMemorySave").addEventListener("click", () => saveMemory().catch(showError));
+    if (popupListeners) popupListeners.abort();
+    popupListeners = new AbortController();
+    const trigger = document.getElementById("aiThinkingToggle");
+    const panel = document.getElementById("aiThinkingControl");
+    trigger.addEventListener("click", () => {
+      panel.hidden = !panel.hidden;
+      trigger.setAttribute("aria-expanded", String(!panel.hidden));
+      if (!panel.hidden) document.getElementById("aiThinkingLevel").focus();
+    });
+    document.addEventListener("click", event => {
+      if (!panel.hidden && !event.target.closest(".ai-thinking-anchor")) {
+        panel.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+      }
+    }, { signal: popupListeners.signal });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !panel.hidden) {
+        panel.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+        trigger.focus();
+      }
+    }, { signal: popupListeners.signal });
     document.getElementById("aiThinkingLevel").addEventListener("input", event => {
       updateThinkingLabel(Number(event.target.value));
     });
@@ -122,6 +148,7 @@
     const response = await fetch("/api/ai/assistant/session");
     const data = await readJson(response);
     state.profile = data.profile || {};
+    document.getElementById("aiThinkingModel").textContent = data.model || "当前模型";
     state.thinkingLevel = data.thinking_level || "off";
     state.sessionId = data.session && data.session.id ? Number(data.session.id) : 0;
     const memory = document.getElementById("aiMemoryBody");
@@ -146,7 +173,10 @@
 
   function updateThinkingLabel(index) {
     const level = state.thinkingLevels[index];
-    document.getElementById("aiThinkingLabel").textContent = level ? level.label : "";
+    const text = level ? level.label : "";
+    document.getElementById("aiThinkingLabel").textContent = text;
+    document.getElementById("aiThinkingButtonLabel").textContent = text || "思考";
+    document.getElementById("aiThinkingLevel").setAttribute("aria-valuetext", text);
   }
 
   function fillThinkingOptions() {
@@ -164,6 +194,11 @@
     slider.max = String(state.thinkingLevels.length - 1);
     slider.value = String(index);
     slider.disabled = profile.capabilities?.reasoning === false || state.thinkingLevels.length < 2;
+    const marks = document.getElementById("aiThinkingMarks");
+    marks.replaceChildren(...state.thinkingLevels.map(() => {
+      const dot = document.createElement("span");
+      return dot;
+    }));
     updateThinkingLabel(index);
   }
 
@@ -418,8 +453,18 @@
     const card = document.createElement("div");
     card.className = "ai-confirm";
     card.dataset.confirmationId = String(item.id);
-    const text = document.createElement("p");
-    text.textContent = item.summary || "该操作需要确认";
+    const text = document.createElement("div");
+    text.className = "ai-confirm-content";
+    if (item.action === "create_workflow" && item.preview) {
+      renderWorkflowPreview(text, item.preview);
+    } else {
+      const summary = document.createElement("p");
+      summary.textContent = item.summary || "该操作需要确认";
+      text.appendChild(summary);
+    }
+    const error = document.createElement("p");
+    error.className = "ai-confirm-error";
+    error.hidden = true;
     const ok = document.createElement("button");
     ok.type = "button";
     ok.className = "primary";
@@ -429,8 +474,83 @@
     cancel.type = "button";
     cancel.textContent = "取消";
     cancel.addEventListener("click", () => settleConfirmation(card, item.id, "cancel"));
-    card.append(text, ok, cancel);
+    const actions = document.createElement("div");
+    actions.className = "ai-confirm-actions";
+    actions.append(ok, cancel);
+    card.append(text, error, actions);
     bubble.appendChild(card);
+  }
+
+  const PREVIEW_LABELS = {
+    form_type: "流程类型", items: "物料明细", material_code: "物料编码",
+    material_id: "物料 ID", material_name: "物料名称", name: "名称",
+    brand_model: "品牌型号", spec: "规格", unit: "单位",
+    request_quantity: "申请数量", requested_quantity: "申请数量",
+    purchase_project: "采购申请项目", project_code: "项目代号",
+    purpose: "用途", usage_kind: "用料形式", leader_id: "审批人 ID",
+    leader_ids: "审批人 ID", validator_ids: "验收人 ID",
+    has_purchase_order: "有采购订单", warehouse_user_id: "仓管员 ID",
+    arrival_quantity: "到货数量", purchase_quantity: "采购数量",
+    total_amount: "总金额", budget_unit_price: "预算单价", remark: "备注",
+    pack_quantity: "每单位数量", arrival_unit: "到货单位",
+    electronic_purchase: "电子采购", platform: "采购平台",
+  };
+  const PREVIEW_TYPES = {
+    claim: "物料申领", borrow: "物料借用", acceptance: "物料验收",
+    purchase_request: "采购申请", special_claim: "特殊申领",
+    semifinished_claim: "半成品领用", semifinished: "半成品验收",
+    finished: "成品验收", supply: "供货申请", common_material: "常用物料申请",
+  };
+
+  function renderWorkflowPreview(host, data) {
+    const heading = document.createElement("h4");
+    heading.textContent = "请核对单据";
+    host.appendChild(heading);
+    const fields = document.createElement("dl");
+    fields.className = "ai-preview-fields";
+    renderPreviewFields(fields, data);
+    host.appendChild(fields);
+  }
+
+  function renderPreviewFields(host, data) {
+    Object.entries(data).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      const name = document.createElement("dt");
+      name.textContent = PREVIEW_LABELS[key] || key;
+      const content = document.createElement("dd");
+      if (Array.isArray(value)) {
+        if (value.every(item => item === null || typeof item !== "object")) {
+          content.textContent = value.join("、");
+        } else {
+          value.forEach((entry, index) => {
+            const section = document.createElement("section");
+            section.className = "ai-preview-item";
+            const title = document.createElement("strong");
+            title.textContent = key === "items" ? "第 " + (index + 1) + " 项" : "第 " + (index + 1) + " 条";
+            section.appendChild(title);
+            if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+              const nested = document.createElement("dl");
+              nested.className = "ai-preview-fields";
+              renderPreviewFields(nested, entry);
+              section.appendChild(nested);
+            } else {
+              section.appendChild(document.createTextNode(String(entry)));
+            }
+            content.appendChild(section);
+          });
+        }
+      } else if (typeof value === "object") {
+        const nested = document.createElement("dl");
+        nested.className = "ai-preview-fields";
+        renderPreviewFields(nested, value);
+        content.appendChild(nested);
+      } else if (typeof value === "boolean") {
+        content.textContent = value ? "是" : "否";
+      } else {
+        content.textContent = key === "form_type" ? (PREVIEW_TYPES[value] || value) : String(value);
+      }
+      host.append(name, content);
+    });
   }
 
   async function settleConfirmation(card, id, action) {
@@ -446,8 +566,11 @@
       card.textContent = data.message || (action === "confirm" ? "已执行" : "已取消");
     } catch (error) {
       buttons.forEach(button => { button.disabled = false; });
-      const text = card.querySelector("p");
-      if (text) text.textContent = error.message;
+      const message = card.querySelector(".ai-confirm-error");
+      if (message) {
+        message.textContent = error.message;
+        message.hidden = false;
+      }
     }
   }
 

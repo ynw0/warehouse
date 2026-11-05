@@ -316,6 +316,10 @@ def test_claim_confirmation_uses_existing_code_and_office_project(client, db):
     payload = json.loads(stored["payload_json"])
     assert payload["items"][0]["material_id"] == material_id
     assert payload["items"][0]["purchase_project"] == "办公"
+    assert confirmation["preview"] == payload
+    pending = client.get("/api/ai/assistant/confirmations").get_json()["items"]
+    restored = next(item for item in pending if item["id"] == confirmation["id"])
+    assert restored["preview"] == payload
     confirmed = client.post(f"/api/ai/assistant/confirmations/{confirmation['id']}/confirm", json={})
     assert confirmed.status_code == 200, confirmed.get_data(as_text=True)
     form = db.execute("SELECT id FROM workflow_forms WHERE form_type = 'claim' ORDER BY id DESC").fetchone()

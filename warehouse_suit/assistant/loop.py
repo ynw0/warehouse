@@ -218,6 +218,7 @@ def run_loop(*, messages, profile, thinking_level, model, tool_defs, execute, co
                     "id": item["id"],
                     "action": item["action"],
                     "summary": item["summary"],
+                    "preview": item.get("preview"),
                 }
             tool_text = str(outcome.get("text") or "")
             record("tool", tool_text, "", {"tool_call_id": call["id"], "name": call["name"]}, {})

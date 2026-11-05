@@ -161,6 +161,7 @@ def _action(name, payload, ctx):
                 "id": result["confirmation_id"],
                 "action": result["action"],
                 "summary": result["summary"],
+                "preview": result.get("preview"),
             }
         )
     events = []

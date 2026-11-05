@@ -1925,3 +1925,38 @@ button.danger:hover,
 .ai-chat .ai-thinking { display:flex; align-items:center; gap:9px; margin:3px 4px 8px; font-size:12px; color:#5d7087; }
 .ai-chat .ai-thinking input { flex:1; width:auto; min-height:18px; accent-color:#245c9e; }
 .ai-chat .ai-thinking output { min-width:4em; color:#245c9e; text-align:right; }
+
+
+/* 思考设置和单据确认卡 */
+.ai-chat .ai-thinking-anchor { position:relative; flex:none; }
+.ai-chat .ai-thinking-trigger { display:flex; align-items:center; gap:5px; min-height:34px; padding:5px 9px; border:0; border-radius:9px; background:transparent; color:#52677f; font-size:12px; }
+.ai-chat .ai-thinking-trigger:hover, .ai-chat .ai-thinking-trigger[aria-expanded="true"] { color:#245c9e; background:#eef4fb; }
+.ai-chat .ai-thinking-popover { position:absolute; z-index:5; right:0; bottom:calc(100% + 12px); width:min(310px,calc(100vw - 58px)); padding:15px 16px 18px; border:1px solid #e1e7ef; border-radius:18px; background:#fff; box-shadow:0 14px 42px rgba(20,40,70,.19); }
+.ai-chat .ai-thinking-popover[hidden] { display:none; }
+.ai-thinking-title { display:grid; grid-template-columns:24px 1fr 24px; align-items:center; color:#8493a5; font-size:15px; }
+.ai-thinking-title output { color:#3376d2; text-align:center; font-size:16px; font-weight:700; }
+.ai-thinking-model { margin:4px 0 16px; color:#758399; text-align:center; font-size:12px; overflow-wrap:anywhere; }
+.ai-thinking-track { position:relative; height:34px; border:1px solid #e0e3e9; border-radius:999px; background:#eceef1; }
+.ai-thinking-track input { position:absolute; inset:0; z-index:1; width:100%; height:100%; min-height:0; margin:0; appearance:none; background:transparent; cursor:pointer; }
+.ai-thinking-track input:focus-visible { outline:2px solid #4b8cdd; outline-offset:3px; border-radius:999px; }
+.ai-thinking-track input:disabled { cursor:default; }
+.ai-thinking-track input::-webkit-slider-thumb { width:33px; height:33px; appearance:none; border:1px solid #d9dfe7; border-radius:50%; background:#fff; box-shadow:0 2px 5px rgba(25,45,70,.12); }
+.ai-thinking-track input::-moz-range-thumb { width:31px; height:31px; border:1px solid #d9dfe7; border-radius:50%; background:#fff; box-shadow:0 2px 5px rgba(25,45,70,.12); }
+.ai-thinking-marks { position:absolute; inset:0 17px; display:flex; align-items:center; justify-content:space-between; }
+.ai-thinking-marks span { width:5px; height:5px; border-radius:50%; background:#afb7c1; }
+.ai-chat .ai-confirm { padding:14px; border:1px solid #d6e3f1; border-radius:14px; background:#f9fbfe; }
+.ai-confirm-content h4 { margin:0 0 12px; color:#193b63; font-size:15px; }
+.ai-preview-fields { display:grid; grid-template-columns:minmax(80px,auto) minmax(0,1fr); gap:8px 12px; margin:0; font-size:13px; }
+.ai-preview-fields dt { color:#73859a; }
+.ai-preview-fields dd { min-width:0; margin:0; color:#253c56; overflow-wrap:anywhere; }
+.ai-preview-item { margin:0 0 8px; padding:10px; border:1px solid #e0eaf4; border-radius:10px; background:#fff; }
+.ai-preview-item strong { display:block; margin-bottom:8px; color:#395e88; font-size:12px; }
+.ai-confirm-actions { display:flex; gap:8px; margin-top:12px; }
+.ai-confirm-actions button { margin:0; }
+.ai-confirm-error { margin:10px 0 0; color:#b42318; font-size:12px; }
+.ai-confirm-error[hidden] { display:none; }
+@media (max-width:700px) {
+  .ai-chat .ai-thinking-trigger { padding-inline:7px; }
+  .ai-preview-fields { grid-template-columns:1fr; gap:3px; }
+  .ai-preview-fields dd { margin-bottom:7px; }
+}

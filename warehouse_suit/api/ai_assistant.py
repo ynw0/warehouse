@@ -34,6 +34,7 @@ from warehouse_suit.ai_materials import (
 from warehouse_suit.category_rules import list_category_rules
 from warehouse_suit.material_service import next_material_code
 from warehouse_suit.project_service import list_projects
+from warehouse_suit.settings import get_setting
 from warehouse_suit.validation import validate_material_code_value
 from warehouse_suit.workflow_commands import (
     create_workflow_record,
@@ -467,6 +468,7 @@ def register_ai_assistant_routes(app, *, get_db, ai_enabled, optional_active_use
                 "usage": usage_report(usage, profile, messages),
                 "memory": memory,
                 "thinking_level": level,
+                "model": get_setting(cursor, "ai_model", ""),
                 "profile": profile,
             })
         except PermissionError:
