@@ -377,3 +377,80 @@ def test_workflow_search_results_survive_session_restore():
     ]
     shown = present_messages(rows)
     assert shown[0]["workflows"][0]["form_no"] == "YS2026110501"
+
+
+def test_list_my_todos_returns_only_current_user_and_paginates(client, db):
+    import json
+    from warehouse_suit.assistant.tools import execute_tool, tool_names
+    from warehouse_suit.todo_service import pending_tasks_for_user
+
+    admin = _login(client, "admin", "admin")
+    warehouse_id = db.execute("SELECT id FROM users WHERE username = 'warehouse'").fetchone()[0]
+    for number, assignee, status, step in [
+        ("YS2026110501", admin["id"], "pending", "acceptance"),
+        ("YS2026110502", warehouse_id, "pending", "acceptance"),
+        ("YS2026110503", admin["id"], "completed", "acceptance"),
+    ]:
+        form_id = db.execute(
+            "INSERT INTO workflow_forms (form_no, form_type, status, current_step) VALUES (?, 'acceptance', 'acceptance', 'acceptance')",
+            (number,),
+        ).lastrowid
+        db.execute(
+            "INSERT INTO workflow_tasks (form_id, step_code, assignee_id, status) VALUES (?, ?, ?, ?)",
+            (form_id, step, assignee, status),
+        )
+    db.execute(
+        "INSERT INTO stocktake_forms (form_no, status, supervisor_id) VALUES ('PD2026110501', 'supervisor', ?)",
+        (admin["id"],),
+    )
+    db.execute(
+        "INSERT INTO stocktake_forms (form_no, status, supervisor_id) VALUES ('PD2026110502', 'supervisor', ?)",
+        (warehouse_id,),
+    )
+    db.commit()
+    user = _user(db, "admin")
+    context = {"conn": db, "user": user, "allowed": tool_names("parent"), "depth": 0}
+    result = execute_tool("list_my_todos", {"limit": 1}, context)
+    assert result["ok"] is True
+    first = json.loads(result["text"])
+    assert first["has_more"] is True
+    second = json.loads(execute_tool("list_my_todos", {"limit": 1, "offset": 1}, context)["text"])
+    assert second["has_more"] is False
+    assert {first["items"][0]["form_no"], second["items"][0]["form_no"]} == {"YS2026110501", "PD2026110501"}
+    # 原有管理员待办页面继续展示其可处理的全部事项。
+    assert len(pending_tasks_for_user(db.cursor(), user, 20)) == 4
+    assert "list_my_todos" in tool_names("lookup")
+    assert "list_my_todos" not in tool_names("coding")
+
+
+def test_assistant_answers_personal_todos_with_dedicated_tool(db):
+    import json
+    from warehouse_suit.assistant.loop import iter_chat
+
+    user = _user(db, "warehouse")
+    form_id = db.execute(
+        "INSERT INTO workflow_forms (form_no, form_type, status, current_step) VALUES ('YS2026110509', 'acceptance', 'acceptance', 'acceptance')"
+    ).lastrowid
+    db.execute(
+        "INSERT INTO workflow_tasks (form_id, step_code, assignee_id, status) VALUES (?, 'acceptance', ?, 'pending')",
+        (form_id, user["id"]),
+    )
+    db.commit()
+    requests = []
+    def complete(payload):
+        requests.append(payload)
+        if len(requests) == 1:
+            return [{"type": "_message", "message": {
+                "content": "", "tool_calls": [{"id": "call_todo", "name": "list_my_todos", "arguments": "{}"}],
+                "usage": {},
+            }}]
+        tool_result = next(message for message in payload["messages"] if message["role"] == "tool")
+        assert json.loads(tool_result["content"])["items"][0]["form_no"] == "YS2026110509"
+        return [{"type": "_message", "message": {"content": "你有待办 YS2026110509", "tool_calls": [], "usage": {}}}]
+    events = list(iter_chat(
+        db, user, question="我的账号有哪些待办", session_id=None, file_ids=[],
+        thinking_level="off", model="test-model", client_ip="", optional_active_user_id=None,
+        complete_events=complete, complete_quiet=lambda payload: "",
+    ))
+    assert len(requests) == 2
+    assert any(event.get("type") == "text" and "YS2026110509" in event.get("text", "") for event in events)

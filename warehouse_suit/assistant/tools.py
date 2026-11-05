@@ -16,12 +16,14 @@ from warehouse_suit.assistant_actions import REGISTRY, perform_action
 from warehouse_suit.category_rules import rules_text
 from warehouse_suit.material_service import next_material_code
 from warehouse_suit.validation import validate_material_code_value
+from warehouse_suit.todo_service import pending_tasks_for_user
 
 
 LOGGER = logging.getLogger("warehouse_suit.assistant")
 TOOL_TEXT_LIMIT = 24000
 
 READ_NAMES = (
+    "list_my_todos",
     "search_materials",
     "get_material",
     "search_production",
@@ -33,6 +35,7 @@ READ_NAMES = (
     "memory_save",
 )
 LOOKUP_NAMES = (
+    "list_my_todos",
     "search_materials",
     "get_material",
     "search_production",
@@ -99,6 +102,18 @@ def execute_tool(name, arguments, ctx):
 def _read(name, payload, ctx):
     cursor = ctx["conn"].cursor()
     user = ctx["user"]
+    if name == "list_my_todos":
+        # “我的”始终按当前账号过滤，管理员也只看分配给自己的事项。
+        try:
+            offset = int(payload.get("offset") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("待办起始位置必须是非负整数")
+        if offset < 0:
+            raise ValueError("待办起始位置必须是非负整数")
+        size = _limit(payload.get("limit"), 50, 100)
+        rows = pending_tasks_for_user(cursor, user, size + 1, own_only=True, offset=offset)
+        items = rows[:size]
+        return _ok(_dump({"items": items, "offset": offset, "has_more": len(rows) > size}))
     if name == "search_materials":
         rows = ai_similar_materials(cursor, str(payload.get("q") or ""), _limit(payload.get("limit"), 12, 20))
         return _ok(_dump([_material(item) for item in rows]))
@@ -174,6 +189,11 @@ def _action(name, payload, ctx):
 
 def _read_definitions():
     return [
+        _function(
+            "list_my_todos",
+            "查询当前登录账号需要办理的待办流程及盘点。包括管理员本人；结果含待办环节和发起人。has_more 为真时用 offset 查询下一页。",
+            {"limit": _integer("每页条数，最多 100"), "offset": _integer("起始位置，从 0 开始")},
+        ),
         _function(
             "search_materials",
             "按名称、编码、品牌或规格搜索物料和库存位置。",

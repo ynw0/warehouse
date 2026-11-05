@@ -86,7 +86,7 @@ def latest_workflow_event_id():
 
 
 
-def pending_tasks_for_user(cursor, user, limit=50):
+def pending_tasks_for_user(cursor, user, limit=50, *, own_only=False, offset=0):
     if not user:
         return []
     params = []
@@ -95,7 +95,7 @@ def pending_tasks_for_user(cursor, user, limit=50):
         "t.step_code = f.current_step",
         "f.status NOT IN ('completed', 'cancelled', 'rejected')",
     ]
-    if "admin" not in user.get("role_codes", []):
+    if own_only or "admin" not in user.get("role_codes", []):
         where.append("t.assignee_id = ?")
         params.append(user["id"])
     append_workflow_visibility(cursor, where, params, "f")
@@ -110,12 +110,12 @@ def pending_tasks_for_user(cursor, user, limit=50):
         ORDER BY f.updated_at DESC, t.id DESC
         LIMIT ?
         """,
-        params + [limit],
+        params + [limit + offset],
     )
     todos = [dict(row) for row in cursor.fetchall()]
     stock_where = ["status = 'supervisor'"]
     stock_params = []
-    if "admin" not in user.get("role_codes", []):
+    if own_only or "admin" not in user.get("role_codes", []):
         stock_where.append("supervisor_id = ?")
         stock_params.append(user["id"])
     cursor.execute(
@@ -128,10 +128,10 @@ def pending_tasks_for_user(cursor, user, limit=50):
         ORDER BY updated_at DESC, id DESC
         LIMIT ?
         """,
-        stock_params + [limit],
+        stock_params + [limit + offset],
     )
     todos.extend(dict(row) for row in cursor.fetchall())
-    return sorted(todos, key=lambda item: item.get("updated_at") or "", reverse=True)[:limit]
+    return sorted(todos, key=lambda item: item.get("updated_at") or "", reverse=True)[offset:offset + limit]
 
 
 def todos_payload_for_user_id(user_id):
