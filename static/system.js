@@ -7306,55 +7306,28 @@
     return permissions;
   }
 
-  function aiThinkingRow(item) {
-    const data = item || { id: "", label: "", enabled: true, fields: {} };
-    return `<div class="ai-config-level" data-ai-level-row>
-      <label><input type="checkbox" data-level-enabled ${data.enabled ? "checked" : ""}> 启用</label>
-      <label>标识<input data-level-id value="${escapeAttr(data.id || "")}" placeholder="例如 high"></label>
-      <label>显示名称<input data-level-label value="${escapeAttr(data.label || "")}" placeholder="例如 深度"></label>
-      <label class="ai-level-fields">请求参数 JSON<input data-level-fields value="${escapeAttr(JSON.stringify(data.fields || {}))}" placeholder='{"reasoning_effort":"high"}'></label>
-      <button type="button" data-level-probe>探测</button><button type="button" data-level-remove>删除</button>
-      <small data-level-result></small>
-    </div>`;
-  }
-
   function aiProfileFields(profile) {
     const current = profile || {};
     const caps = current.capabilities || {};
-    const names = { off: "服务默认", none: "无", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", ultra: "极致" };
-    const enabled = new Set(current.thinking_levels || ["off", "low", "medium", "high"]);
-    const options = current.thinking_options || Object.keys(names).map(id => ({
-      id, label: names[id], enabled: enabled.has(id),
+    const labels = { off: "服务默认", none: "关闭", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", ultra: "极致" };
+    const options = current.thinking_options || (current.thinking_levels || ["off", "low", "medium", "high"]).map(id => ({
+      id, label: labels[id] || id, enabled: true,
       fields: id === "off" ? {} : (current.thinking_style === "enable_thinking"
         ? { enable_thinking: true, reasoning_effort: id } : { reasoning_effort: id }),
     }));
+    const detected = options.filter(item => item.enabled).map(item => item.label).join("、");
     return `<label>上下文长度<input id="aiContextTokens" type="number" min="1024" step="1" value="${Number(current.context_tokens || 32768)}"></label>
       <label>最大输出<input id="aiMaxOutputTokens" type="number" min="256" step="1" value="${Number(current.max_output_tokens || 4096)}"></label>
       <label><input id="aiCapTools" type="checkbox" ${caps.tools === false ? "" : "checked"}> 允许工具</label>
       <label><input id="aiCapVision" type="checkbox" ${caps.vision ? "checked" : ""}> 允许看图</label>
       <label><input id="aiCapReasoning" type="checkbox" ${caps.reasoning === false ? "" : "checked"}> 允许思考</label>
       <label class="wide">模型通用请求参数 JSON<input id="aiRequestParameters" value="${escapeAttr(JSON.stringify(current.request_parameters || {}))}" placeholder='{"temperature":0.3}'></label>
-      <div class="wide ai-level-config"><div class="ai-level-heading"><strong>思考挡位</strong><button type="button" id="aiAddLevel">添加挡位</button></div>
-        <p class="hint">填写服务接收的参数。探测会向当前模型发送一条短消息。</p>
-        <div id="aiLevelRows">${options.map(aiThinkingRow).join("")}</div>
-      </div>
-      <label>默认挡位标识<input id="aiDefaultThinking" value="${escapeAttr(current.default_thinking || "medium")}"></label>`;
-  }
-
-  function readAiThinkingRow(row) {
-    let fields;
-    try {
-      fields = JSON.parse(row.querySelector("[data-level-fields]").value || "{}");
-    } catch {
-      throw new Error("请求参数必须是合法 JSON 对象");
-    }
-    if (!fields || Array.isArray(fields) || typeof fields !== "object") throw new Error("请求参数必须是 JSON 对象");
-    return {
-      id: row.querySelector("[data-level-id]").value.trim(),
-      label: row.querySelector("[data-level-label]").value.trim(),
-      enabled: row.querySelector("[data-level-enabled]").checked,
-      fields,
-    };
+      <div class="wide ai-level-config">
+        <div class="ai-level-heading"><strong>模型思考能力</strong><button type="button" id="aiDetectLevels">一键探测并保存</button></div>
+        <p class="hint" id="aiLevelStatus">当前挡位：${escapeHtml(detected || "服务默认")}</p>
+        <input type="hidden" id="aiDetectedOptions" value="${escapeAttr(JSON.stringify(options))}">
+        <input type="hidden" id="aiDefaultThinking" value="${escapeAttr(current.default_thinking || "off")}">
+      </div>`;
   }
 
   async function loadAiConfig() {
@@ -7362,42 +7335,7 @@
     document.getElementById("aiConfig").innerHTML = `<div class="form-grid"><label>模型地址<input id="aiBaseUrl" value="${escapeAttr(config.base_url || "")}" placeholder="https://.../v1"></label><label>API Key<input id="aiKey" type="password" placeholder="${config.has_api_key ? "已保存，留空不改" : "请输入"}"></label><label>模型名称<select id="aiModel">${aiModelOptions([], config.model || "")}</select></label><label style="align-self:end;"><button id="connectAiModels" type="button">连接并获取模型</button></label><label class="wide">Skill 路径<input id="aiSkill" value="${escapeAttr(config.skill_path || "")}"></label><label class="wide">数据库 API 地址<input id="dbApi" value="${escapeAttr(config.database_api || "/api")}"></label>${aiProfileFields(config.profile)}<p class="hint wide" id="aiModelStatus">填写模型地址和 API Key 后点击连接，选择模型名称再保存。</p></div>`;
     document.getElementById("saveAiConfig").addEventListener("click", saveAiConfig);
     document.getElementById("connectAiModels").addEventListener("click", connectAiModels);
-    document.getElementById("aiAddLevel").addEventListener("click", () => {
-      document.getElementById("aiLevelRows").insertAdjacentHTML("beforeend", aiThinkingRow());
-    });
-    document.getElementById("aiLevelRows").addEventListener("click", async event => {
-      const row = event.target.closest("[data-ai-level-row]");
-      if (!row) return;
-      if (event.target.closest("[data-level-remove]")) {
-        row.remove();
-        return;
-      }
-      const button = event.target.closest("[data-level-probe]");
-      if (!button) return;
-      const status = row.querySelector("[data-level-result]");
-      button.disabled = true;
-      status.textContent = "探测中…";
-      try {
-        const option = readAiThinkingRow(row);
-        const result = await systemApi("/api/ai/model-probe", {
-          method: "POST",
-          body: JSON.stringify({
-            ai_base_url: document.getElementById("aiBaseUrl").value,
-            ai_api_key: document.getElementById("aiKey").value,
-            model: document.getElementById("aiModel").value,
-            fields: {
-              ...JSON.parse(document.getElementById("aiRequestParameters").value || "{}"),
-              ...option.fields,
-            },
-          }),
-        });
-        status.textContent = result.message + "，请结合实际回复确认效果";
-      } catch (error) {
-        status.textContent = error.message;
-      } finally {
-        button.disabled = false;
-      }
-    });
+    document.getElementById("aiDetectLevels").addEventListener("click", detectAiLevels);
   }
 
   function aiModelOptions(models, current) {
@@ -7441,15 +7379,44 @@
     }
   }
 
+  async function detectAiLevels() {
+    const button = document.getElementById("aiDetectLevels");
+    const status = document.getElementById("aiLevelStatus");
+    button.disabled = true;
+    status.textContent = "正在探测模型，请稍候…";
+    try {
+      const data = await systemApi("/api/ai/model-detect", {
+        method: "POST",
+        body: JSON.stringify({
+          ai_base_url: document.getElementById("aiBaseUrl").value,
+          ai_api_key: document.getElementById("aiKey").value,
+          model: document.getElementById("aiModel").value,
+          request_parameters: JSON.parse(document.getElementById("aiRequestParameters").value || "{}"),
+        }),
+      });
+      document.getElementById("aiDetectedOptions").value = JSON.stringify(data.thinking_options);
+      document.getElementById("aiDefaultThinking").value = data.default_thinking;
+      document.getElementById("aiCapReasoning").checked = true;
+      const saved = await saveAiConfig();
+      status.textContent = saved
+        ? data.method + "：" + data.thinking_options.map(item => item.label).join("、")
+        : "探测完成，保存失败，请检查模型设置。";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function saveAiConfig() {
     let options;
     let requestParameters;
     try {
       requestParameters = JSON.parse(document.getElementById("aiRequestParameters").value || "{}");
+      options = JSON.parse(document.getElementById("aiDetectedOptions").value);
       if (!requestParameters || Array.isArray(requestParameters) || typeof requestParameters !== "object") {
         throw new Error("模型请求参数必须是 JSON 对象");
       }
-      options = [...document.querySelectorAll("[data-ai-level-row]")].map(readAiThinkingRow);
     } catch (error) {
       toast(error.message);
       return;
@@ -7476,8 +7443,11 @@
     try {
       await systemApi("/api/ai/config", { method: "POST", body: JSON.stringify(body) });
       toast("物料小助手配置已保存");
+      window.dispatchEvent(new Event("warehouse-ai-profile-updated"));
+      return true;
     } catch (error) {
       toast(error.message);
+      return false;
     }
   }
 

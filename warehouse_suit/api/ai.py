@@ -124,9 +124,9 @@ def register_ai_routes(
         return jsonify({"success": True, "base_url": base_url, "models": models})
 
 
-    @app.post("/api/ai/model-probe")
-    def ai_model_probe():
-        """探测指定模型是否接受一组请求参数。"""
+    @app.post("/api/ai/model-detect")
+    def ai_model_detect():
+        """从模型元数据及响应探测可用思考模式。"""
         if not AI_ENABLED:
             return jsonify({"success": False, "error": "当前版本未启用 AI 功能"}), 404
         conn = get_db()
@@ -136,18 +136,13 @@ def register_ai_routes(
             data = request.get_json(force=True) or {}
             base_url = ai_base_url(data.get("ai_base_url") or get_setting(cursor, "ai_base_url", DEFAULT_AI_BASE_URL))
             model = str(data.get("model") or "").strip()
-            fields = data.get("fields")
-            if not base_url or not model or not isinstance(fields, dict):
-                raise ValueError("请填写模型地址、模型名称和参数对象")
-            if set(fields) & {"model", "messages", "tools", "stream", "max_tokens"}:
-                raise ValueError("探测参数不能覆盖模型、消息、工具和输出限制")
+            if not base_url or not model:
+                raise ValueError("请填写模型地址并选择模型")
             api_key = str(data.get("ai_api_key") or get_setting(cursor, "ai_api_key", DEFAULT_AI_API_KEY))
-            payload = {"model": model, "messages": [{"role": "user", "content": "Reply OK"}], "max_tokens": 16, "stream": False}
-            payload.update(fields)
-            response = openai_chat_completion(base_url, api_key, payload)
-            if not response.get("choices"):
-                raise ValueError("模型服务未返回回复")
-            return jsonify({"success": True, "message": "模型服务已接受该组参数"})
+            from warehouse_suit.assistant.model_probe import detect_thinking_options
+
+            result = detect_thinking_options(base_url, api_key, model, data.get("request_parameters"))
+            return jsonify({"success": True, **result})
         except Exception as exc:
             return jsonify({"success": False, "error": http_error_detail(exc)}), 400
         finally:

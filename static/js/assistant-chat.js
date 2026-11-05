@@ -12,6 +12,7 @@
     welcome: "",
     applySuggestion: null,
     openWorkflow: null,
+    thinkingLevels: [],
   };
   let ready = Promise.resolve();
 
@@ -22,7 +23,6 @@
         <div class="work-head" id="aiChatHead">
           <div class="ai-heading"><span class="ai-heading-icon">✦</span><div><h2>物料小助手</h2><small>查询 · 填单 · 协作</small></div></div>
           <div class="ai-head-actions">
-            <label class="ai-thinking">思考<select id="aiThinkingLevel"></select></label>
             <button id="aiMemoryToggle" type="button" aria-expanded="false">记忆</button>
             <button id="aiClearChat" type="button">清空对话</button>
             <button id="aiFloatClose" type="button">关闭</button>
@@ -38,6 +38,11 @@
           <div class="ai-composer">
             <div class="ai-file-chips" id="aiFileChips"></div>
             <textarea id="aiFloatQuestion" aria-label="输入消息" placeholder="问库存、查流程，或告诉我你要填写的单据"></textarea>
+            <div class="ai-thinking" id="aiThinkingControl">
+              <label for="aiThinkingLevel">思考</label>
+              <input id="aiThinkingLevel" type="range" min="0" max="0" step="1" value="0" aria-label="思考等级">
+              <output id="aiThinkingLabel" for="aiThinkingLevel"></output>
+            </div>
             <div class="ai-send-row">
               <label class="ai-file-button">＋ 添加附件<input id="aiFileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.csv,.json" multiple hidden></label>
               <span class="ai-input-hint">Enter 发送 · Alt + Enter 换行</span>
@@ -69,8 +74,12 @@
       document.getElementById("aiMemoryToggle").setAttribute("aria-expanded", String(!panel.hidden));
     });
     document.getElementById("aiMemorySave").addEventListener("click", () => saveMemory().catch(showError));
+    document.getElementById("aiThinkingLevel").addEventListener("input", event => {
+      updateThinkingLabel(Number(event.target.value));
+    });
     document.getElementById("aiThinkingLevel").addEventListener("change", event => {
-      saveThinking(event.target.value).catch(showError);
+      const level = state.thinkingLevels[Number(event.target.value)];
+      if (level) saveThinking(level.id).catch(showError);
     });
     document.getElementById("aiFloatSend").addEventListener("click", () => send().catch(showError));
     document.getElementById("aiFloatQuestion").addEventListener("keydown", event => {
@@ -83,6 +92,9 @@
       event.target.value = "";
     });
     if (options && options.makeDraggable) options.makeDraggable(button);
+    window.addEventListener("warehouse-ai-profile-updated", () => {
+      if (!state.sending) ready = restore().catch(showError);
+    });
     ready = restore().catch(showError);
   }
 
@@ -132,27 +144,27 @@
     });
   }
 
+  function updateThinkingLabel(index) {
+    const level = state.thinkingLevels[index];
+    document.getElementById("aiThinkingLabel").textContent = level ? level.label : "";
+  }
+
   function fillThinkingOptions() {
-    const select = document.getElementById("aiThinkingLevel");
-    const label = select.closest(".ai-thinking");
+    const slider = document.getElementById("aiThinkingLevel");
     const profile = state.profile || {};
-    const enabled = !profile.capabilities || profile.capabilities.reasoning !== false;
-    const levels = (profile.thinking_levels || ["off", "low", "medium", "high"]).slice();
-    label.hidden = !enabled;
-    select.innerHTML = "";
-    levels.forEach(level => {
-      const option = document.createElement("option");
-      option.value = level;
-      const configured = (profile.thinking_options || []).find(item => item.id === level);
-      option.textContent = configured ? configured.label : (LEVEL_LABELS[level] || level);
-      select.appendChild(option);
+    const levels = profile.thinking_levels || ["off"];
+    state.thinkingLevels = levels.map(id => {
+      const configured = (profile.thinking_options || []).find(item => item.id === id);
+      return { id, label: configured ? configured.label : (LEVEL_LABELS[id] || id) };
     });
-    if (!enabled) {
-      state.thinkingLevel = "off";
-      return;
-    }
-    if (!levels.includes(state.thinkingLevel)) state.thinkingLevel = levels[0] || "off";
-    select.value = state.thinkingLevel;
+    if (!state.thinkingLevels.length) state.thinkingLevels = [{ id: "off", label: "服务默认" }];
+    let index = state.thinkingLevels.findIndex(item => item.id === state.thinkingLevel);
+    if (index < 0) index = Math.max(0, state.thinkingLevels.findIndex(item => item.id === profile.default_thinking));
+    state.thinkingLevel = state.thinkingLevels[index].id;
+    slider.max = String(state.thinkingLevels.length - 1);
+    slider.value = String(index);
+    slider.disabled = profile.capabilities?.reasoning === false || state.thinkingLevels.length < 2;
+    updateThinkingLabel(index);
   }
 
   async function saveThinking(level) {
@@ -292,9 +304,10 @@
       state.sessionId = Number(event.session_id || 0);
       if (event.thinking_level) {
         state.thinkingLevel = event.thinking_level;
-        const select = document.getElementById("aiThinkingLevel");
-        if (select && [...select.options].some(option => option.value === event.thinking_level)) {
-          select.value = event.thinking_level;
+        const index = state.thinkingLevels.findIndex(item => item.id === event.thinking_level);
+        if (index >= 0) {
+          document.getElementById("aiThinkingLevel").value = String(index);
+          updateThinkingLabel(index);
         }
       }
     } else if (event.type === "thinking" && event.text) {

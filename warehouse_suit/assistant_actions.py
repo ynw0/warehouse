@@ -100,6 +100,8 @@ def perform_action(conn, user, action, payload, ip="", *, confirmed=False, optio
         raise ValueError("动作参数必须是对象")
     cursor = conn.cursor()
     _authorize(cursor, user, spec, payload)
+    if action == "create_workflow" and payload.get("form_type") == "claim":
+        payload = _prepare_claim(cursor, user, payload)
     if spec["confirm"] and not confirmed:
         summary = spec["summarize"](cursor, payload)
         confirmation_id = _insert_confirmation(conn, user, spec["name"], summary, payload)
@@ -596,6 +598,61 @@ def _run_get_workflow(cursor, user, payload, ip, optional_active_user_id):
     result = {"form": brief, "items": items, "offset": offset, "total_items": len(all_items)}
     text = json.dumps(result, ensure_ascii=False)
     return {"message": f"流程内容：\n{text}", "data": brief}
+
+
+def _prepare_claim(cursor, user, payload):
+    """确认前按真实物料和申领规则核对，并把采购项目写进每一行。"""
+    from warehouse_suit.claim_allocation_service import allocate_claim_items
+    from warehouse_suit.purchase_project import apply_purpose_payload, require_same_purchase_project
+    from warehouse_suit.settings import temporary_inventory_enabled
+    from warehouse_suit.usage_kind import USAGE_RD, validate_usage_kind
+    from warehouse_suit.workflow_service import resolve_department_leader
+
+    if not user_has_permission(cursor, user, "start_claim"):
+        raise PermissionError("当前账号没有发起申领的权限")
+    data = dict(payload)
+    items = data.get("items")
+    if not isinstance(items, list) or not items:
+        raise ValueError("申领单至少需要一行物料")
+    prepared = []
+    header_project = str(data.get("purchase_project") or "").strip()
+    if not header_project and str(data.get("project_code") or "").strip() == "办公":
+        header_project = "办公"
+        data.pop("project_code", None)
+    for row in items:
+        if not isinstance(row, dict):
+            raise ValueError("申领明细格式不正确")
+        item = dict(row)
+        code = str(item.get("material_code") or "").strip()
+        if not code:
+            raise ValueError("请先查找并确认每项物料的准确编码")
+        cursor.execute("SELECT id, material_code, name, brand_model, spec, unit FROM materials WHERE material_code = ?", (code,))
+        material = cursor.fetchone()
+        if not material:
+            raise ValueError(f"物料编码 {code} 不存在，请重新查询物料")
+        material = dict(material)
+        for field, actual in (("material_name", material["name"]), ("name", material["name"]),
+                              ("brand_model", material["brand_model"]), ("spec", material["spec"])):
+            supplied = str(item.get(field) or "").strip()
+            if supplied and supplied != str(actual or "").strip():
+                raise ValueError(f"物料编码 {code} 与{field}不一致，请重新查询物料")
+        item.update(material_id=material["id"], material_code=material["material_code"],
+                    material_name=material["name"], brand_model=material["brand_model"],
+                    spec=material["spec"], unit=material["unit"])
+        if not str(item.get("purchase_project") or "").strip():
+            if not header_project:
+                raise ValueError(f"物料 {code} 缺少采购申请项目，请向用户确认")
+            item["purchase_project"] = header_project
+        prepared.append(item)
+    data["items"] = prepared
+    usage_kind = validate_usage_kind(data.get("usage_kind") or USAGE_RD)
+    allocate_claim_items(cursor, prepared, user, temporary_inventory_enabled(cursor), usage_kind)
+    project = require_same_purchase_project(item.get("purchase_project") for item in prepared)
+    apply_purpose_payload(cursor, data, project)
+    leader_ids = data.get("leader_ids") or [data.get("leader_id") or 0]
+    for leader in leader_ids:
+        resolve_department_leader(cursor, user, "claim", "leader_claim", int(leader or 0))
+    return data
 
 
 def _summarize_new_workflow(cursor, payload):

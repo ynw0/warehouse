@@ -1920,3 +1920,8 @@ button.danger:hover,
 }
 
 .ai-workflow-link { display:block; width:100%; min-height:34px; margin-top:7px; text-align:left; color:#245c9e; background:#f0f6fc; border:1px solid #d4e3f1; border-radius:8px; font-size:12px; }
+
+/* 思考挡位随当前模型能力变化。 */
+.ai-chat .ai-thinking { display:flex; align-items:center; gap:9px; margin:3px 4px 8px; font-size:12px; color:#5d7087; }
+.ai-chat .ai-thinking input { flex:1; width:auto; min-height:18px; accent-color:#245c9e; }
+.ai-chat .ai-thinking output { min-width:4em; color:#245c9e; text-align:right; }

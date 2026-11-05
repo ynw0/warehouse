@@ -252,39 +252,113 @@ def test_custom_thinking_levels_send_configured_payload(client, db):
     assert calls[0]["reasoning_effort"] == "xhigh"
 
 
-def test_model_probe_sends_only_configured_parameters(client, monkeypatch):
+def test_detect_thinking_rejects_ignored_parameters(client, monkeypatch):
+    from warehouse_suit.assistant import model_probe
+
     _login(client, "admin", "admin")
-    calls = []
-    def complete(base_url, api_key, payload):
-        calls.append((base_url, payload))
-        return {"choices": [{"message": {"content": "OK"}}]}
-    monkeypatch.setattr("warehouse_suit.api.ai.openai_chat_completion", complete)
-    response = client.post("/api/ai/model-probe", json={
-        "ai_base_url": "http://model.test/v1",
-        "model": "test-model",
-        "fields": {"chat_template_kwargs": {"enable_thinking": False}},
+    monkeypatch.setattr(model_probe, "openai_model_list", lambda *args: [{"id": "test-model"}])
+    monkeypatch.setattr(model_probe, "_chat", lambda *args: {"status": "accepted", "reasoning": False})
+    response = client.post("/api/ai/model-detect", json={
+        "ai_base_url": "http://model.test/v1", "model": "test-model",
     })
     assert response.status_code == 200, response.get_data(as_text=True)
-    assert calls[0][1]["chat_template_kwargs"] == {"enable_thinking": False}
-    assert calls[0][1]["model"] == "test-model"
+    data = response.get_json()
+    assert [item["id"] for item in data["thinking_options"]] == ["off"]
+    assert "未提供可验证" in data["method"]
 
 
-def test_create_workflow_requires_confirmation_before_write(client, db):
+def test_detect_thinking_uses_service_validated_levels(client, monkeypatch):
+    from warehouse_suit.assistant import model_probe
+
+    _login(client, "admin", "admin")
+    monkeypatch.setattr(model_probe, "openai_model_list", lambda *args: [{"id": "test-model"}])
+    def probe(base_url, key, model, fields):
+        effort = fields.get("reasoning_effort")
+        return {"status": "accepted" if effort in {"low", "high"} else "rejected", "reasoning": False}
+    monkeypatch.setattr(model_probe, "_chat", probe)
+    response = client.post("/api/ai/model-detect", json={
+        "ai_base_url": "http://model.test/v1", "model": "test-model",
+    })
+    assert response.status_code == 200
+    assert [item["id"] for item in response.get_json()["thinking_options"]] == ["off", "low", "high"]
+
+
+def test_claim_confirmation_uses_existing_code_and_office_project(client, db):
+    import json
+    from warehouse_suit.assistant.tools import execute_tool
+
+    user = _login(client, "warehouse", "test")
+    material = client.post("/api/material-master", json={
+        "material_code": "10103901010060", "name": "电池", "brand_model": "南孚",
+        "spec": "7号电池", "unit": "粒",
+    })
+    assert material.status_code == 200, material.get_data(as_text=True)
+    material_id = material.get_json()["material"]["id"]
+    inbound = client.post("/api/stock/in", json={
+        "material_id": material_id, "quantity": 22, "total_amount": 22, "purchase_project": "办公",
+    })
+    assert inbound.status_code == 200, inbound.get_data(as_text=True)
+    before = db.execute("SELECT COUNT(*) FROM workflow_forms").fetchone()[0]
+    result = execute_tool("create_workflow", {
+        "form_type": "claim", "project_code": "办公",
+        "items": [{"material_code": "10103901010060", "material_name": "电池",
+                   "brand_model": "南孚", "spec": "7号电池", "request_quantity": 2}],
+    }, {
+        "conn": db, "user": _user(db, "warehouse"), "ip": "",
+        "optional_active_user_id": None, "allowed": ["create_workflow"], "depth": 0,
+    })
+    assert result["ok"] is True, result
+    confirmation = result["confirmations"][0]
+    assert confirmation["action"] == "create_workflow"
+    assert "10103901010060" in confirmation["summary"]
+    assert db.execute("SELECT COUNT(*) FROM workflow_forms").fetchone()[0] == before
+    stored = db.execute("SELECT payload_json FROM assistant_confirmations WHERE id = ?", (confirmation["id"],)).fetchone()
+    payload = json.loads(stored["payload_json"])
+    assert payload["items"][0]["material_id"] == material_id
+    assert payload["items"][0]["purchase_project"] == "办公"
+    confirmed = client.post(f"/api/ai/assistant/confirmations/{confirmation['id']}/confirm", json={})
+    assert confirmed.status_code == 200, confirmed.get_data(as_text=True)
+    form = db.execute("SELECT id FROM workflow_forms WHERE form_type = 'claim' ORDER BY id DESC").fetchone()
+    line = db.execute("SELECT material_code, request_quantity, purchase_project FROM workflow_items WHERE form_id = ?", (form["id"],)).fetchone()
+    assert tuple(line) == ("10103901010060", 2, "办公")
+
+
+def test_claim_confirmation_rejects_incorrect_material_code(client, db):
     from warehouse_suit.assistant.tools import execute_tool
 
     _login(client, "admin", "admin")
-    before = db.execute("SELECT COUNT(*) FROM workflow_forms").fetchone()[0]
     result = execute_tool("create_workflow", {
-        "form_type": "claim",
-        "items": [{"material_code": "10200100010001", "request_quantity": 2}],
+        "form_type": "claim", "project_code": "办公",
+        "items": [{"material_code": "10103901010080", "material_name": "电池", "request_quantity": 2}],
     }, {
         "conn": db, "user": _user(db, "admin"), "ip": "",
         "optional_active_user_id": None, "allowed": ["create_workflow"], "depth": 0,
     })
-    assert result["ok"] is True
-    assert result["confirmations"][0]["action"] == "create_workflow"
-    assert "10200100010001" in result["confirmations"][0]["summary"]
-    assert db.execute("SELECT COUNT(*) FROM workflow_forms").fetchone()[0] == before
+    assert result["ok"] is False
+    assert "不存在" in result["text"]
+
+
+def test_existing_material_code_is_not_rewritten_in_chat(db):
+    from warehouse_suit.assistant.loop import iter_chat
+
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO materials (material_code, name, unit, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))",
+        ("10103901010060", "电池", "粒"),
+    )
+    db.commit()
+    def complete(payload):
+        return [{"type": "_message", "message": {
+            "content": "7号电池编码为 10103901010060", "tool_calls": [], "usage": {},
+        }}]
+    def quiet(payload):
+        raise AssertionError("现有物料编码不应被改写")
+    events = list(iter_chat(
+        db, _user(db, "admin"), question="查询7号电池", session_id=None, file_ids=[],
+        thinking_level="off", model="test-model", client_ip="", optional_active_user_id=None,
+        complete_events=complete, complete_quiet=quiet,
+    ))
+    assert any(event.get("text") == "7号电池编码为 10103901010060" for event in events)
 
 
 def test_workflow_search_results_survive_session_restore():

@@ -3,7 +3,6 @@
 import json
 import time
 
-from warehouse_suit.ai_materials import validate_and_correct_codes
 from warehouse_suit.assistant.compact import (
     keep_tail,
     needs_compact,
@@ -145,14 +144,8 @@ def iter_chat(
     if result is None:
         raise RuntimeError("模型没有返回内容")
     conn.commit()
-    answer = correct_codes(
-        cursor,
-        result.get("content") or "",
-        prompt,
-        question,
-        complete_quiet,
-        model,
-    )
+    # 查询和办单引用的是现有物料，不能将这些编码当作新编码改写。
+    answer = result.get("content") or ""
     if result.get("message_id"):
         update_message_content(conn, result["message_id"], answer)
     if answer:
@@ -180,7 +173,11 @@ def run_loop(*, messages, profile, thinking_level, model, tool_defs, execute, co
         payload.update(profile.get("request_parameters") or {})
         if tool_defs:
             payload["tools"] = tool_defs
-        payload.update(thinking_fields(profile, thinking_level))
+        for key, value in thinking_fields(profile, thinking_level).items():
+            if isinstance(value, dict) and isinstance(payload.get(key), dict):
+                payload[key] = {**payload[key], **value}
+            else:
+                payload[key] = value
         message = None
         for event in complete_events(payload):
             if event.get("type") == "_message":
@@ -225,6 +222,9 @@ def run_loop(*, messages, profile, thinking_level, model, tool_defs, execute, co
             tool_text = str(outcome.get("text") or "")
             record("tool", tool_text, "", {"tool_call_id": call["id"], "name": call["name"]}, {})
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": tool_text})
+        if confirmations:
+            yield _done("请核对确认卡中的内容，确认后提交。", usage, message_id, confirmations)
+            return
     if not content:
         content = "工具调用已达到上限，请换个问法或发送「继续」。"
     yield _done(content, usage, message_id, confirmations)
@@ -297,43 +297,6 @@ def model_messages(cursor, user_id, profile, prompt, rows):
                 }
             )
     return messages
-
-
-def correct_codes(cursor, answer, prompt, question, complete_quiet, model):
-    """沿用编码校验。改正请求失败时保留带说明的原文。"""
-    current = str(answer or "")
-    for _round in range(2):
-        validated = validate_and_correct_codes(cursor, current)
-        if validated == current:
-            return current
-        marker = "\n\n---\n## 编码自动校验\n"
-        parts = validated.split(marker)
-        if len(parts) != 2:
-            return validated
-        try:
-            corrected = complete_quiet(
-                {
-                    "model": model,
-                    "temperature": 0.2,
-                    "max_tokens": 2048,
-                    "messages": [
-                        {"role": "system", "content": prompt},
-                        {"role": "user", "content": question},
-                        {"role": "assistant", "content": parts[0].strip()},
-                        {
-                            "role": "user",
-                            "content": f"上面的编码有问题：\n{parts[1].strip()}\n\n按问题改正，直接给出改后的完整回复。",
-                        },
-                    ],
-                }
-            )
-        except Exception:
-            return validated
-        text = str((corrected or {}).get("content") or "").strip()
-        if not text:
-            return validated
-        current = text
-    return current
 
 
 def _calls(calls, round_index):

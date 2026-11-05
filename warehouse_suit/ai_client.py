@@ -61,7 +61,7 @@ def http_error_detail(exc):
     return str(exc)
 
 
-def openai_chat_completion(base_url, api_key, payload):
+def openai_chat_completion(base_url, api_key, payload, timeout=90):
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -73,7 +73,7 @@ def openai_chat_completion(base_url, api_key, payload):
         headers=headers,
         method="POST",
     )
-    with ai_urlopen(req, timeout=90) as response:
+    with ai_urlopen(req, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -103,6 +103,9 @@ def openai_model_list(base_url, api_key):
                 for key in ("context_length", "max_model_len", "max_context_length", "max_output_tokens"):
                     if isinstance(item.get(key), int) and item[key] > 0:
                         model[key] = item[key]
+                for key in ("supported_reasoning_efforts", "reasoning_efforts"):
+                    if isinstance(item.get(key), list):
+                        model[key] = [str(value) for value in item[key] if isinstance(value, str)]
             models.append(model)
     return models
 
