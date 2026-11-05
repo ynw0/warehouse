@@ -1960,3 +1960,14 @@ button.danger:hover,
   .ai-preview-fields { grid-template-columns:1fr; gap:3px; }
   .ai-preview-fields dd { margin-bottom:7px; }
 }
+
+
+/* 助手回复中的表格可在窄屏横向滚动。 */
+.ai-answer-table-wrap { width:100%; max-width:100%; overflow-x:auto; margin:8px 0; border:1px solid #dbe6f1; border-radius:9px; }
+.ai-answer-table { width:100%; border-collapse:collapse; background:#fff; font-size:12px; line-height:1.5; }
+.ai-answer-table th, .ai-answer-table td { padding:8px 10px; border-bottom:1px solid #e7eef5; vertical-align:top; white-space:normal; overflow-wrap:anywhere; }
+.ai-answer-table th { color:#3b5878; background:#f1f6fb; font-weight:600; }
+.ai-answer-table tr:last-child td { border-bottom:0; }
+.ai-answer pre { max-width:100%; overflow:auto; padding:10px; border-radius:8px; background:#f1f5f9; white-space:pre; }
+.ai-answer code { padding:1px 4px; border-radius:4px; background:#edf3f9; font-family:monospace; }
+.ai-chat .chat-msg.ai:has(.ai-answer-table-wrap) { width:100%; max-width:100%; }

@@ -385,7 +385,7 @@
       thought.className = "ai-thought";
       const answer = document.createElement("div");
       answer.className = "ai-answer";
-      answer.textContent = text || "";
+      renderAnswer(answer, text);
       toggle.addEventListener("click", () => {
         const visible = thought.classList.toggle("show");
         toggle.textContent = visible ? "隐藏思考" : "显示思考";
@@ -404,7 +404,121 @@
   }
 
   function setAnswer(bubble, text) {
-    if (bubble._answer) bubble._answer.textContent = text || "";
+    if (bubble._answer) renderAnswer(bubble._answer, text);
+  }
+
+  function renderAnswer(host, text) {
+    // 使用 DOM 文本节点呈现模型回复，避免把回复当成 HTML 执行。
+    const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+    const content = document.createDocumentFragment();
+    let index = 0;
+    while (index < lines.length) {
+      const fence = lines[index].match(/^\s*`{3,}/);
+      if (fence) {
+        const closing = lines.findIndex((line, position) => position > index && /^\s*`{3,}\s*$/.test(line));
+        if (closing !== -1) {
+          const block = document.createElement("pre");
+          block.textContent = lines.slice(index + 1, closing).join("\n");
+          content.appendChild(block);
+          index = closing + 1;
+          if (index < lines.length) content.appendChild(document.createTextNode("\n"));
+          continue;
+        }
+      }
+      const header = splitTableRow(lines[index]);
+      const separator = index + 1 < lines.length ? splitTableRow(lines[index + 1]) : [];
+      if (header.length > 1 && separator.length === header.length &&
+          separator.every(cell => /^:?-{3,}:?$/.test(cell.trim()))) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "ai-answer-table-wrap";
+        const table = document.createElement("table");
+        table.className = "ai-answer-table";
+        const head = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        header.forEach((cell, column) => {
+          const th = document.createElement("th");
+          th.scope = "col";
+          th.style.textAlign = tableAlignment(separator[column]);
+          renderInline(th, cell.trim());
+          headRow.appendChild(th);
+        });
+        head.appendChild(headRow);
+        table.appendChild(head);
+        const body = document.createElement("tbody");
+        index += 2;
+        while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+          const cells = splitTableRow(lines[index]);
+          if (!cells.length) break;
+          const row = document.createElement("tr");
+          header.forEach((_, column) => {
+            const td = document.createElement("td");
+            td.style.textAlign = tableAlignment(separator[column]);
+            renderInline(td, (cells[column] || "").trim());
+            row.appendChild(td);
+          });
+          body.appendChild(row);
+          index += 1;
+        }
+        table.appendChild(body);
+        wrapper.appendChild(table);
+        content.appendChild(wrapper);
+        if (index < lines.length) content.appendChild(document.createTextNode("\n"));
+        continue;
+      }
+      renderInline(content, lines[index]);
+      index += 1;
+      if (index < lines.length) content.appendChild(document.createTextNode("\n"));
+    }
+    host.replaceChildren(content);
+  }
+
+  function splitTableRow(line) {
+    const source = String(line || "").trim();
+    if (!source.includes("|")) return [];
+    let text = source;
+    if (text.startsWith("|")) text = text.slice(1);
+    if (text.endsWith("|") && !text.endsWith("\\|")) text = text.slice(0, -1);
+    const cells = [];
+    let cell = "";
+    let code = false;
+    for (let index = 0; index < text.length; index += 1) {
+      const character = text[index];
+      if (character === "\\" && text[index + 1] === "|") {
+        cell += "|";
+        index += 1;
+      } else if (character === "`") {
+        code = !code;
+        cell += character;
+      } else if (character === "|" && !code) {
+        cells.push(cell);
+        cell = "";
+      } else {
+        cell += character;
+      }
+    }
+    cells.push(cell);
+    return cells;
+  }
+
+  function tableAlignment(separator) {
+    const value = separator.trim();
+    if (value.startsWith(":") && value.endsWith(":")) return "center";
+    if (value.endsWith(":")) return "right";
+    return "left";
+  }
+
+  function renderInline(host, text) {
+    const pattern = /(\*\*[^*\n]+\*\*|`[^`\n]+`)/g;
+    let start = 0;
+    for (const match of text.matchAll(pattern)) {
+      host.appendChild(document.createTextNode(text.slice(start, match.index)));
+      const isBold = match[0].startsWith("**");
+      const element = document.createElement(isBold ? "strong" : "code");
+      element.textContent = isBold ? match[0].slice(2, -2) : match[0].slice(1, -1);
+      host.appendChild(element);
+      start = match.index + match[0].length;
+    }
+    host.appendChild(document.createTextNode(text.slice(start)));
   }
 
   function setThought(bubble, text) {
@@ -605,5 +719,5 @@
     return data;
   }
 
-  window.WarehouseAssistant = { html, mount, setWelcome };
+  window.WarehouseAssistant = { html, mount, setWelcome, renderAnswer };
 })();
