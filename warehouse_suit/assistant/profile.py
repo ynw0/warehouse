@@ -6,9 +6,9 @@ from warehouse_suit.settings import get_setting, set_setting
 
 
 PROFILE_KEY = "ai_model_profile"
-THINKING_LEVELS = ("off", "low", "medium", "high")
+THINKING_LEVELS = ("off", "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 THINKING_STYLES = ("reasoning_effort", "enable_thinking")
-LEVEL_LABELS = {"off": "关闭", "low": "低", "medium": "中", "high": "高"}
+LEVEL_LABELS = {"off": "关闭", "none": "无", "minimal": "极低", "low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高", "ultra": "极致"}
 
 _DEFAULT = {
     "context_tokens": 32768,
@@ -74,6 +74,50 @@ def normalize_profile(data, strict=True):
         "vision": bool(capabilities.get("vision", _DEFAULT["capabilities"]["vision"])),
         "reasoning": bool(capabilities.get("reasoning", _DEFAULT["capabilities"]["reasoning"])),
     }
+    request_parameters = source.get("request_parameters", {})
+    if not isinstance(request_parameters, dict):
+        raise ValueError("模型请求参数必须是 JSON 对象")
+    if set(request_parameters) & {"model", "messages", "tools", "stream", "max_tokens"}:
+        raise ValueError("模型请求参数不能覆盖模型、消息、工具和输出限制")
+    options = source.get("thinking_options")
+    if options is not None:
+        if not isinstance(options, list) or not options:
+            raise ValueError("请至少配置一个思考挡位")
+        normalized = []
+        for item in options:
+            if not isinstance(item, dict):
+                raise ValueError("思考挡位格式不正确")
+            key = str(item.get("id") or "").strip()
+            label = str(item.get("label") or "").strip()
+            fields = item.get("fields")
+            if not key or len(key) > 40 or not all(ch.isalnum() or ch in "_-" for ch in key):
+                raise ValueError("挡位标识只能包含字母、数字、下划线和横线")
+            if not label or len(label) > 40 or not isinstance(fields, dict):
+                raise ValueError("请填写挡位名称和请求参数对象")
+            if set(fields) & {"model", "messages", "tools", "stream", "max_tokens"}:
+                raise ValueError("思考参数不能覆盖模型、消息、工具和输出限制")
+            if any(row["id"] == key for row in normalized):
+                raise ValueError("思考挡位标识不能重复")
+            normalized.append({"id": key, "label": label, "fields": fields, "enabled": bool(item.get("enabled"))})
+        enabled = [item["id"] for item in normalized if item["enabled"]]
+        if not enabled:
+            raise ValueError("请至少启用一个思考挡位")
+        if not caps["reasoning"] and "off" not in enabled:
+            raise ValueError("关闭思考能力时必须启用 off 挡位")
+        default = str(source.get("default_thinking") or "").strip()
+        if default not in enabled:
+            raise ValueError("默认思考挡位必须已启用")
+        return {
+            "context_tokens": context_tokens,
+            "max_output_tokens": max_output_tokens,
+            "capabilities": caps,
+            "request_parameters": request_parameters,
+            "thinking_levels": enabled,
+            "thinking_options": normalized,
+            "default_thinking": default,
+            "thinking_style": str(source.get("thinking_style") or "reasoning_effort"),
+        }
+
     levels = []
     raw_levels = source.get("thinking_levels")
     if not isinstance(raw_levels, list) or not raw_levels:
@@ -100,6 +144,7 @@ def normalize_profile(data, strict=True):
         "context_tokens": context_tokens,
         "max_output_tokens": max_output_tokens,
         "capabilities": caps,
+        "request_parameters": request_parameters,
         "thinking_levels": levels,
         "default_thinking": default_thinking,
         "thinking_style": style,
@@ -120,9 +165,14 @@ def resolve_thinking(profile, requested, preference=""):
 
 def thinking_fields(profile, level):
     """把思考等级写成上游请求字段。关闭时不发送。"""
+    text = str(level or "").strip()
+    if "thinking_options" in profile:
+        for option in profile["thinking_options"]:
+            if option["id"] == text and option["enabled"]:
+                return dict(option["fields"])
+        raise ValueError("思考挡位不可用")
     if not profile["capabilities"]["reasoning"]:
         return {}
-    text = str(level or "").strip()
     if text not in profile["thinking_levels"] or text == "off":
         return {}
     if profile["thinking_style"] == "enable_thinking":
@@ -138,6 +188,7 @@ def _merge(base, incoming):
         "thinking_levels": list(base.get("thinking_levels") or []),
         "default_thinking": base.get("default_thinking"),
         "thinking_style": base.get("thinking_style"),
+        "request_parameters": dict(base.get("request_parameters") or {}),
     }
     if not isinstance(incoming, dict):
         return merged
@@ -146,6 +197,12 @@ def _merge(base, incoming):
             merged[key] = incoming[key]
     if isinstance(incoming.get("capabilities"), dict):
         merged["capabilities"].update(incoming["capabilities"])
+    if "request_parameters" in incoming:
+        merged["request_parameters"] = incoming["request_parameters"]
     if isinstance(incoming.get("thinking_levels"), list):
         merged["thinking_levels"] = incoming["thinking_levels"]
+    if isinstance(base.get("thinking_options"), list):
+        merged["thinking_options"] = base["thinking_options"]
+    if "thinking_options" in incoming:
+        merged["thinking_options"] = incoming["thinking_options"]
     return merged

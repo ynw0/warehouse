@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const LEVEL_LABELS = { off: "关闭", low: "低", medium: "中", high: "高" };
+  const LEVEL_LABELS = { off: "服务默认", low: "低", medium: "中", high: "高" };
   const state = {
     sessionId: 0,
     thinkingLevel: "medium",
@@ -11,18 +11,19 @@
     sending: false,
     welcome: "",
     applySuggestion: null,
+    openWorkflow: null,
   };
   let ready = Promise.resolve();
 
   function html(welcome) {
     state.welcome = welcome || "";
     return `<button class="ai-fab" id="aiFloatBtn" type="button" title="物料小助手"><img src="/static/assistant-icon.svg" alt=""></button>
-      <section class="ai-chat" id="aiFloatBox">
+      <section class="ai-chat" id="aiFloatBox" aria-label="物料小助手">
         <div class="work-head" id="aiChatHead">
-          <h2>物料小助手</h2>
+          <div class="ai-heading"><span class="ai-heading-icon">✦</span><div><h2>物料小助手</h2><small>查询 · 填单 · 协作</small></div></div>
           <div class="ai-head-actions">
             <label class="ai-thinking">思考<select id="aiThinkingLevel"></select></label>
-            <button id="aiMemoryToggle" type="button">记忆</button>
+            <button id="aiMemoryToggle" type="button" aria-expanded="false">记忆</button>
             <button id="aiClearChat" type="button">清空对话</button>
             <button id="aiFloatClose" type="button">关闭</button>
           </div>
@@ -33,13 +34,16 @@
             <textarea id="aiMemoryBody" maxlength="4000" rows="4" placeholder="记给小助手的长期偏好，最多 4000 字"></textarea>
             <button id="aiMemorySave" type="button">保存记忆</button>
           </div>
-          <div class="chat-log" id="aiChatLog"></div>
-          <div class="ai-file-chips" id="aiFileChips"></div>
-          <textarea id="aiFloatQuestion" placeholder="输入问题，Enter 发送，Alt+Enter 换行"></textarea>
-          <p class="ai-send-row">
-            <label class="ai-file-button">附件<input id="aiFileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.csv,.json" multiple hidden></label>
-            <button class="primary" id="aiFloatSend" type="button">发送</button>
-          </p>
+          <div class="chat-log" id="aiChatLog" aria-live="polite"></div>
+          <div class="ai-composer">
+            <div class="ai-file-chips" id="aiFileChips"></div>
+            <textarea id="aiFloatQuestion" aria-label="输入消息" placeholder="问库存、查流程，或告诉我你要填写的单据"></textarea>
+            <div class="ai-send-row">
+              <label class="ai-file-button">＋ 添加附件<input id="aiFileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.csv,.json" multiple hidden></label>
+              <span class="ai-input-hint">Enter 发送 · Alt + Enter 换行</span>
+              <button class="primary" id="aiFloatSend" type="button">发送 <span aria-hidden="true">↑</span></button>
+            </div>
+          </div>
         </div>
       </section>`;
   }
@@ -50,6 +54,7 @@
     if (!button || !box || button.dataset.bound === "1") return;
     button.dataset.bound = "1";
     state.applySuggestion = options && options.applySuggestion;
+    state.openWorkflow = options && options.openWorkflow;
     showWelcome();
     button.addEventListener("click", () => {
       if (options && options.system && options.system.aiDragging) return;
@@ -61,6 +66,7 @@
     document.getElementById("aiMemoryToggle").addEventListener("click", () => {
       const panel = document.getElementById("aiMemoryPanel");
       panel.hidden = !panel.hidden;
+      document.getElementById("aiMemoryToggle").setAttribute("aria-expanded", String(!panel.hidden));
     });
     document.getElementById("aiMemorySave").addEventListener("click", () => saveMemory().catch(showError));
     document.getElementById("aiThinkingLevel").addEventListener("change", event => {
@@ -121,6 +127,7 @@
       const bubble = appendBubble(item.role === "user" ? "user" : "ai", item.content || "");
       (item.files || []).forEach(file => addFileLine(bubble, file.name || "附件"));
       (item.tools || []).forEach(name => addToolChip(bubble, name, "done", true));
+      addWorkflows(bubble, item.workflows || []);
       if (item.reasoning) setThought(bubble, item.reasoning);
     });
   }
@@ -136,7 +143,8 @@
     levels.forEach(level => {
       const option = document.createElement("option");
       option.value = level;
-      option.textContent = LEVEL_LABELS[level] || level;
+      const configured = (profile.thinking_options || []).find(item => item.id === level);
+      option.textContent = configured ? configured.label : (LEVEL_LABELS[level] || level);
       select.appendChild(option);
     });
     if (!enabled) {
@@ -296,6 +304,8 @@
       setAnswer(bubble, answer);
     } else if (event.type === "tool") {
       addToolChip(bubble, event.name || "工具", event.status || "start", event.ok !== false);
+    } else if (event.type === "workflows") {
+      addWorkflows(bubble, event.items || []);
     } else if (event.type === "confirmation") {
       addConfirmation(bubble, event);
     } else if (event.type === "usage") {
@@ -374,6 +384,20 @@
     chip.dataset.status = status;
     chip.textContent = status === "start" ? `${name} 执行中` : name;
     chip.classList.toggle("fail", status === "done" && !ok);
+  }
+
+  function addWorkflows(bubble, items) {
+    if (!state.openWorkflow) return;
+    items.forEach(item => {
+      if (!item.id || bubble.querySelector("[data-workflow-id='" + Number(item.id) + "']")) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ai-workflow-link";
+      button.dataset.workflowId = String(item.id);
+      button.textContent = [item.form_no || "查看流程", item.status || ""].filter(Boolean).join(" · ");
+      button.addEventListener("click", () => state.openWorkflow(Number(item.id)).catch(showError));
+      bubble.appendChild(button);
+    });
   }
 
   function addConfirmation(bubble, item) {

@@ -177,6 +177,7 @@ def run_loop(*, messages, profile, thinking_level, model, tool_defs, execute, co
             "max_tokens": int(profile["max_output_tokens"]),
             "messages": messages,
         }
+        payload.update(profile.get("request_parameters") or {})
         if tool_defs:
             payload["tools"] = tool_defs
         payload.update(thinking_fields(profile, thinking_level))
@@ -236,7 +237,7 @@ def system_prompt(profile, memory, summary):
             "你是仓库物料管理系统的物料小助手。",
             "用工具查询物料、库存、流程、项目和分类规则，不要凭空编造编码和库存。",
             "办理新建、修改、删除时调用对应工具。需要人工确认的工具不会立即执行，要告诉用户在对话里点确认执行。口头同意不算确认。",
-            "一次只办理一个写操作。缺必填项时先问，不要猜。",
+            "一次只办理一个写操作。缺必填项时先问，不要猜。创建流程先整理完整字段，调用创建工具生成确认卡，等待用户点击确认，确认前不得声称已提交。",
             "编物料编码时先用工具读取分类规则和已有编码。分类只以工具返回的规则为准。已有相同物料时列出已有编码，不要另编。",
         ]
     else:

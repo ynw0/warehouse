@@ -98,7 +98,12 @@ def openai_model_list(base_url, api_key):
             model_id = str(item)
             owned_by = ""
         if model_id:
-            models.append({"id": str(model_id), "owned_by": str(owned_by or "")})
+            model = {"id": str(model_id), "owned_by": str(owned_by or "")}
+            if isinstance(item, dict):
+                for key in ("context_length", "max_model_len", "max_context_length", "max_output_tokens"):
+                    if isinstance(item.get(key), int) and item[key] > 0:
+                        model[key] = item[key]
+            models.append(model)
     return models
 
 

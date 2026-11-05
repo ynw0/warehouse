@@ -19,7 +19,7 @@ from warehouse_suit.validation import validate_material_code_value
 
 
 LOGGER = logging.getLogger("warehouse_suit.assistant")
-TOOL_TEXT_LIMIT = 6000
+TOOL_TEXT_LIMIT = 24000
 
 READ_NAMES = (
     "search_materials",
@@ -163,7 +163,12 @@ def _action(name, payload, ctx):
                 "summary": result["summary"],
             }
         )
-    return {"ok": True, "text": _dump(result), "confirmations": confirmations}
+    events = []
+    if name == "list_workflows":
+        events.append({"type": "workflows", "items": result.get("data", {}).get("items", [])})
+    elif name == "get_workflow":
+        events.append({"type": "workflows", "items": [result.get("data", {})]})
+    return {"ok": True, "text": _dump(result), "confirmations": confirmations, "events": events}
 
 
 def _read_definitions():
@@ -224,11 +229,32 @@ def _registry_definitions():
     tools = []
     for spec in REGISTRY:
         note = "执行前需要用户在页面上确认。" if spec["confirm"] else "可直接执行。"
+        properties = {}
+        required = None
+        if spec["name"] == "create_workflow":
+            properties = {
+                "form_type": _string("流程类型，例如 acceptance、claim、borrow、purchase_request"),
+                "items": {
+                    "type": "array",
+                    "description": "流程明细。先查询物料，逐项确认数量、采购项目及该流程需要的字段",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
+                "leader_id": _integer("审批人账号 ID，按实际权限和流程要求提供"),
+                "validator_ids": {"type": "array", "items": {"type": "integer"}, "description": "验收人账号 ID"},
+                "has_purchase_order": {"type": "boolean", "description": "验收单是否有采购订单"},
+            }
+            required = ["form_type"]
+        elif spec["name"] == "get_workflow":
+            properties = {"form_id": _integer("流程 ID"), "offset": _integer("明细起始位置")}
+            required = ["form_id"]
+        elif spec["name"] == "list_workflows":
+            properties = {"q": _string("流程单号或标题"), "form_type": _string("流程类型")}
         tools.append(
             _function(
                 spec["name"],
                 f"{spec['title']}。{note}参数：{spec['params']}",
-                {},
+                properties,
+                required,
                 allow_extra=True,
             )
         )

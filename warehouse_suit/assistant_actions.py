@@ -578,17 +578,29 @@ def _run_get_workflow(cursor, user, payload, ip, optional_active_user_id):
         "status": form.get("status") or "",
         "current_step": form.get("current_step") or "",
     }
+    all_items = form.get("items") or []
+    offset = max(0, int(payload.get("offset") or 0))
     items = []
-    for item in (form.get("items") or [])[:8]:
+    for item in all_items[offset:offset + 20]:
         items.append(
             {
                 "material_name": item.get("material_name") or item.get("name") or "",
                 "request_quantity": item.get("request_quantity"),
                 "qualified_quantity": item.get("qualified_quantity"),
+                "material_code": item.get("material_code") or "",
+                "unit": item.get("unit") or "",
+                "brand_model": item.get("brand_model") or "",
+                "spec": item.get("spec") or "",
             }
         )
-    text = json.dumps({"form": brief, "items": items}, ensure_ascii=False)
+    result = {"form": brief, "items": items, "offset": offset, "total_items": len(all_items)}
+    text = json.dumps(result, ensure_ascii=False)
     return {"message": f"流程内容：\n{text}", "data": brief}
+
+
+def _summarize_new_workflow(cursor, payload):
+    """确认卡显示完整的待提交字段。"""
+    return "请核对后提交：\n" + json.dumps(payload, ensure_ascii=False, indent=2)
 
 
 def _run_create_workflow(cursor, user, payload, ip, optional_active_user_id):
@@ -829,8 +841,8 @@ REGISTRY = [
     {"name": "promote_temporary_material", "title": "临时库批次转入正式库", "params": "material_id、batches（每项含 id 和 version）", "confirm": True, "allow": _allow_temporary("transfer_temporary_inventory"), "summarize": _summarize_promote_material, "run": _run_promote_temporary_material},
     {"name": "promote_acceptance_form", "title": "验收单转入正式库", "params": "form_id", "confirm": True, "allow": _allow_temporary("transfer_temporary_inventory"), "summarize": _summarize_promote_form, "run": _run_promote_acceptance_form},
     {"name": "list_workflows", "title": "查询可见流程", "params": "q、form_type 可选。类型含 acceptance、semifinished、finished、claim、semifinished_claim、special_claim、borrow、purchase_request、supply、common_material", "confirm": False, "run": _run_list_workflows},
-    {"name": "get_workflow", "title": "读取一条流程", "params": "form_id", "confirm": False, "run": _run_get_workflow},
-    {"name": "create_workflow", "title": "新建流程", "params": "form_type 及该流程原发起接口的字段", "confirm": False, "run": _run_create_workflow},
+    {"name": "get_workflow", "title": "读取一条流程", "params": "form_id、offset 可选。每次最多读取 20 条明细", "confirm": False, "run": _run_get_workflow},
+    {"name": "create_workflow", "title": "新建流程", "params": "form_type 及该流程原发起接口的字段，确认前列出全部内容", "confirm": True, "summarize": _summarize_new_workflow, "run": _run_create_workflow},
     {"name": "update_workflow", "title": "修改流程", "params": "form_id 及原修改接口的字段", "confirm": False, "run": _run_update_workflow},
     {"name": "delete_workflow", "title": "删除流程", "params": "form_id", "confirm": True, "allow": _allow_delete_workflow, "summarize": _form_summary, "run": _run_delete_workflow},
     {"name": "save_material", "title": "保存物料主数据", "params": "新建带 material_code 等字段；修改带 id", "confirm": False, "allow": _allow_save_material, "run": _run_save_material},

@@ -346,7 +346,7 @@
   }
 
   function aiWelcomeMessage() {
-    return system.boot?.workflow_settings?.ai_welcome_message || "\u60a8\u597d\u6211\u662f\u4ed3\u5e93\u7ba1\u7406\u5c0f\u52a9\u624b\uff0c\u6211\u53ef\u4ee5\u5e2e\u4f60\u67e5\u8be2\u7269\u6599\uff0c\u8f85\u52a9\u7f16\u5199\u65b0\u7f16\u7801\u3002";
+    return system.boot?.workflow_settings?.ai_welcome_message || "你好，我可以帮你查库存、查流程和准备单据。";
   }
 
   function aiFloatingHtml() {
@@ -358,6 +358,7 @@
     window.WarehouseAssistant.mount({
       system,
       applySuggestion: applyAiSuggestion,
+      openWorkflow: id => openFlowDetail(id, true),
       makeDraggable,
     });
   }
@@ -7305,17 +7306,55 @@
     return permissions;
   }
 
+  function aiThinkingRow(item) {
+    const data = item || { id: "", label: "", enabled: true, fields: {} };
+    return `<div class="ai-config-level" data-ai-level-row>
+      <label><input type="checkbox" data-level-enabled ${data.enabled ? "checked" : ""}> 启用</label>
+      <label>标识<input data-level-id value="${escapeAttr(data.id || "")}" placeholder="例如 high"></label>
+      <label>显示名称<input data-level-label value="${escapeAttr(data.label || "")}" placeholder="例如 深度"></label>
+      <label class="ai-level-fields">请求参数 JSON<input data-level-fields value="${escapeAttr(JSON.stringify(data.fields || {}))}" placeholder='{"reasoning_effort":"high"}'></label>
+      <button type="button" data-level-probe>探测</button><button type="button" data-level-remove>删除</button>
+      <small data-level-result></small>
+    </div>`;
+  }
+
   function aiProfileFields(profile) {
     const current = profile || {};
     const caps = current.capabilities || {};
-    const levels = new Set(current.thinking_levels || ["off", "low", "medium", "high"]);
-    const boxes = [["off", "关闭"], ["low", "低"], ["medium", "中"], ["high", "高"]]
-      .map(([value, label]) => `<label><input type="checkbox" data-ai-thinking-level="${value}" ${levels.has(value) ? "checked" : ""}> ${label}</label>`)
-      .join("");
-    const defaultLevel = current.default_thinking || "medium";
-    const style = current.thinking_style || "reasoning_effort";
-    const option = (value, label, selected) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`;
-    return `<label>上下文长度<input id="aiContextTokens" type="number" min="1024" step="1" value="${Number(current.context_tokens || 32768)}"></label><label>最大输出<input id="aiMaxOutputTokens" type="number" min="256" step="1" value="${Number(current.max_output_tokens || 4096)}"></label><label><input id="aiCapTools" type="checkbox" ${caps.tools === false ? "" : "checked"}> 允许工具</label><label><input id="aiCapVision" type="checkbox" ${caps.vision ? "checked" : ""}> 允许看图</label><label><input id="aiCapReasoning" type="checkbox" ${caps.reasoning === false ? "" : "checked"}> 允许思考</label><div class="wide"><span class="hint">可用思考等级</span><div class="flow-tools">${boxes}</div></div><label>默认思考等级<select id="aiDefaultThinking">${option("off", "关闭", defaultLevel)}${option("low", "低", defaultLevel)}${option("medium", "中", defaultLevel)}${option("high", "高", defaultLevel)}</select></label><label>思考参数样式<select id="aiThinkingStyle">${option("reasoning_effort", "reasoning_effort", style)}${option("enable_thinking", "enable_thinking", style)}</select></label>`;
+    const names = { off: "服务默认", none: "无", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", ultra: "极致" };
+    const enabled = new Set(current.thinking_levels || ["off", "low", "medium", "high"]);
+    const options = current.thinking_options || Object.keys(names).map(id => ({
+      id, label: names[id], enabled: enabled.has(id),
+      fields: id === "off" ? {} : (current.thinking_style === "enable_thinking"
+        ? { enable_thinking: true, reasoning_effort: id } : { reasoning_effort: id }),
+    }));
+    return `<label>上下文长度<input id="aiContextTokens" type="number" min="1024" step="1" value="${Number(current.context_tokens || 32768)}"></label>
+      <label>最大输出<input id="aiMaxOutputTokens" type="number" min="256" step="1" value="${Number(current.max_output_tokens || 4096)}"></label>
+      <label><input id="aiCapTools" type="checkbox" ${caps.tools === false ? "" : "checked"}> 允许工具</label>
+      <label><input id="aiCapVision" type="checkbox" ${caps.vision ? "checked" : ""}> 允许看图</label>
+      <label><input id="aiCapReasoning" type="checkbox" ${caps.reasoning === false ? "" : "checked"}> 允许思考</label>
+      <label class="wide">模型通用请求参数 JSON<input id="aiRequestParameters" value="${escapeAttr(JSON.stringify(current.request_parameters || {}))}" placeholder='{"temperature":0.3}'></label>
+      <div class="wide ai-level-config"><div class="ai-level-heading"><strong>思考挡位</strong><button type="button" id="aiAddLevel">添加挡位</button></div>
+        <p class="hint">填写服务接收的参数。探测会向当前模型发送一条短消息。</p>
+        <div id="aiLevelRows">${options.map(aiThinkingRow).join("")}</div>
+      </div>
+      <label>默认挡位标识<input id="aiDefaultThinking" value="${escapeAttr(current.default_thinking || "medium")}"></label>`;
+  }
+
+  function readAiThinkingRow(row) {
+    let fields;
+    try {
+      fields = JSON.parse(row.querySelector("[data-level-fields]").value || "{}");
+    } catch {
+      throw new Error("请求参数必须是合法 JSON 对象");
+    }
+    if (!fields || Array.isArray(fields) || typeof fields !== "object") throw new Error("请求参数必须是 JSON 对象");
+    return {
+      id: row.querySelector("[data-level-id]").value.trim(),
+      label: row.querySelector("[data-level-label]").value.trim(),
+      enabled: row.querySelector("[data-level-enabled]").checked,
+      fields,
+    };
   }
 
   async function loadAiConfig() {
@@ -7323,6 +7362,42 @@
     document.getElementById("aiConfig").innerHTML = `<div class="form-grid"><label>模型地址<input id="aiBaseUrl" value="${escapeAttr(config.base_url || "")}" placeholder="https://.../v1"></label><label>API Key<input id="aiKey" type="password" placeholder="${config.has_api_key ? "已保存，留空不改" : "请输入"}"></label><label>模型名称<select id="aiModel">${aiModelOptions([], config.model || "")}</select></label><label style="align-self:end;"><button id="connectAiModels" type="button">连接并获取模型</button></label><label class="wide">Skill 路径<input id="aiSkill" value="${escapeAttr(config.skill_path || "")}"></label><label class="wide">数据库 API 地址<input id="dbApi" value="${escapeAttr(config.database_api || "/api")}"></label>${aiProfileFields(config.profile)}<p class="hint wide" id="aiModelStatus">填写模型地址和 API Key 后点击连接，选择模型名称再保存。</p></div>`;
     document.getElementById("saveAiConfig").addEventListener("click", saveAiConfig);
     document.getElementById("connectAiModels").addEventListener("click", connectAiModels);
+    document.getElementById("aiAddLevel").addEventListener("click", () => {
+      document.getElementById("aiLevelRows").insertAdjacentHTML("beforeend", aiThinkingRow());
+    });
+    document.getElementById("aiLevelRows").addEventListener("click", async event => {
+      const row = event.target.closest("[data-ai-level-row]");
+      if (!row) return;
+      if (event.target.closest("[data-level-remove]")) {
+        row.remove();
+        return;
+      }
+      const button = event.target.closest("[data-level-probe]");
+      if (!button) return;
+      const status = row.querySelector("[data-level-result]");
+      button.disabled = true;
+      status.textContent = "探测中…";
+      try {
+        const option = readAiThinkingRow(row);
+        const result = await systemApi("/api/ai/model-probe", {
+          method: "POST",
+          body: JSON.stringify({
+            ai_base_url: document.getElementById("aiBaseUrl").value,
+            ai_api_key: document.getElementById("aiKey").value,
+            model: document.getElementById("aiModel").value,
+            fields: {
+              ...JSON.parse(document.getElementById("aiRequestParameters").value || "{}"),
+              ...option.fields,
+            },
+          }),
+        });
+        status.textContent = result.message + "，请结合实际回复确认效果";
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
   }
 
   function aiModelOptions(models, current) {
@@ -7349,6 +7424,13 @@
       });
       document.getElementById("aiBaseUrl").value = data.base_url || document.getElementById("aiBaseUrl").value;
       select.innerHTML = aiModelOptions(data.models || [], current);
+      select.onchange = () => {
+        const metadata = (data.models || []).find(model => model.id === select.value);
+        const context = metadata && (metadata.context_length || metadata.max_model_len || metadata.max_context_length);
+        if (context) document.getElementById("aiContextTokens").value = context;
+        if (metadata && metadata.max_output_tokens) document.getElementById("aiMaxOutputTokens").value = metadata.max_output_tokens;
+      };
+      select.onchange();
       status.textContent = `连接成功，找到 ${(data.models || []).length} 个模型。`;
       toast("模型列表已加载");
     } catch (error) {
@@ -7360,7 +7442,18 @@
   }
 
   async function saveAiConfig() {
-    const levels = [...document.querySelectorAll("[data-ai-thinking-level]:checked")].map(input => input.dataset.aiThinkingLevel);
+    let options;
+    let requestParameters;
+    try {
+      requestParameters = JSON.parse(document.getElementById("aiRequestParameters").value || "{}");
+      if (!requestParameters || Array.isArray(requestParameters) || typeof requestParameters !== "object") {
+        throw new Error("模型请求参数必须是 JSON 对象");
+      }
+      options = [...document.querySelectorAll("[data-ai-level-row]")].map(readAiThinkingRow);
+    } catch (error) {
+      toast(error.message);
+      return;
+    }
     const body = {
       ai_base_url: document.getElementById("aiBaseUrl").value,
       ai_model: document.getElementById("aiModel").value,
@@ -7375,9 +7468,9 @@
           vision: document.getElementById("aiCapVision").checked,
           reasoning: document.getElementById("aiCapReasoning").checked,
         },
-        thinking_levels: levels,
-        default_thinking: document.getElementById("aiDefaultThinking").value,
-        thinking_style: document.getElementById("aiThinkingStyle").value,
+        thinking_options: options,
+        request_parameters: requestParameters,
+        default_thinking: document.getElementById("aiDefaultThinking").value.trim(),
       },
     };
     try {

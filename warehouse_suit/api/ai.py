@@ -6,6 +6,7 @@ from flask import Response, jsonify, request, stream_with_context
 from warehouse_suit.ai_client import (
     ai_base_url,
     http_error_detail,
+    openai_chat_completion,
     openai_chat_events,
     openai_chat_message,
     openai_model_list,
@@ -122,6 +123,35 @@ def register_ai_routes(
         conn.close()
         return jsonify({"success": True, "base_url": base_url, "models": models})
 
+
+    @app.post("/api/ai/model-probe")
+    def ai_model_probe():
+        """探测指定模型是否接受一组请求参数。"""
+        if not AI_ENABLED:
+            return jsonify({"success": False, "error": "当前版本未启用 AI 功能"}), 404
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            require_any_role(cursor, "admin")
+            data = request.get_json(force=True) or {}
+            base_url = ai_base_url(data.get("ai_base_url") or get_setting(cursor, "ai_base_url", DEFAULT_AI_BASE_URL))
+            model = str(data.get("model") or "").strip()
+            fields = data.get("fields")
+            if not base_url or not model or not isinstance(fields, dict):
+                raise ValueError("请填写模型地址、模型名称和参数对象")
+            if set(fields) & {"model", "messages", "tools", "stream", "max_tokens"}:
+                raise ValueError("探测参数不能覆盖模型、消息、工具和输出限制")
+            api_key = str(data.get("ai_api_key") or get_setting(cursor, "ai_api_key", DEFAULT_AI_API_KEY))
+            payload = {"model": model, "messages": [{"role": "user", "content": "Reply OK"}], "max_tokens": 16, "stream": False}
+            payload.update(fields)
+            response = openai_chat_completion(base_url, api_key, payload)
+            if not response.get("choices"):
+                raise ValueError("模型服务未返回回复")
+            return jsonify({"success": True, "message": "模型服务已接受该组参数"})
+        except Exception as exc:
+            return jsonify({"success": False, "error": http_error_detail(exc)}), 400
+        finally:
+            conn.close()
 
     @app.post("/api/ai/chat")
     def ai_chat():

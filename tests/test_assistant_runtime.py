@@ -211,3 +211,91 @@ def test_chat_sends_thinking_only_when_enabled(db):
     ))
     assert "reasoning_effort" not in calls[0]
     assert "enable_thinking" not in calls[0]
+
+
+def test_custom_thinking_levels_send_configured_payload(client, db):
+    from warehouse_suit.assistant.profile import load_profile, thinking_fields
+
+    _login(client, "admin", "admin")
+    response = client.post("/api/ai/config", json={"ai_model_profile": {
+        "context_tokens": 32768,
+        "max_output_tokens": 4096,
+        "capabilities": {"reasoning": True, "tools": True, "vision": False},
+        "thinking_options": [
+            {"id": "off", "label": "关闭", "enabled": True, "fields": {"chat_template_kwargs": {"enable_thinking": False}}},
+            {"id": "deep", "label": "深度", "enabled": True, "fields": {"reasoning_effort": "xhigh"}},
+            {"id": "disabled", "label": "停用", "enabled": False, "fields": {}},
+        ],
+        "default_thinking": "deep",
+        "request_parameters": {"temperature": 0.6, "top_p": 0.9},
+    }})
+    assert response.status_code == 200, response.get_data(as_text=True)
+    profile = load_profile(db.cursor())
+    assert profile["thinking_levels"] == ["off", "deep"]
+    assert thinking_fields(profile, "off") == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert thinking_fields(profile, "deep") == {"reasoning_effort": "xhigh"}
+    session = client.get("/api/ai/assistant/session").get_json()
+    assert session["profile"]["thinking_options"][1]["label"] == "深度"
+
+    from warehouse_suit.assistant.loop import iter_chat
+    calls = []
+    def complete(payload):
+        calls.append(payload)
+        return [{"type": "_message", "message": {"content": "收到", "tool_calls": [], "usage": {}}}]
+    list(iter_chat(
+        db, _user(db, "admin"), question="你好", session_id=None, file_ids=[],
+        thinking_level="deep", model="test-model", client_ip="", optional_active_user_id=None,
+        complete_events=complete, complete_quiet=lambda payload: "",
+    ))
+    assert calls[0]["temperature"] == 0.6
+    assert calls[0]["top_p"] == 0.9
+    assert calls[0]["reasoning_effort"] == "xhigh"
+
+
+def test_model_probe_sends_only_configured_parameters(client, monkeypatch):
+    _login(client, "admin", "admin")
+    calls = []
+    def complete(base_url, api_key, payload):
+        calls.append((base_url, payload))
+        return {"choices": [{"message": {"content": "OK"}}]}
+    monkeypatch.setattr("warehouse_suit.api.ai.openai_chat_completion", complete)
+    response = client.post("/api/ai/model-probe", json={
+        "ai_base_url": "http://model.test/v1",
+        "model": "test-model",
+        "fields": {"chat_template_kwargs": {"enable_thinking": False}},
+    })
+    assert response.status_code == 200, response.get_data(as_text=True)
+    assert calls[0][1]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert calls[0][1]["model"] == "test-model"
+
+
+def test_create_workflow_requires_confirmation_before_write(client, db):
+    from warehouse_suit.assistant.tools import execute_tool
+
+    _login(client, "admin", "admin")
+    before = db.execute("SELECT COUNT(*) FROM workflow_forms").fetchone()[0]
+    result = execute_tool("create_workflow", {
+        "form_type": "claim",
+        "items": [{"material_code": "10200100010001", "request_quantity": 2}],
+    }, {
+        "conn": db, "user": _user(db, "admin"), "ip": "",
+        "optional_active_user_id": None, "allowed": ["create_workflow"], "depth": 0,
+    })
+    assert result["ok"] is True
+    assert result["confirmations"][0]["action"] == "create_workflow"
+    assert "10200100010001" in result["confirmations"][0]["summary"]
+    assert db.execute("SELECT COUNT(*) FROM workflow_forms").fetchone()[0] == before
+
+
+def test_workflow_search_results_survive_session_restore():
+    import json
+    from warehouse_suit.assistant.session_store import present_messages
+
+    rows = [
+        {"id": 1, "role": "assistant", "content": "", "tool_calls": [{"name": "list_workflows"}]},
+        {"id": 2, "role": "tool", "content": json.dumps({"data": {"items": [
+            {"id": 42, "form_no": "YS2026110501", "status": "completed"},
+        ]}}), "tool_calls": {"name": "list_workflows"}},
+    ]
+    shown = present_messages(rows)
+    assert shown[0]["workflows"][0]["form_no"] == "YS2026110501"
