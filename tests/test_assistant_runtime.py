@@ -132,10 +132,10 @@ def test_attachment_stays_with_its_owner(db, tmp_path, monkeypatch):
 
     saved = save_upload(db, 1, "note.txt", "只要这个用户能读".encode("utf-8"))
     assert str(saved["id"])
-    loaded = load_files(db, 1, [saved["id"]])
+    loaded = load_files(db.cursor(), 1, [saved["id"]])
     assert loaded[0]["original_name"] == "note.txt"
     try:
-        load_files(db, 2, [saved["id"]])
+        load_files(db.cursor(), 2, [saved["id"]])
     except ValueError as exc:
         assert "附件不存在" in str(exc)
     else:
