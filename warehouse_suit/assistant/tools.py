@@ -25,6 +25,8 @@ TOOL_TEXT_LIMIT = 24000
 READ_NAMES = (
     "list_my_todos",
     "remember_note",
+    "schedule_reminder",
+    "notify_note",
     "list_notes",
     "find_acceptance_items",
     "find_people",
@@ -107,11 +109,16 @@ def execute_tool(name, arguments, ctx):
 def _read(name, payload, ctx):
     cursor = ctx["conn"].cursor()
     user = ctx["user"]
-    if name in {"remember_note", "list_notes", "find_acceptance_items", "find_people", "complete_note"}:
+    if name in {"remember_note", "schedule_reminder", "notify_note", "list_notes", "find_acceptance_items", "find_people", "complete_note"}:
         from warehouse_suit.assistant.notes import save_note, list_notes, find_acceptance_items, find_people, complete_note
-        if name == "remember_note":
+        if name in {"remember_note", "schedule_reminder", "notify_note"}:
+            data = dict(payload)
+            if name == "schedule_reminder":
+                data.update(kind="note", reminder_mode="at_time")
+            elif name == "notify_note":
+                data.update(kind="note", reminder_mode="immediate")
             try:
-                return _ok(_dump(save_note(ctx["conn"], user, payload, ctx.get("message_id"))))
+                return _ok(_dump(save_note(ctx["conn"], user, data, ctx.get("message_id"))))
             except Exception:
                 ctx["conn"].rollback()
                 raise
@@ -223,7 +230,19 @@ def _read_definitions():
             "acceptance_item_id": _integer("经用户确认的验收明细 ID"),
             "recipient_user_id": _integer("明确要求通知的接收人 ID"),
         }),
-        _function("list_notes", "查询当前用户保存的事项和提醒。", {}),
+        _function("schedule_reminder", "设置定时提醒。用户说10秒后提醒时传 delay_seconds=10；已有事项使用 note_id。服务端自动到点通知，只有发送后才有 notified_at。", {
+            "content": _string("提醒内容，新建必填"),
+            "note_id": _integer("已有事项 ID"),
+            "delay_seconds": {"type":"number", "description":"从现在起延迟的秒数"},
+            "remind_at": _string("绝对时间 YYYY-MM-DD HH:MM:SS，与延迟秒数二选一"),
+            "recipient_user_id": _integer("用户明确要求同时通知的同事 ID"),
+        }),
+        _function("notify_note", "立即发送事项通知给本人，用户明确指定同事时同时发送给对方。与普通记录工具不同，此工具实际创建通知。", {
+            "content": _string("通知内容，新建必填"),
+            "note_id": _integer("已有事项 ID"),
+            "recipient_user_id": _integer("明确指定的接收人 ID"),
+        }),
+        _function("list_notes", "查询当前用户保存的事项和提醒。remind_at 为到期时间；普通笔记或尚未到期时 notified_at 为空是正常状态。", {}),
         _function("find_acceptance_items", "按物料名称、编码或验收单号查找当前用户可查看的验收明细。", {"q": _string("物料名称、编码或验收单号")}, ["q"]),
         _function("find_people", "按姓名查找需要通知的在职账号。", {"q": _string("姓名")}, ["q"]),
         _function("complete_note", "将当前用户的事项标记为完成。", {"note_id": _integer("事项 ID")}, ["note_id"]),

@@ -37,6 +37,7 @@ def _old_database():
         CREATE TABLE workflow_forms (
             id INTEGER PRIMARY KEY,
             form_no TEXT NOT NULL,
+            form_type TEXT NOT NULL DEFAULT 'acceptance',
             status TEXT DEFAULT 'completed',
             current_step TEXT DEFAULT 'completed'
         );
@@ -56,14 +57,16 @@ def _old_database():
             user_id INTEGER,
             is_read INTEGER NOT NULL DEFAULT 0
         );
-        CREATE TABLE users (id INTEGER PRIMARY KEY);
+        CREATE TABLE users (id INTEGER PRIMARY KEY, is_active INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE roles (id INTEGER PRIMARY KEY, code TEXT NOT NULL);
+        CREATE TABLE user_roles (user_id INTEGER NOT NULL, role_id INTEGER NOT NULL);
         CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE shelves (id INTEGER PRIMARY KEY, warehouse_type TEXT NOT NULL);
         CREATE TABLE workflow_tasks (
             id INTEGER PRIMARY KEY, form_id INTEGER NOT NULL,
             step_code TEXT NOT NULL, assignee_id INTEGER,
             status TEXT NOT NULL DEFAULT 'pending', decision TEXT DEFAULT '',
-            updated_at TEXT DEFAULT ''
+            created_at TEXT DEFAULT '', updated_at TEXT DEFAULT ''
         );
         """
     )
@@ -132,10 +135,11 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026101502",
         "2026101503",
         "2026110501",
+        "2026110601",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 29
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 30
     assert conn.execute("SELECT purchase_project FROM material_batches WHERE id = 1").fetchone()[0] == "办公"
     assert {"stock_source", "inventory_status", "version", "purchase_applicant"} <= _column_names(conn, "material_batches")
     assert {
@@ -173,7 +177,10 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
     assert conn.execute("SELECT stock_source FROM workflow_items").fetchone()[0] == "formal"
     assert conn.execute("SELECT origin_type FROM workflow_forms").fetchone()[0] == "manual"
     assert conn.execute("SELECT stock_source FROM borrow_records").fetchone()[0] == "formal"
-    assert conn.execute("SELECT COUNT(*) FROM category_rules").fetchone()[0] == 433
+    assert conn.execute("SELECT COUNT(*) FROM category_rules").fetchone()[0] == 432
+    assert conn.execute(
+        "SELECT COUNT(*) FROM category_rules WHERE major_code='02' AND middle_code='04' AND small_code='02'"
+    ).fetchone()[0] == 0
     assert conn.execute(
         "SELECT small_name FROM category_rules WHERE major_code = '03' AND middle_code = '06' AND small_code = '01'"
     ).fetchone()[0] == "标定板"

@@ -3,6 +3,8 @@
 import json
 import time
 
+from warehouse_suit.db import now_text
+
 from warehouse_suit.assistant.compact import (
     keep_tail,
     needs_compact,
@@ -238,6 +240,7 @@ def system_prompt(profile, memory, summary):
         lines = [
             "你是仓库物料管理系统的物料小助手。",
             "用工具查询物料、库存、流程、项目和分类规则，不要凭空编造编码和库存。",
+            "用户要求几秒或某时间后提醒时调用 schedule_reminder；立即提醒或发送通知使用 notify_note。普通 remember_note 不代表发送通知，不得用普通笔记 notified_at 为空推断通知链路故障。",
             "用户要求记住事项时调用 remember_note；提前取用物料用 material_wait，先查询并确认验收明细、数量和明确要求通知的接收人，缺少信息先保存事项再询问。",
             "用户询问自己有哪些待办时，调用 list_my_todos 查询当前账号待办并根据结果回答；has_more 为真时继续查询下一页。不要用可见流程、用户或临时库存代替待办。",
             "办理新建、修改、删除时调用对应工具。需要人工确认的工具不会立即执行，要告诉用户在对话里点确认执行。口头同意不算确认。",
@@ -249,6 +252,7 @@ def system_prompt(profile, memory, summary):
             "你是仓库物料管理系统的物料小助手。",
             "当前模型未开启工具，不能查询仓库，也不能办理业务。只根据对话、附件和用户记忆回答，并说明无法核验实时数据。",
         ]
+    lines.append("服务器当前时间：" + now_text())
     lines.append("用户记忆：\n" + (str(memory or "").strip() or "无"))
     if str(summary or "").strip():
         lines.append("此前对话摘要：\n" + str(summary).strip())

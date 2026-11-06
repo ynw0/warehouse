@@ -33,6 +33,7 @@ from .v2026101501_access_tokens import MIGRATION as ACCESS_TOKENS
 from .v2026101502_assistant_runtime import MIGRATION as ASSISTANT_RUNTIME
 from .v2026101503_category_rule_glue_cable_notes import MIGRATION as CATEGORY_RULE_GLUE_CABLE_NOTES
 from .v2026110501_assistant_notes import MIGRATION as ASSISTANT_NOTES
+from .v2026110601_timed_reminders import MIGRATION as TIMED_REMINDERS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ def available_migrations():
         ASSISTANT_RUNTIME,
         CATEGORY_RULE_GLUE_CABLE_NOTES,
         ASSISTANT_NOTES,
+        TIMED_REMINDERS,
     ]
 
 

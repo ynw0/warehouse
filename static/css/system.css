@@ -1984,3 +1984,6 @@ button.danger:hover,
 .ai-note-row { display:flex; align-items:center; gap:8px; margin-top:7px; }
 .ai-note-row span { flex:1; overflow-wrap:anywhere; }
 .ai-note-row button { width:auto; min-height:28px; font-size:12px; }
+
+.ai-mascot-avatar { display:inline-block; flex:none; width:26px; height:26px; border-radius:50%; background:#fff url("/static/assistant-avatar.png") 50% 18% / 190% no-repeat; vertical-align:middle; }
+.ai-heading-icon.ai-mascot-avatar { width:36px; height:36px; border:1px solid #d5e5f4; }

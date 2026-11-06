@@ -32,7 +32,7 @@
       </aside>
       <section class="ai-chat" id="aiFloatBox" aria-label="物料小助手">
         <div class="work-head" id="aiChatHead">
-          <div class="ai-heading"><span class="ai-heading-icon">✦</span><div><h2>物料小助手</h2><small>查询 · 填单 · 协作</small></div></div>
+          <div class="ai-heading"><span class="ai-heading-icon ai-mascot-avatar" role="img" aria-label="物料小助手"></span><div><h2>物料小助手</h2><small>查询 · 填单 · 协作</small></div></div>
           <div class="ai-head-actions">
             <button id="aiMemoryToggle" type="button" aria-expanded="false">记忆</button>
             <button id="aiClearChat" type="button">清空对话</button>
@@ -54,9 +54,9 @@
               <label class="ai-file-button">＋ 添加附件<input id="aiFileInput" type="file" accept=".png,.jpg,.jpeg,.webp,.txt,.csv,.json" multiple hidden></label>
               <span class="ai-input-hint">Enter 发送</span>
               <div class="ai-thinking-anchor">
-                <button class="ai-thinking-trigger" id="aiThinkingToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="aiThinkingControl">✦ <span id="aiThinkingButtonLabel">思考</span></button>
+                <button class="ai-thinking-trigger" id="aiThinkingToggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="aiThinkingControl"><span class="ai-mascot-avatar" role="img" aria-label="物料小助手"></span> <span id="aiThinkingButtonLabel">思考</span></button>
                 <div class="ai-thinking-popover" id="aiThinkingControl" role="dialog" aria-label="思考等级" hidden>
-                  <div class="ai-thinking-title"><span aria-hidden="true">✦</span><output id="aiThinkingLabel" for="aiThinkingLevel"></output><span></span></div>
+                  <div class="ai-thinking-title"><span class="ai-mascot-avatar" aria-hidden="true"></span><output id="aiThinkingLabel" for="aiThinkingLevel"></output><span></span></div>
                   <div class="ai-thinking-model" id="aiThinkingModel"></div>
                   <div class="ai-thinking-track"><div class="ai-thinking-marks" id="aiThinkingMarks" aria-hidden="true"></div><input id="aiThinkingLevel" type="range" min="0" max="0" step="1" value="0" aria-label="思考等级"></div>
                 </div>
@@ -248,12 +248,12 @@
     const data = await readJson(await fetch("/api/ai/assistant/notes"));
     const host = document.getElementById("aiNotesList");
     host.replaceChildren();
-    const labels = { recorded: "已记录", incomplete: "待补充", watching: "等待可申领", notified: "已提醒" };
+    const labels = { recorded: "已记录", incomplete: "待补充", watching: "等待提醒", notified: "已提醒" };
     (data.items || []).forEach(item => {
       const row = document.createElement("div");
       row.className = "ai-note-row";
       const text = document.createElement("span");
-      text.textContent = item.content + " · " + (labels[item.status] || item.status);
+      text.textContent = item.content + " · " + (labels[item.status] || item.status) + (item.remind_at ? " · " + item.remind_at : "");
       const done = document.createElement("button");
       done.type = "button";
       done.textContent = "完成";
@@ -421,6 +421,10 @@
     });
   }
 
+  function activity(state) {
+    if (window.chrome?.webview) window.chrome.webview.postMessage({ type:"assistant-state", state });
+  }
+
   async function send() {
     await ready;
     if (state.sending) return;
@@ -429,6 +433,7 @@
     if (!question && !state.files.length) return;
     const files = state.files.slice();
     state.sending = true;
+    activity("busy");
     document.getElementById("aiFloatSend").disabled = true;
     input.value = "";
     state.files = [];
@@ -471,7 +476,9 @@
       if (buffer.trim()) answer = applyEvent(bubble, JSON.parse(buffer), answer);
       if (!answer) setAnswer(bubble, "物料小助手未返回内容");
       if (answer && state.applySuggestion) state.applySuggestion(answer);
+      activity("success");
     } catch (error) {
+      activity("error");
       setAnswer(bubble, error.message || "物料小助手回复失败");
     } finally {
       state.sending = false;
@@ -491,11 +498,13 @@
         }
       }
     } else if (event.type === "thinking" && event.text) {
+      activity("thinking");
       setThought(bubble, (bubble._thought.textContent || "") + event.text);
     } else if (event.type === "text") {
       answer = event.text || "";
       setAnswer(bubble, answer);
     } else if (event.type === "tool") {
+      activity("busy");
       addToolChip(bubble, event.name || "工具", event.status || "start", event.ok !== false);
     } else if (event.type === "workflows") {
       addWorkflows(bubble, event.items || []);

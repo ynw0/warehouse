@@ -496,7 +496,7 @@ register_ai_routes(
 init_db()
 start_background_services()
 from warehouse_suit.assistant.reminder_scheduler import start_reminder_scheduler
-start_reminder_scheduler(get_db)
+start_reminder_scheduler(get_db, should_run=lambda: not app.config["TESTING"])
 
 
 if __name__ == "__main__":
