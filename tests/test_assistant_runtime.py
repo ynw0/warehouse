@@ -489,3 +489,40 @@ def test_automatic_memory_tool_persists_preferences_across_sessions_and_users(db
     assert get_memory(db.cursor(), other["id"]) == ""
     list(iter_chat(db, user, question="你好", session_id=None, **args))
     assert "数量保留两位小数" in calls[-1]["messages"][0]["content"]
+
+
+def test_assistant_can_continue_beyond_six_tool_rounds_and_reports_exhaustion():
+    import time
+    import pytest
+    from warehouse_suit.assistant.loop import run_loop
+    from warehouse_suit.assistant.limits import MAX_ROUNDS
+
+    count = 0
+    def complete(payload):
+        nonlocal count
+        count += 1
+        calls = [{"id": f"call_{count}", "name": "memory_get", "arguments": "{}"}] if count <= 7 else []
+        return [{"type": "_message", "message": {"content": "" if calls else "分类已完成", "tool_calls": calls}}]
+
+    args = dict(messages=[], profile={"max_output_tokens": 256, "capabilities": {"reasoning": False}},
+                thinking_level="off", model="test", tool_defs=[{"type": "function"}],
+                execute=lambda *_: {"ok": True, "text": "{}"}, complete_events=complete,
+                record=lambda *_: 1, deadline=time.monotonic() + 600)
+    events = list(run_loop(**args, max_rounds=MAX_ROUNDS))
+    assert count == 8
+    assert events[-1]["result"]["content"] == "分类已完成"
+
+    count = 0
+    args["messages"] = []
+    with pytest.raises(RuntimeError, match="2 轮上限"):
+        list(run_loop(**args, max_rounds=2))
+
+
+def test_assistant_shared_deadline_allows_long_classification(monkeypatch):
+    import pytest
+    from warehouse_suit.assistant.limits import check_deadline
+
+    monkeypatch.setattr("warehouse_suit.assistant.limits.time.monotonic", lambda: 180)
+    check_deadline(600)
+    with pytest.raises(TimeoutError, match="600 秒"):
+        check_deadline(179)

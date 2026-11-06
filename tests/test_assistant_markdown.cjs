@@ -72,3 +72,13 @@ test("表格转义竖线及代码块保持内容", () => {
   assert.equal(descendants(host, "td")[0].textContent, "A|B");
   assert.equal(descendants(host, "pre")[0].textContent, "| A | B |");
 });
+
+
+// 错误事件应中断发送流程，由统一异常分支保留真实错误和失败状态。
+test("流式错误保留服务端超时原因", () => {
+  const errorContext = { window: {}, document };
+  vm.runInNewContext(source.replace("renderAnswer, prompt,", "renderAnswer, applyEvent, prompt,"), errorContext);
+  assert.throws(() => errorContext.window.WarehouseAssistant.applyEvent(
+    {}, { type: "error", error: "本轮对话已超过 600 秒" }, ""
+  ), /本轮对话已超过 600 秒/);
+});

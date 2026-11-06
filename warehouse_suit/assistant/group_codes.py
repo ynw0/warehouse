@@ -1,7 +1,7 @@
 """助手查询集团分类，复用集团码表管线且不写入物料。"""
 
 import json
-import time
+from warehouse_suit.assistant.limits import check_deadline
 
 from warehouse_suit.coding_agent import parse_model_json
 from warehouse_suit.group_coding import classify_group_material
@@ -42,8 +42,7 @@ def query_group_codes(ctx, payload):
 
     def complete(system, user):
         # 复用当前会话的模型连接，并遵守本轮超时边界。
-        if time.monotonic() >= ctx["deadline"]:
-            raise TimeoutError("本轮对话已超过 120 秒")
+        check_deadline(ctx["deadline"])
         response = ctx["complete_quiet"]({
             "model": ctx["model"],
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],

@@ -29,8 +29,7 @@ from warehouse_suit.assistant.session_store import (
 from warehouse_suit.assistant.tools import execute_tool, tool_definitions, tool_names
 
 
-MAX_ROUNDS = 6
-MAX_SECONDS = 120
+from warehouse_suit.assistant.limits import MAX_ROUNDS, MAX_SECONDS, check_deadline
 
 
 def iter_chat(
@@ -72,8 +71,7 @@ def iter_chat(
     deadline = time.monotonic() + MAX_SECONDS
     messages = list_messages(cursor, session["id"])
     if needs_compact(messages, profile):
-        if time.monotonic() >= deadline:
-            raise TimeoutError("本轮对话已超过 120 秒")
+        check_deadline(deadline)
         older, kept = keep_tail(messages)
         if older:
             conn.commit()
@@ -166,8 +164,7 @@ def run_loop(*, messages, profile, thinking_level, model, tool_defs, execute, co
     content = ""
     message_id = None
     for round_index in range(max_rounds):
-        if time.monotonic() >= deadline:
-            raise TimeoutError("本轮对话已超过 120 秒")
+        check_deadline(deadline)
         payload = {
             "model": model,
             "temperature": 0.3,
@@ -230,9 +227,8 @@ def run_loop(*, messages, profile, thinking_level, model, tool_defs, execute, co
         if confirmations:
             yield _done("请核对确认卡中的内容，确认后提交。", usage, message_id, confirmations)
             return
-    if not content:
-        content = "工具调用已达到上限，请换个问法或发送「继续」。"
-    yield _done(content, usage, message_id, confirmations)
+    # 轮数耗尽不能把调用工具前的文字当作最终回答。
+    raise RuntimeError(f"工具调用已达到本轮 {max_rounds} 轮上限")
 
 
 def system_prompt(profile, memory, summary):

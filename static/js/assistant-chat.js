@@ -490,7 +490,7 @@
         });
       }
       if (buffer.trim()) answer = applyEvent(bubble, JSON.parse(buffer), answer);
-      if (!answer) setAnswer(bubble, "物料小助手未返回内容");
+      if (!answer) throw new Error("物料小助手未返回内容");
       if (answer && state.applySuggestion) state.applySuggestion(answer);
       activity("success");
     } catch (error) {
@@ -534,7 +534,8 @@
       note.textContent = "已压缩更早的对话";
       document.getElementById("aiChatLog").appendChild(note);
     } else if (event.type === "error") {
-      setAnswer(bubble, event.error || "模型返回失败");
+      // 交给发送流程统一结束失败状态，保留服务端的真实错误。
+      throw new Error(event.error || "模型返回失败");
     }
     return answer;
   }

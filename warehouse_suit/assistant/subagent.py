@@ -1,6 +1,7 @@
 """子助手。只读，不能再派生子助手。"""
 
 from warehouse_suit.assistant.tools import execute_tool, tool_definitions, tool_names
+from warehouse_suit.assistant.limits import CHILD_MAX_ROUNDS
 
 
 AGENT_PROMPTS = {
@@ -40,7 +41,7 @@ def run_subagent(agent, prompt, parent_ctx, complete_events):
         complete_events=complete_events,
         record=lambda *_args, **_kwargs: 0,
         deadline=parent_ctx["deadline"],
-        max_rounds=4,
+        max_rounds=CHILD_MAX_ROUNDS,
     ):
         if event.get("type") == "_result":
             outcome = event["result"]
