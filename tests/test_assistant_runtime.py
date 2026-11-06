@@ -454,3 +454,38 @@ def test_assistant_answers_personal_todos_with_dedicated_tool(db):
     ))
     assert len(requests) == 2
     assert any(event.get("type") == "text" and "YS2026110509" in event.get("text", "") for event in events)
+
+
+def test_automatic_memory_tool_persists_preferences_across_sessions_and_users(db):
+    import json
+    from warehouse_suit.assistant.loop import iter_chat
+    from warehouse_suit.assistant.memory import get_memory, save_memory
+
+    user = _user(db, "admin")
+    other = _user(db, "warehouse")
+    save_memory(db, user["id"], "我负责办公物料。")
+    calls = []
+    def complete(payload):
+        calls.append(payload)
+        prompt = payload["messages"][0]["content"]
+        assert "即使没有说记住" in prompt
+        assert "我负责办公物料。" in prompt
+        if len(calls) == 1:
+            return [{"type": "_message", "message": {
+                "content": "", "tool_calls": [{
+                    "id": "memory_auto", "name": "memory_save",
+                    "arguments": json.dumps({"body": "我负责办公物料。\n回复先给结论，数量保留两位小数。"}, ensure_ascii=False),
+                }], "usage": {},
+            }}]
+        return [{"type": "_message", "message": {"content": "收到。", "tool_calls": [], "usage": {}}}]
+
+    def quiet(payload):
+        raise AssertionError("记忆维护应使用本轮工具调用")
+
+    args = dict(file_ids=[], thinking_level="off", model="test-model", client_ip="",
+                optional_active_user_id=None, complete_events=complete, complete_quiet=quiet)
+    list(iter_chat(db, user, question="我平时喜欢先看结论，数量统一保留两位小数。", session_id=None, **args))
+    assert get_memory(db.cursor(), user["id"]) == "我负责办公物料。\n回复先给结论，数量保留两位小数。"
+    assert get_memory(db.cursor(), other["id"]) == ""
+    list(iter_chat(db, user, question="你好", session_id=None, **args))
+    assert "数量保留两位小数" in calls[-1]["messages"][0]["content"]

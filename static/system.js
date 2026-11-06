@@ -701,7 +701,7 @@
           showDesktopNotice(item.title || "通知", item.body || item.title || "", "notice:" + (item.id || item.created_at || ""));
         });
       }
-      if (system.view === "notifications") {
+      if (system.view === "notifications" && newRows.length) {
         await loadNotifications();
       }
     } catch (error) {
@@ -1137,6 +1137,20 @@
     const host = document.getElementById("notificationList");
     if (!host) return;
     host.innerHTML = notificationTable(system.notificationRows, system.notificationReadView);
+    if (!system.notificationReadView && system.notificationRows.length) {
+      // 通知正文展示后只标记本次列表，避免消费未展示的其他通知。
+      const viewedRows = system.notificationRows;
+      const result = await systemApi("/api/notifications/read", {
+        method: "POST", body: JSON.stringify({ ids: viewedRows.map(row => row.id) }),
+      });
+      viewedRows.forEach(row => { row.is_read = true; });
+      system.boot.unread_notifications = result.unread_count;
+      if (document.getElementById("notificationList") === host) {
+        host.innerHTML = notificationTable(viewedRows, false);
+      }
+      const label = document.querySelector('[data-system-view="notifications"] .menu-label');
+      if (label) label.textContent = "通知" + (result.unread_count ? " (" + result.unread_count + ")" : "");
+    }
   }
 
   async function markNotificationsRead() {
@@ -1157,7 +1171,7 @@
 
   function notificationTable(rows, read) {
     const labels = { inbound: "入库", stock_warning: "库存预警", supply: "供货", transfer: "转借", assistant: "小助手提醒" };
-    return `<table class="flow-table"><thead><tr><th>\u65f6\u95f4</th><th>分类</th><th>\u6807\u9898</th><th>\u5185\u5bb9</th><th>\u72b6\u6001</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td>${escapeHtml(row.created_at || "")}</td><td>${escapeHtml(labels[row.category] || "")}</td><td>${escapeHtml(row.title || "")}</td><td>${escapeHtml(row.body || "")}</td><td>${read ? "\u5df2\u8bfb" : "\u672a\u8bfb"}</td></tr>`).join("") || `<tr><td colspan="5">${read ? "\u6682\u65e0\u5df2\u8bfb\u901a\u77e5" : "\u6682\u65e0\u5f53\u524d\u901a\u77e5"}</td></tr>`}</tbody></table>`;
+    return `<table class="flow-table"><thead><tr><th>\u65f6\u95f4</th><th>分类</th><th>\u6807\u9898</th><th>\u5185\u5bb9</th><th>\u72b6\u6001</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td>${escapeHtml(row.created_at || "")}</td><td>${escapeHtml(labels[row.category] || "")}</td><td>${escapeHtml(row.title || "")}</td><td>${escapeHtml(row.body || "")}</td><td>${read || row.is_read ? "\u5df2\u8bfb" : "\u672a\u8bfb"}</td></tr>`).join("") || `<tr><td colspan="5">${read ? "\u6682\u65e0\u5df2\u8bfb\u901a\u77e5" : "\u6682\u65e0\u5f53\u524d\u901a\u77e5"}</td></tr>`}</tbody></table>`;
   }
 
   function renderLogs(main) {

@@ -44,6 +44,13 @@
       desktop:true, system:{ boot:{ user:data.user } }, openWorkflow:showWorkflow,
     });
     document.getElementById("aiFloatBox").classList.add("open");
+    document.getElementById("aiChatHead").addEventListener("pointerdown", event => {
+      if (event.button !== 0 || event.target.closest("button, input, textarea, select")) return;
+      if (window.chrome?.webview) {
+        event.preventDefault();
+        window.chrome.webview.postMessage({ type: "assistant-drag" });
+      }
+    });
     document.getElementById("aiFloatClose").addEventListener("click", () => {
       if (window.chrome?.webview) window.chrome.webview.postMessage({ type: "assistant-close" });
       else bridge?.hideChat();
@@ -117,7 +124,7 @@
         newNotifications.slice(0, 3).forEach(item => {
           bridge?.notify(item.title || "物料提醒", item.body || "");
           if (item.category === "assistant") {
-            window.WarehouseAssistant.prompt(item.body || item.title, "", "note:" + item.id);
+            window.WarehouseAssistant.prompt(item.body || item.title, "", "note:" + item.id, item.id);
           }
         });
       }

@@ -1,0 +1,76 @@
+--- a/WarehouseClient/AssistantArtwork.cs
++++ b/WarehouseClient/AssistantArtwork.cs
+@@ -51,7 +51,9 @@
+             top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+         }
+         var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
+-        var result = new CroppedBitmap(bitmap, new System.Windows.Int32Rect(left, top, right - left + 1, bottom - top + 1));
++        BitmapSource result = new CroppedBitmap(bitmap, new System.Windows.Int32Rect(left, top, right - left + 1, bottom - top + 1));
++        // 右侧探身素材的切边在左边，显示时镜像，让切边贴住屏幕右缘。
++        if (name == "edge-right") result = new TransformedBitmap(result, new ScaleTransform(-1, 1));
+         result.Freeze();
+         Cache[name] = result;
+         return result;
+--- a/WarehouseClient/AssistantBallWindow.xaml.cs
++++ b/WarehouseClient/AssistantBallWindow.xaml.cs
+@@ -197,6 +197,11 @@
+     {
+         if (_art == state) return;
+         _art = state;
++        // 贴边状态按屏幕边缘对齐，避免等比缩放后留出横向空隙。
++        var alignment = state is "edge-left" or "tuft-left" ? System.Windows.HorizontalAlignment.Left
++            : state is "edge-right" or "tuft-right" ? System.Windows.HorizontalAlignment.Right
++            : System.Windows.HorizontalAlignment.Center;
++        PreviousImage.HorizontalAlignment = StateImage.HorizontalAlignment = alignment;
+         PreviousImage.Source = StateImage.Source;
+         StateImage.Source = AssistantArtwork.Load(state);
+         var duration = TimeSpan.FromMilliseconds(180);
+--- a/WarehouseClient/AssistantChatWindow.xaml
++++ b/WarehouseClient/AssistantChatWindow.xaml
+@@ -3,6 +3,9 @@
+         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+         Title="物料小助手" Width="620" Height="640" MinWidth="340" MinHeight="320"
+-        Topmost="True" ShowInTaskbar="False">
+-    <wv2:WebView2 x:Name="AssistantBrowser" />
++        Topmost="True" ShowInTaskbar="False" WindowStyle="None" ResizeMode="CanResize" Background="#D8E4F1">
++    <WindowChrome.WindowChrome>
++        <WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False" />
++    </WindowChrome.WindowChrome>
++    <Grid Margin="6"><wv2:WebView2 x:Name="AssistantBrowser" /></Grid>
+ </Window>
+--- a/WarehouseClient/AssistantChatWindow.xaml.cs
++++ b/WarehouseClient/AssistantChatWindow.xaml.cs
+@@ -1,4 +1,6 @@
+ using System.ComponentModel;
++using System.Runtime.InteropServices;
++using System.Windows.Interop;
+ using System.Text.Json;
+ using System.Windows;
+ using Microsoft.Web.WebView2.Core;
+@@ -8,6 +10,12 @@
+ public partial class AssistantChatWindow : Window
+ {
+     private bool _isExiting;
++
++    [DllImport("user32.dll")]
++    private static extern bool ReleaseCapture();
++
++    [DllImport("user32.dll")]
++    private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+     public event Action<string>? ActivityChanged;
+ 
+     public AssistantChatWindow()
+@@ -38,6 +46,12 @@
+         using var message = JsonDocument.Parse(e.WebMessageAsJson);
+         if (message.RootElement.ValueKind != JsonValueKind.Object || !message.RootElement.TryGetProperty("type", out var type)) return;
+         if (type.GetString() == "assistant-close") Hide();
++        else if (type.GetString() == "assistant-drag")
++        {
++            // WebView 占用客户区，由网页头部触发原生窗口拖动。
++            ReleaseCapture();
++            SendMessage(new WindowInteropHelper(this).Handle, 0x00A1, new IntPtr(2), IntPtr.Zero);
++        }
+         else if (type.GetString() == "assistant-state" && message.RootElement.TryGetProperty("state", out var state))
+             ActivityChanged?.Invoke(state.GetString() ?? "idle");
+     }

@@ -235,9 +235,9 @@ def _read_definitions():
             "note_id": _integer("已有事项 ID"),
             "delay_seconds": {"type":"number", "description":"从现在起延迟的秒数"},
             "remind_at": _string("绝对时间 YYYY-MM-DD HH:MM:SS，与延迟秒数二选一"),
-            "recipient_user_id": _integer("用户明确要求同时通知的同事 ID"),
+            "recipient_user_id": _integer("明确指定的接收人 ID，填写时只通知该人，未指定时提醒本人"),
         }),
-        _function("notify_note", "立即发送事项通知给本人，用户明确指定同事时同时发送给对方。与普通记录工具不同，此工具实际创建通知。", {
+        _function("notify_note", "立即创建事项通知。用户指定接收人时只发送给该人，不抄送本人；未指定时提醒本人。", {
             "content": _string("通知内容，新建必填"),
             "note_id": _integer("已有事项 ID"),
             "recipient_user_id": _integer("明确指定的接收人 ID"),
@@ -296,8 +296,8 @@ def _read_definitions():
         _function("memory_get", "读取当前用户的长期记忆。", {}),
         _function(
             "memory_save",
-            "覆盖保存当前用户的长期记忆，最多 4000 字。",
-            {"body": _string("记忆正文")},
+            "保存当前用户的长期记忆，最多 4000 字。可以主动记录用户明确表达的稳定偏好、习惯和长期背景，无需等待记住指令；先合并已有记忆并去重，按最新纠正更新事实，保留其他有效内容。一次性事项和提醒使用事项工具。",
+            {"body": _string("合并更新后的完整记忆正文，只有用户要求清空时才传空字符串")},
             ["body"],
         ),
     ]

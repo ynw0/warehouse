@@ -262,7 +262,14 @@ def evaluate_material_notes(cursor, material_id):
 
 def _send_note(cursor, note_id, title, body, data=None):
     """通知和发送时间同事务保存，失败时一并回滚。"""
-    cursor.execute("SELECT * FROM assistant_notes WHERE id=? AND status='watching'", (note_id,))
+    cursor.execute(
+        """
+        SELECT n.*, u.display_name AS sender_name
+        FROM assistant_notes n JOIN users u ON u.id = n.user_id
+        WHERE n.id=? AND n.status='watching'
+        """,
+        (note_id,),
+    )
     row = cursor.fetchone()
     if not row:
         return
@@ -274,11 +281,14 @@ def _send_note(cursor, note_id, title, body, data=None):
     )
     if cursor.rowcount != 1:
         return
-    recipients = {int(note["user_id"])}
-    if note["recipient_user_id"]:
-        recipients.add(int(note["recipient_user_id"]))
-    for recipient in recipients:
-        create_notification(cursor, recipient, title, body, {"assistant_note_id": note_id, **(data or {})}, category="assistant")
+    # 指定收件人时只投递给对方，身份取自事项所属账号，不能由工具参数伪造。
+    recipient = int(note["recipient_user_id"] or note["user_id"])
+    if recipient != int(note["user_id"]):
+        body = f"{note['sender_name']}提醒您“{body}”"
+    create_notification(cursor, recipient, title, body, {
+        **(data or {}), "assistant_note_id": note_id,
+        "sender_user_id": int(note["user_id"]), "sender_name": note["sender_name"],
+    }, category="assistant")
 
 
 def deliver_due_notes(cursor):

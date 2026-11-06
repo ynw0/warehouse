@@ -16,6 +16,7 @@
     promptKeys: new Set(),
     promptQueue: [],
     promptQuestion: "",
+    promptNotificationId: null,
     desktop: false,
     userId: null,
     resizeObserver: null,
@@ -175,18 +176,30 @@
       showNextPrompt();
     });
     document.getElementById("aiProactiveOpen").addEventListener("click", () => {
+      openPrompt().catch(showError);
+    });
+    async function openPrompt() {
+      const text = document.getElementById("aiProactiveText").textContent;
+      const question = state.promptQuestion;
+      // 先持久化当前通知的已读状态，失败时保留提示以便重试。
+      if (state.promptNotificationId) {
+        await readJson(await fetch("/api/notifications/read", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [state.promptNotificationId] }),
+        }));
+      }
       document.getElementById("aiProactive").hidden = true;
       box.classList.add("open");
       positionDialog();
       loadPendingConfirmations();
-      if (state.promptQuestion) {
-        document.getElementById("aiFloatQuestion").value = state.promptQuestion;
+      if (question) {
+        document.getElementById("aiFloatQuestion").value = question;
         send().catch(showError);
       } else {
-        appendBubble("ai", document.getElementById("aiProactiveText").textContent);
+        appendBubble("ai", text);
       }
       showNextPrompt();
-    });
+    }
     if (options && options.makeDraggable) options.makeDraggable(button, positionDialog);
     window.addEventListener("warehouse-ai-profile-updated", () => {
       if (!state.sending) ready = restore().catch(showError);
@@ -205,10 +218,10 @@
     bubble.style.top = Math.max(8, Math.min(window.innerHeight - bubble.offsetHeight - 8, rect.top)) + "px";
   }
 
-  function prompt(text, question, key) {
+  function prompt(text, question, key, notificationId = null) {
     if (!text || (key && state.promptKeys.has(key))) return;
     if (key) state.promptKeys.add(key);
-    state.promptQueue.push({ text, question: question || "" });
+    state.promptQueue.push({ text, question: question || "", notificationId });
     showNextPrompt();
   }
 
@@ -218,6 +231,7 @@
     const next = state.promptQueue.shift();
     document.getElementById("aiProactiveText").textContent = next.text;
     state.promptQuestion = next.question;
+    state.promptNotificationId = next.notificationId;
     bubble.hidden = false;
     positionPrompt();
   }
@@ -235,7 +249,7 @@
     const notices = responseNotes.ok ? (await responseNotes.json()).items || [] : [];
     if (notices.length) {
       const note = notices[0];
-      prompt(note.body || note.title, "", "note:" + note.id);
+      prompt(note.body || note.title, "", "note:" + note.id, note.id);
     }
     const todos = data.todos || [];
     if (todos.length) {

@@ -50,6 +50,16 @@ def register_notification_routes(app, *, get_db, current_user_provider, sse_lock
         return jsonify({"success": True, "items": rows, "unread_count": unread_count, "read": read})
 
     def mark_notifications_read_all():
+        return mark_notifications_read()
+
+    def mark_selected_notifications_read():
+        data = request.get_json(silent=True)
+        ids = data.get("ids") if isinstance(data, dict) else None
+        if not isinstance(ids, list) or not ids or any(type(value) is not int or value <= 0 for value in ids):
+            return jsonify({"success": False, "error": "请提供要标记的通知编号"}), 400
+        return mark_notifications_read(list(dict.fromkeys(ids)))
+
+    def mark_notifications_read(notification_ids=None):
         conn = get_db()
         cursor = conn.cursor()
         user = current_user_provider(cursor)
@@ -58,12 +68,18 @@ def register_notification_routes(app, *, get_db, current_user_provider, sse_lock
             return jsonify({"success": False, "error": "请先登录"}), 401
         where = ["user_id = ?", "is_read = 0"]
         params = [user["id"]]
+        # 查看只消费本次展示的通知，账号隔离和库存可见性规则与列表一致。
+        if notification_ids is not None:
+            where.append("id IN ({})".format(",".join("?" for _ in notification_ids)))
+            params.extend(notification_ids)
         append_notification_visibility(cursor, where, params, "notifications")
         cursor.execute(
             f"UPDATE notifications SET is_read = 1, read_at = ? WHERE {' AND '.join(where)}",
             [now_text(), *params],
         )
         changed = cursor.rowcount
+        if changed:
+            cursor.execute("INSERT INTO workflow_events (event_type, created_at) VALUES ('notifications', ?)", (now_text(),))
         conn.commit()
         unread_count = unread_notification_count(cursor, user["id"])
         conn.close()
@@ -141,6 +157,7 @@ def register_notification_routes(app, *, get_db, current_user_provider, sse_lock
         )
 
     app.add_url_rule("/api/notifications", "list_notifications", list_notifications, methods=["GET"])
+    app.add_url_rule("/api/notifications/read", "mark_selected_notifications_read", mark_selected_notifications_read, methods=["POST"])
     app.add_url_rule("/api/notifications/read-all", "mark_notifications_read_all", mark_notifications_read_all, methods=["POST"])
     app.add_url_rule("/api/todo-notifications", "notifications", notifications, methods=["GET"])
     app.add_url_rule("/api/todos", "todos", todos, methods=["GET"])
