@@ -6,7 +6,8 @@ def upgrade(conn):
     conn.execute("ALTER TABLE assistant_notes ADD COLUMN remind_at TEXT")
     conn.execute("UPDATE assistant_notes SET reminder_mode = 'material' WHERE kind = 'material_wait'")
     conn.execute("CREATE INDEX idx_assistant_notes_due ON assistant_notes(status, reminder_mode, remind_at)")
-    conn.execute("DROP TRIGGER assistant_note_detached")
+    # 替换触发器时不依赖旧定义存在，迁移最终始终创建下面的新定义。
+    conn.execute("DROP TRIGGER IF EXISTS assistant_note_detached")
     conn.execute("""
         CREATE TRIGGER assistant_note_detached
         AFTER UPDATE OF material_id, acceptance_item_id ON assistant_notes

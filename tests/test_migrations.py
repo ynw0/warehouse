@@ -289,3 +289,39 @@ def test_operation_key_unique_index_allows_null_but_rejects_duplicates():
         )
     conn.rollback()
     conn.close()
+
+
+@pytest.mark.parametrize("old_trigger_exists", [True, False])
+def test_timed_reminders_upgrade_replaces_optional_old_trigger(old_trigger_exists):
+    from warehouse_suit.migrations.runner import available_migrations
+
+    conn = _old_database()
+    migrations = available_migrations()
+    run_migrations(conn, migrations=[item for item in migrations if item["version"] < "2026110601"])
+    conn.execute("INSERT INTO users (id) VALUES (1)")
+    conn.execute(
+        """
+        INSERT INTO assistant_notes(user_id,content,kind,status,created_at,updated_at)
+        VALUES (1,'保留原事项','note','recorded','2026-11-06 00:00:00','2026-11-06 00:00:00')
+        """
+    )
+    if not old_trigger_exists:
+        conn.execute("DROP TRIGGER assistant_note_detached")
+    conn.commit()
+    versions = run_migrations(conn)
+    assert "2026110601" in versions
+    assert conn.execute("SELECT content FROM assistant_notes").fetchone()[0] == "保留原事项"
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='assistant_note_detached'"
+    ).fetchone()[0] == 1
+    assert {"reminder_mode", "remind_at"} <= _column_names(conn, "assistant_notes")
+    conn.execute(
+        """
+        UPDATE assistant_notes SET status='watching',reminder_mode='at_time',
+            remind_at='2099-01-01 00:00:00',material_id=NULL,acceptance_item_id=NULL
+        """
+    )
+    assert conn.execute("SELECT status FROM assistant_notes").fetchone()[0] == "watching"
+    conn.commit()
+    assert run_migrations(conn) == versions
+    conn.close()
