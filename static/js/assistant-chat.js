@@ -322,6 +322,8 @@
     document.getElementById("aiThinkingLabel").textContent = text;
     document.getElementById("aiThinkingButtonLabel").textContent = text || "思考";
     document.getElementById("aiThinkingLevel").setAttribute("aria-valuetext", text);
+    const percent = state.thinkingLevels.length > 1 ? index * 100 / (state.thinkingLevels.length - 1) : 0;
+    document.querySelector(".ai-thinking-track").style.setProperty("--thinking-percent", percent + "%");
   }
 
   function fillThinkingOptions() {

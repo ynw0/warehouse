@@ -122,7 +122,6 @@
           <header class="app-topbar" id="appTopbar"></header>
           <section class="app-content" id="systemMain"></section>
         </main>
-        ${system.boot.ai_enabled ? aiFloatingHtml() : ""}
       </div>
     `;
     document.getElementById("logoutBtn").addEventListener("click", async () => {
@@ -146,7 +145,6 @@
         });
       });
     });
-    setupAiFloating();
     setupParticles();
     showTodoPopup();
     startWorkflowRealtime();
@@ -347,52 +345,6 @@
 
   function aiWelcomeMessage() {
     return system.boot?.workflow_settings?.ai_welcome_message || "你好，我是物料小助手。我可以帮你查询库存和待办、填写表单、处理流程、辅助物料编码，也可以帮你记下事项并在物料可申领时提醒。";
-  }
-
-  function aiFloatingHtml() {
-    return window.WarehouseAssistant.html(aiWelcomeMessage());
-  }
-
-  function setupAiFloating() {
-    if (!window.WarehouseAssistant) return;
-    window.WarehouseAssistant.mount({
-      system,
-      applySuggestion: applyAiSuggestion,
-      openWorkflow: id => openFlowDetail(id, true),
-      makeDraggable,
-    });
-  }
-
-  function makeDraggable(el, onMove) {
-    const key = "warehouse-assistant-position:" + (system.boot?.user?.id || "");
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      const position = JSON.parse(saved);
-      el.style.left = Math.max(8, Math.min(window.innerWidth - 60, position.left)) + "px";
-      el.style.top = Math.max(8, Math.min(window.innerHeight - 60, position.top)) + "px";
-      el.style.right = "auto";
-    }
-    let startX = 0, startY = 0, left = 0, top = 0, moved = false;
-    el.addEventListener("pointerdown", event => {
-      startX = event.clientX; startY = event.clientY; moved = false;
-      const rect = el.getBoundingClientRect(); left = rect.left; top = rect.top;
-      el.setPointerCapture(event.pointerId);
-    });
-    el.addEventListener("pointermove", event => {
-      if (!el.hasPointerCapture(event.pointerId)) return;
-      const dx = event.clientX - startX, dy = event.clientY - startY;
-      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
-      if (!moved) return;
-      el.style.left = `${Math.max(8, Math.min(window.innerWidth - 60, left + dx))}px`;
-      el.style.top = `${Math.max(8, Math.min(window.innerHeight - 60, top + dy))}px`;
-      el.style.right = "auto";
-      if (onMove) onMove();
-    });
-    el.addEventListener("pointerup", () => {
-      system.aiDragging = moved;
-      if (moved) localStorage.setItem(key, JSON.stringify({ left: el.offsetLeft, top: el.offsetTop }));
-      setTimeout(() => { system.aiDragging = false; }, 0);
-    });
   }
 
   function applyAiSuggestion(answer) {
@@ -658,7 +610,6 @@
     system.todoKeys = new Set(todos.map(todoKey));
     document.title = todos.length ? `(${todos.length}) 仓库物料系统` : "仓库物料系统";
     if (notify && newItems.length) {
-      window.WarehouseAssistant?.checkPrompts();
       newItems.slice(0, 3).forEach(item => showDesktopNotice("待办流程", item.notification_body || `${item.form_no || ""} ${workflowStepLabel(item.step_code || "")}`.trim(), `todo:${todoKey(item)}`));
     }
     if (system.view === "todo") {
@@ -683,7 +634,6 @@
     system.todoKeys = new Set(todos.map(todoKey));
     document.title = todos.length ? `(${todos.length}) 仓库物料系统` : "仓库物料系统";
     if (newItems.length) {
-      window.WarehouseAssistant?.checkPrompts();
       newItems.slice(0, 3).forEach(item => showDesktopNotice("待办流程", item.notification_body || `${item.form_no || ""} ${workflowStepLabel(item.step_code || "")}`.trim(), `todo:${todoKey(item)}`));
     }
     if (system.view === "dashboard" && newItems.length) renderSystemMain();
@@ -749,7 +699,6 @@
       if (!options.silent) {
         newRows.slice(0, 3).forEach(item => {
           showDesktopNotice(item.title || "通知", item.body || item.title || "", "notice:" + (item.id || item.created_at || ""));
-          if (item.category === "assistant") window.WarehouseAssistant?.prompt(item.body || item.title, "", "note:" + item.id);
         });
       }
       if (system.view === "notifications") {

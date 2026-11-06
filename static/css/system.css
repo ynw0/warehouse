@@ -1987,3 +1987,25 @@ button.danger:hover,
 
 .ai-mascot-avatar { display:inline-block; flex:none; width:26px; height:26px; border-radius:50%; background:#fff url("/static/assistant-avatar.png") 50% 18% / 190% no-repeat; vertical-align:middle; }
 .ai-heading-icon.ai-mascot-avatar { width:36px; height:36px; border:1px solid #d5e5f4; }
+
+
+/* 助手窄窗布局保持发送按钮靠右，滚动只发生在内容区域。 */
+.ai-chat, .ai-chat *, .ai-proactive { box-sizing:border-box; }
+.ai-chat .work-body { min-width:0; overflow-x:hidden; }
+.ai-chat .chat-log { display:flex; flex-direction:column; min-width:0; overflow-x:hidden; }
+.ai-chat .chat-msg { flex:none; min-width:0; align-self:flex-start; max-width:100%; }
+.ai-chat .chat-msg.user { align-self:flex-end; }
+.ai-chat .ai-composer { flex:none; min-width:0; width:100%; }
+.ai-chat .ai-send-row { display:flex; flex-wrap:nowrap; min-width:0; gap:8px; }
+.ai-chat .ai-file-button { flex:none; margin-right:auto; white-space:nowrap; }
+.ai-chat .ai-input-hint { flex:none; }
+.ai-chat .ai-thinking-anchor, .ai-chat #aiFloatSend { flex:none; }
+.ai-chat .ai-answer-table-wrap { max-width:100%; box-sizing:border-box; }
+.ai-chat .ai-thinking-popover { width:min(230px,calc(100vw - 58px)); }
+.ai-chat .ai-thinking-track { height:27px; --thinking-percent:0%; background:linear-gradient(100deg,#e1f0fd,#eae5fb,#ddf5ef,#e1f0fd); background-size:240% 100%; animation:thinkingGradient 5s linear infinite; }
+.ai-thinking-track::before { content:""; position:absolute; inset:0 auto 0 0; width:var(--thinking-percent); border-radius:999px; background:linear-gradient(100deg,#72b5f4,#8981e7,#58c9bd,#72b5f4); background-size:240% 100%; animation:thinkingGradient 5s linear infinite; transition:width .18s ease; }
+.ai-chat .ai-thinking-track input::-webkit-slider-thumb { width:25px; height:25px; }
+.ai-chat .ai-thinking-track input::-moz-range-thumb { width:23px; height:23px; }
+.ai-thinking-marks { inset-inline:13px; }
+@keyframes thinkingGradient { from { background-position:0% 50%; } to { background-position:240% 50%; } }
+@media (prefers-reduced-motion:reduce) { .ai-thinking-track, .ai-thinking-track::before { animation:none; } }
