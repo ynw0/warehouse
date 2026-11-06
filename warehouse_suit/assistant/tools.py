@@ -33,6 +33,7 @@ READ_NAMES = (
     "complete_note",
     "search_materials",
     "get_material",
+    "get_group_material_codes",
     "search_production",
     "search_prefixes",
     "next_material_code",
@@ -45,6 +46,7 @@ LOOKUP_NAMES = (
     "list_my_todos",
     "search_materials",
     "get_material",
+    "get_group_material_codes",
     "search_production",
     "list_projects",
     "list_workflows",
@@ -52,6 +54,7 @@ LOOKUP_NAMES = (
     "read_attachment",
 )
 CODING_NAMES = (
+    "get_group_material_codes",
     "get_category_rules",
     "search_prefixes",
     "next_material_code",
@@ -155,6 +158,9 @@ def _read(name, payload, ctx):
         if not item:
             return _fail("物料不存在")
         return _ok(_dump(_material(item)))
+    if name == "get_group_material_codes":
+        from warehouse_suit.assistant.group_codes import query_group_codes
+        return _ok(_dump(query_group_codes(ctx, payload)))
     if name == "search_production":
         rows = ai_similar_production_items(cursor, str(payload.get("q") or ""), _limit(payload.get("limit"), 12, 20))
         return _ok(_dump([_production(item) for item in rows]))
@@ -293,6 +299,10 @@ def _read_definitions():
             {"file_id": _integer("附件编号")},
             ["file_id"],
         ),
+        _function("get_group_material_codes", "查询集团物料编码的所属分类编码、物品和服务分类代码及标准描述。提供仓库物料编码时读取对应物料；没有已保存的集团码时复用集团码表分类。缺少属性时根据 missing 询问用户，再带完整补充信息调用。只查询，不生成仓库流水号、不保存物料。", {
+            "material_code": _string("已有的14位仓库物料编码，与 q 至少提供一项"),
+            "q": _string("名称、品牌型号、技术规格和单位；再次调用时包含此前信息及用户补充"),
+        }),
         _function("memory_get", "读取当前用户的长期记忆。", {}),
         _function(
             "memory_save",

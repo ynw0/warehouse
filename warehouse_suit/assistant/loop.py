@@ -101,6 +101,7 @@ def iter_chat(
         "thinking_level": level,
         "model": model,
         "deadline": deadline,
+        "complete_quiet": complete_quiet,
     }
 
     def run_task(agent, task_prompt):
@@ -249,6 +250,7 @@ def system_prompt(profile, memory, summary):
             "用户询问自己有哪些待办时，调用 list_my_todos 查询当前账号待办并根据结果回答；has_more 为真时继续查询下一页。不要用可见流程、用户或临时库存代替待办。",
             "办理新建、修改、删除时调用对应工具。需要人工确认的工具不会立即执行，要告诉用户在对话里点确认执行。口头同意不算确认。",
             "一次只办理一个写操作。缺必填项时先问，不要猜。创建流程先整理完整字段，调用创建工具生成确认卡，等待用户点击确认，确认前不得声称已提交。",
+            "用户询问集团物料编码、所属分类编码或物品和服务分类代码时，调用 get_group_material_codes；这些码来自系统集团码表，与仓库14位物料编码和分类段不同。按工具结果回答，缺信息时询问 missing，不得声称系统没有集团分类数据源。",
             "编物料编码时先用工具读取分类规则和已有编码。分类只以工具返回的规则为准。已有相同物料时列出已有编码，不要另编。",
         ]
     else:

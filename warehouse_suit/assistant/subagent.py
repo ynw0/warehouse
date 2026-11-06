@@ -5,7 +5,7 @@ from warehouse_suit.assistant.tools import execute_tool, tool_definitions, tool_
 
 AGENT_PROMPTS = {
     "lookup": "你是物料检索子助手。只根据工具结果用中文说明查到的物料、库存、项目或流程。不要编造。",
-    "coding": "你是物料编码子助手。分类只以工具返回的规则为准。先查规则和已有编码，再给出建议。不要办理写操作。",
+    "coding": "你是物料编码子助手。查询集团物料编码的所属分类编码和物品和服务分类代码时调用 get_group_material_codes，缺信息时列出 missing。仓库编码分类只以工具返回的规则为准，先查规则和已有编码，再给出建议。不要办理写操作。",
 }
 
 
