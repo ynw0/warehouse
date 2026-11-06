@@ -522,6 +522,44 @@ def register_ai_assistant_routes(app, *, get_db, ai_enabled, optional_active_use
         finally:
             conn.close()
 
+    @app.get("/api/ai/assistant/prompts")
+    def ai_assistant_prompts():
+        if not ai_enabled:
+            return disabled()
+        from warehouse_suit.assistant.notes import list_notes
+        from warehouse_suit.todo_service import pending_tasks_for_user
+        conn, cursor = open_cursor()
+        try:
+            user = guard(cursor)
+            return jsonify({
+                "success": True,
+                "todos": pending_tasks_for_user(cursor, user, 100, own_only=True),
+                "incomplete_notes": [item for item in list_notes(cursor, user) if item["status"] == "incomplete"],
+            })
+        finally:
+            conn.close()
+
+    @app.get("/api/ai/assistant/notes")
+    def ai_assistant_notes():
+        if not ai_enabled:
+            return disabled()
+        from warehouse_suit.assistant.notes import list_notes
+        conn, cursor = open_cursor()
+        try:
+            user = guard(cursor)
+            return jsonify({"success": True, "items": list_notes(cursor, user)})
+        finally:
+            conn.close()
+
+    @app.post("/api/ai/assistant/notes/<int:note_id>/complete")
+    def ai_assistant_note_complete(note_id):
+        from warehouse_suit.assistant.notes import complete_note
+        def complete(conn, cursor):
+            user = guard(cursor)
+            complete_note(conn, user, note_id)
+            return jsonify({"success": True})
+        return finish_write(complete)
+
     @app.get("/api/ai/assistant/memory")
     def ai_assistant_memory_get():
         if not ai_enabled:

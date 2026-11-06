@@ -32,6 +32,7 @@ from .v2026101401_assistant_confirmations import MIGRATION as ASSISTANT_CONFIRMA
 from .v2026101501_access_tokens import MIGRATION as ACCESS_TOKENS
 from .v2026101502_assistant_runtime import MIGRATION as ASSISTANT_RUNTIME
 from .v2026101503_category_rule_glue_cable_notes import MIGRATION as CATEGORY_RULE_GLUE_CABLE_NOTES
+from .v2026110501_assistant_notes import MIGRATION as ASSISTANT_NOTES
 
 
 LOGGER = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ def available_migrations():
         ACCESS_TOKENS,
         ASSISTANT_RUNTIME,
         CATEGORY_RULE_GLUE_CABLE_NOTES,
+        ASSISTANT_NOTES,
     ]
 
 
@@ -103,6 +105,11 @@ def run_migrations(conn, migrations=None, logger=None):
             conn.execute("PRAGMA foreign_keys = OFF")
         try:
             conn.execute("BEGIN IMMEDIATE")
+            # 其他进程可能在等待写锁期间已完成同一迁移。
+            if conn.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,)).fetchone():
+                conn.commit()
+                applied.add(version)
+                continue
             migration["upgrade"](conn)
             if rebuilds_referenced_table:
                 violations = list(conn.execute("PRAGMA foreign_key_check"))

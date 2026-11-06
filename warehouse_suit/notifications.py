@@ -8,7 +8,7 @@ from .db import now_text
 from .settings import workflow_settings
 
 
-NOTIFICATION_CATEGORIES = ("inbound", "stock_warning", "supply", "transfer")
+NOTIFICATION_CATEGORIES = ("inbound", "stock_warning", "supply", "transfer", "assistant")
 
 _TITLE_CATEGORIES = {
     "物料入库通知": "inbound",

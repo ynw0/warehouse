@@ -24,6 +24,11 @@ TOOL_TEXT_LIMIT = 24000
 
 READ_NAMES = (
     "list_my_todos",
+    "remember_note",
+    "list_notes",
+    "find_acceptance_items",
+    "find_people",
+    "complete_note",
     "search_materials",
     "get_material",
     "search_production",
@@ -102,6 +107,26 @@ def execute_tool(name, arguments, ctx):
 def _read(name, payload, ctx):
     cursor = ctx["conn"].cursor()
     user = ctx["user"]
+    if name in {"remember_note", "list_notes", "find_acceptance_items", "find_people", "complete_note"}:
+        from warehouse_suit.assistant.notes import save_note, list_notes, find_acceptance_items, find_people, complete_note
+        if name == "remember_note":
+            try:
+                return _ok(_dump(save_note(ctx["conn"], user, payload, ctx.get("message_id"))))
+            except Exception:
+                ctx["conn"].rollback()
+                raise
+        if name == "list_notes":
+            return _ok(_dump(list_notes(cursor, user)))
+        if name == "find_acceptance_items":
+            return _ok(_dump(find_acceptance_items(cursor, user, payload.get("q"))))
+        if name == "find_people":
+            return _ok(_dump(find_people(cursor, payload.get("q"))))
+        try:
+            complete_note(ctx["conn"], user, payload.get("note_id"))
+        except Exception:
+            ctx["conn"].rollback()
+            raise
+        return _ok("事项已完成")
     if name == "list_my_todos":
         # “我的”始终按当前账号过滤，管理员也只看分配给自己的事项。
         try:
@@ -189,6 +214,19 @@ def _action(name, payload, ctx):
 
 def _read_definitions():
     return [
+        _function("remember_note", "保存用户要求记住的事项。提前取用物料需 kind=material_wait、数量和验收明细 ID，缺失时先保存并询问，补充时使用原 note_id 更新。只有用户明确要求通知对方时才填写 recipient_user_id。", {
+            "content": _string("用户要求记住的完整事项"),
+            "note_id": _integer("补充已有待完善事项时提供事项 ID"),
+            "material_code": _string("已确认的物料编码"),
+            "kind": _string("note 或 material_wait"),
+            "quantity": {"type": "number", "description": "提前取用数量"},
+            "acceptance_item_id": _integer("经用户确认的验收明细 ID"),
+            "recipient_user_id": _integer("明确要求通知的接收人 ID"),
+        }),
+        _function("list_notes", "查询当前用户保存的事项和提醒。", {}),
+        _function("find_acceptance_items", "按物料名称、编码或验收单号查找当前用户可查看的验收明细。", {"q": _string("物料名称、编码或验收单号")}, ["q"]),
+        _function("find_people", "按姓名查找需要通知的在职账号。", {"q": _string("姓名")}, ["q"]),
+        _function("complete_note", "将当前用户的事项标记为完成。", {"note_id": _integer("事项 ID")}, ["note_id"]),
         _function(
             "list_my_todos",
             "查询当前登录账号需要办理的待办流程及盘点。包括管理员本人；结果含待办环节和发起人。has_more 为真时用 offset 查询下一页。",

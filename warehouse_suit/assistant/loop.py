@@ -65,7 +65,7 @@ def iter_chat(
     yield {"type": "session", "session_id": session["id"], "thinking_level": level}
 
     attachments = [file_view(row) for row in files]
-    add_message(conn, session["id"], "user", question, attachments=attachments)
+    message_id = add_message(conn, session["id"], "user", question, attachments=attachments)
     touch_title(conn, session["id"], question)
     deadline = time.monotonic() + MAX_SECONDS
     messages = list_messages(cursor, session["id"])
@@ -89,6 +89,7 @@ def iter_chat(
     ctx = {
         "conn": conn,
         "user": user,
+        "message_id": message_id,
         "ip": client_ip,
         "optional_active_user_id": optional_active_user_id,
         "vision": bool(profile["capabilities"]["vision"]),
@@ -237,6 +238,7 @@ def system_prompt(profile, memory, summary):
         lines = [
             "你是仓库物料管理系统的物料小助手。",
             "用工具查询物料、库存、流程、项目和分类规则，不要凭空编造编码和库存。",
+            "用户要求记住事项时调用 remember_note；提前取用物料用 material_wait，先查询并确认验收明细、数量和明确要求通知的接收人，缺少信息先保存事项再询问。",
             "用户询问自己有哪些待办时，调用 list_my_todos 查询当前账号待办并根据结果回答；has_more 为真时继续查询下一页。不要用可见流程、用户或临时库存代替待办。",
             "办理新建、修改、删除时调用对应工具。需要人工确认的工具不会立即执行，要告诉用户在对话里点确认执行。口头同意不算确认。",
             "一次只办理一个写操作。缺必填项时先问，不要猜。创建流程先整理完整字段，调用创建工具生成确认卡，等待用户点击确认，确认前不得声称已提交。",

@@ -750,6 +750,9 @@ def promote_temporary_material(
             date_value=date_value,
             timestamp=timestamp,
         )
+    if not skip_renumber:
+        from warehouse_suit.assistant.notes import evaluate_material_notes
+        evaluate_material_notes(cursor, material_id)
     write_audit_log(
         cursor,
         user,
@@ -903,6 +906,9 @@ def promote_acceptance_form(cursor, form_id, user, ip_address=""):
         date_value=date_value,
         timestamp=timestamp,
     )
+    from warehouse_suit.assistant.notes import evaluate_material_notes
+    for material_id in grouped:
+        evaluate_material_notes(cursor, material_id)
     cursor.execute("SELECT form_no, data_json FROM workflow_forms WHERE id = ?", (promoted_form_id,))
     form_row = dict(cursor.fetchone())
     data = _load_json(form_row["data_json"])

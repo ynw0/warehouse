@@ -142,7 +142,7 @@ def workflow_settings(cursor):
         "allow_multi_claim_leaders": False,
         "dashboard_metrics": ["total_amount", "month_in", "month_out"],
         "card_button_roles": ["admin", "warehouse"],
-        "ai_welcome_message": "您好我是仓库管理小助手，我可以帮你查询物料，辅助编写新编码。",
+        "ai_welcome_message": "你好，我是物料小助手。我可以帮你查询库存和待办、填写表单、处理流程、辅助物料编码，也可以帮你记下事项并在物料可申领时提醒。",
         "notification_inbound_template": "有新的物料：“{name}”“{brand_model}”“{spec}”入库了，请按需领取。",
         "notification_inbound_participant_template": "您验收的物料：“{name}”“{brand_model}”“{spec}”已入库，请按需领取。",
         "workflow_step_assignees": normalize_workflow_step_assignees({}),

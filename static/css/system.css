@@ -1971,3 +1971,16 @@ button.danger:hover,
 .ai-answer pre { max-width:100%; overflow:auto; padding:10px; border-radius:8px; background:#f1f5f9; white-space:pre; }
 .ai-answer code { padding:1px 4px; border-radius:4px; background:#edf3f9; font-family:monospace; }
 .ai-chat .chat-msg.ai:has(.ai-answer-table-wrap) { width:100%; max-width:100%; }
+
+/* 助手窗口跟随悬浮图标，并允许拖动右下角调整尺寸。 */
+.ai-chat.open { display:flex; flex-direction:column; height:min(640px,calc(100vh - 16px)); min-width:min(320px,calc(100vw - 16px)); min-height:280px; max-width:calc(100vw - 16px); max-height:calc(100vh - 16px); resize:both; overflow:hidden; }
+.ai-chat .work-body { flex:1; min-height:0; max-height:none; overflow:auto; }
+.ai-chat .chat-log { flex:1; min-height:70px; max-height:none; overflow:auto; }
+.ai-proactive { position:fixed; z-index:92; width:min(280px,calc(100vw - 24px)); padding:12px; border:1px solid #cddaea; border-radius:14px; background:#fff; box-shadow:0 12px 36px rgba(20,40,70,.2); color:#253c56; }
+.ai-proactive[hidden] { display:none; }
+.ai-proactive > div:last-child { display:flex; justify-content:flex-end; gap:6px; margin-top:8px; }
+.ai-proactive button { width:auto; min-height:30px; font-size:12px; }
+.ai-notes { border-top:1px solid #e2eaf4; padding-top:8px; font-size:12px; }
+.ai-note-row { display:flex; align-items:center; gap:8px; margin-top:7px; }
+.ai-note-row span { flex:1; overflow-wrap:anywhere; }
+.ai-note-row button { width:auto; min-height:28px; font-size:12px; }

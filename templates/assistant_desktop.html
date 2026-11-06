@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>物料小助手</title>
+  <link rel="stylesheet" href="/static/css/system.css">
+  <style>
+    html,body { width:100%; height:100%; margin:0; background:#f5f8fc; font-family:"Microsoft YaHei",sans-serif; }
+    #desktopLogin { max-width:360px; margin:12vh auto; padding:24px; background:white; border:1px solid #d8e4f1; border-radius:16px; }
+    #desktopLogin label { display:block; margin:12px 0; }
+    #desktopLogin input { display:block; width:100%; margin-top:6px; }
+    #desktopError { color:#b42318; }
+    #desktopToast { position:fixed; z-index:100; left:16px; right:16px; top:12px; padding:9px 12px; border-radius:8px; background:#253c56; color:#fff; }
+    #desktopAssistant .ai-fab { display:none; }
+    #desktopAssistant .ai-chat.open { position:fixed; inset:0; width:100%; height:100%; min-width:0; min-height:0; max-width:none; max-height:none; border:0; border-radius:0; resize:none; }
+    #desktopAssistant .ai-proactive { top:12px; left:50%; transform:translateX(-50%); }
+    .desktop-detail { position:fixed; inset:0; z-index:120; overflow:auto; padding:18px; background:#fff; }
+    .desktop-detail h2 { margin:0 0 12px; }
+    .desktop-detail-row { padding:10px; margin:8px 0; border:1px solid #dbe6f1; border-radius:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .desktop-detail-close { float:right; width:auto; }
+  </style>
+</head>
+<body>
+  <form id="desktopLogin" hidden>
+    <h2>物料小助手</h2><p>登录库房账号</p>
+    <label>账号<input id="desktopUsername" autocomplete="username" required></label>
+    <label>密码<input id="desktopPassword" type="password" autocomplete="current-password" required></label>
+    <p id="desktopError" role="alert"></p>
+    <button type="submit">登录</button>
+  </form>
+  <div id="desktopAssistant"></div>
+  <div id="desktopToast" hidden role="status"></div>
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="/static/js/assistant-chat.js"></script>
+  <script src="/static/js/assistant-desktop.js"></script>
+</body>
+</html>

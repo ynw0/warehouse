@@ -332,6 +332,8 @@ def add_inventory_batch(
             now_text(),
         ),
     )
+    from warehouse_suit.assistant.notes import evaluate_material_notes
+    evaluate_material_notes(cursor, material_id)
     return batch_id
 
 
@@ -601,6 +603,9 @@ def adjust_inventory_batch(
             now_text(),
         ),
     )
+    if adjustment > 0:
+        from warehouse_suit.assistant.notes import evaluate_material_notes
+        evaluate_material_notes(cursor, int(batch["material_id"]))
     return {
         "batch_id": int(batch_id),
         "quantity": float(updated["quantity"]),
@@ -1397,6 +1402,8 @@ def restore_borrow_quantity_to_batches(
         "UPDATE borrow_records SET data_json = ?, updated_at = ? WHERE id = ?",
         (json.dumps(data, ensure_ascii=False), now_text(), int(record["id"])),
     )
+    from warehouse_suit.assistant.notes import evaluate_material_notes
+    evaluate_material_notes(cursor, int(record["material_id"]))
 
 
 def save_borrow_change(cursor, borrow_record_id, change_type, change_detail, version_after, normal_use):

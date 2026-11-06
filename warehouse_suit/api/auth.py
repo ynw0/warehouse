@@ -96,6 +96,24 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
         _issue_login_token(get_db, user_or_error["id"])
         return jsonify({"success": True, "user": public_user(user_or_error)})
 
+    def assistant_desktop():
+        return render_template("assistant_desktop.html")
+
+    def assistant_desktop_login():
+        # 独立窗口复用账号密码校验，使用独立会话而不撤销其他设备令牌。
+        data = request.get_json(force=True) or {}
+        ok, user_or_error = authenticate_user(data.get("username", ""), data.get("password", ""))
+        if not ok:
+            return jsonify({"success": False, "error": user_or_error}), 401
+        session.clear()
+        session["user_id"] = user_or_error["id"]
+        return jsonify({"success": True, "user": public_user(user_or_error)})
+
+    def assistant_desktop_logout():
+        # 桌面窗口退出当前会话，不撤销其他设备的接口令牌。
+        session.clear()
+        return jsonify({"success": True})
+
     def api_change_password():
         if not session.get("user_id"):
             return jsonify({"success": False, "error": "请先登录"}), 401
@@ -163,6 +181,9 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
     app.add_url_rule("/login", "login_page", login_page, methods=["GET", "POST"])
     app.add_url_rule("/change-password", "change_password_page", change_password_page, methods=["GET", "POST"])
     app.add_url_rule("/api/login", "api_login", api_login, methods=["POST"])
+    app.add_url_rule("/assistant/desktop", "assistant_desktop", assistant_desktop, methods=["GET"])
+    app.add_url_rule("/api/assistant/desktop-login", "assistant_desktop_login", assistant_desktop_login, methods=["POST"])
+    app.add_url_rule("/api/assistant/desktop-logout", "assistant_desktop_logout", assistant_desktop_logout, methods=["POST"])
     app.add_url_rule("/api/change-password", "api_change_password", api_change_password, methods=["POST"])
     app.add_url_rule("/api/logout", "api_logout", api_logout, methods=["POST"])
     app.add_url_rule("/api/session", "api_session", api_session, methods=["GET"])

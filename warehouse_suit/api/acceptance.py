@@ -343,6 +343,8 @@ def register_acceptance_routes(app, *, get_db, current_user_provider):
                 )
                 processed_ids.add(item["id"])
                 notify_material_inbound(cursor, form_id, item)
+                from warehouse_suit.assistant.notes import evaluate_material_notes
+                evaluate_material_notes(cursor, item["material_id"])
             cursor.execute("SELECT id, qualified_quantity, approved_quantity, data_json FROM workflow_items WHERE form_id = ? ORDER BY id", (form_id,))
             remaining = []
             for row in cursor.fetchall():

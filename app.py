@@ -146,6 +146,9 @@ def auth_required_path():
         "/login",
         "/change-password",
         "/api/login",
+        "/api/assistant/desktop-login",
+        "/api/assistant/desktop-logout",
+        "/assistant/desktop",
         "/api/change-password",
         "/api/session",
         "/api/logout",
@@ -161,6 +164,7 @@ def password_change_allowed_path():
         "/change-password",
         "/api/change-password",
         "/api/logout",
+        "/api/assistant/desktop-logout",
         "/api/session",
         "/favicon.ico",
     }
@@ -491,6 +495,8 @@ register_ai_routes(
 
 init_db()
 start_background_services()
+from warehouse_suit.assistant.reminder_scheduler import start_reminder_scheduler
+start_reminder_scheduler(get_db)
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ def _old_database():
             is_read INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE users (id INTEGER PRIMARY KEY);
+        CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE shelves (id INTEGER PRIMARY KEY, warehouse_type TEXT NOT NULL);
         CREATE TABLE workflow_tasks (
             id INTEGER PRIMARY KEY, form_id INTEGER NOT NULL,
@@ -126,10 +127,15 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026101201",
         "2026101202",
         "2026101301",
+        "2026101401",
+        "2026101501",
+        "2026101502",
+        "2026101503",
+        "2026110501",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 24
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 29
     assert conn.execute("SELECT purchase_project FROM material_batches WHERE id = 1").fetchone()[0] == "办公"
     assert {"stock_source", "inventory_status", "version", "purchase_applicant"} <= _column_names(conn, "material_batches")
     assert {

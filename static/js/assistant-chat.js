@@ -13,6 +13,12 @@
     applySuggestion: null,
     openWorkflow: null,
     thinkingLevels: [],
+    promptKeys: new Set(),
+    promptQueue: [],
+    promptQuestion: "",
+    desktop: false,
+    userId: null,
+    resizeObserver: null,
   };
   let ready = Promise.resolve();
   let popupListeners;
@@ -20,6 +26,10 @@
   function html(welcome) {
     state.welcome = welcome || "";
     return `<button class="ai-fab" id="aiFloatBtn" type="button" title="物料小助手"><img src="/static/assistant-icon.svg" alt=""></button>
+      <aside class="ai-proactive" id="aiProactive" hidden aria-live="polite">
+        <div id="aiProactiveText"></div>
+        <div><button id="aiProactiveOpen" type="button">查看</button><button id="aiProactiveClose" type="button">稍后</button></div>
+      </aside>
       <section class="ai-chat" id="aiFloatBox" aria-label="物料小助手">
         <div class="work-head" id="aiChatHead">
           <div class="ai-heading"><span class="ai-heading-icon">✦</span><div><h2>物料小助手</h2><small>查询 · 填单 · 协作</small></div></div>
@@ -34,6 +44,7 @@
           <div class="ai-memory" id="aiMemoryPanel" hidden>
             <textarea id="aiMemoryBody" maxlength="4000" rows="4" placeholder="记给小助手的长期偏好，最多 4000 字"></textarea>
             <button id="aiMemorySave" type="button">保存记忆</button>
+            <div class="ai-notes"><strong>我的事项</strong><div id="aiNotesList"></div></div>
           </div>
           <div class="chat-log" id="aiChatLog" aria-live="polite"></div>
           <div class="ai-composer">
@@ -64,22 +75,64 @@
     button.dataset.bound = "1";
     state.applySuggestion = options && options.applySuggestion;
     state.openWorkflow = options && options.openWorkflow;
+    state.desktop = Boolean(options && options.desktop);
+    const userId = options?.system?.boot?.user?.id || null;
+    if (state.userId !== userId) {
+      state.promptKeys.clear();
+      state.promptQueue = [];
+      state.userId = userId;
+    }
+    if (state.resizeObserver) state.resizeObserver.disconnect();
+    const sizeKey = "warehouse-assistant-size:" + (options?.system?.boot?.user?.id || "desktop");
+    const saved = state.desktop ? null : localStorage.getItem(sizeKey);
+    if (saved) {
+      const size = JSON.parse(saved);
+      box.style.width = Math.min(Math.max(320, size.width), window.innerWidth - 16) + "px";
+      box.style.height = Math.min(Math.max(280, size.height), window.innerHeight - 16) + "px";
+    }
+    function positionDialog() {
+      if (state.desktop) return;
+      const rect = button.getBoundingClientRect();
+      const width = box.offsetWidth || Math.min(620, window.innerWidth - 16);
+      const height = box.offsetHeight || 500;
+      const left = rect.right + 10 + width <= window.innerWidth ? rect.right + 10 : rect.left - width - 10;
+      box.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, left)) + "px";
+      box.style.top = Math.max(8, Math.min(window.innerHeight - height - 8, rect.top)) + "px";
+      box.style.right = "auto";
+      box.style.bottom = "auto";
+      positionPrompt();
+    }
+    state.positionDialog = positionDialog;
+    if (window.ResizeObserver) {
+      const observer = new ResizeObserver(() => {
+        if (!box.classList.contains("open") || state.desktop) return;
+        localStorage.setItem(sizeKey, JSON.stringify({ width: box.offsetWidth, height: box.offsetHeight }));
+        positionDialog();
+      });
+      observer.observe(box);
+      state.resizeObserver = observer;
+    }
     showWelcome();
     button.addEventListener("click", () => {
       if (options && options.system && options.system.aiDragging) return;
       box.classList.toggle("open");
-      if (box.classList.contains("open")) loadPendingConfirmations();
+      if (box.classList.contains("open")) {
+        positionDialog();
+        loadPendingConfirmations();
+      }
     });
     document.getElementById("aiFloatClose").addEventListener("click", () => box.classList.remove("open"));
     document.getElementById("aiClearChat").addEventListener("click", () => clearChat().catch(showError));
     document.getElementById("aiMemoryToggle").addEventListener("click", () => {
       const panel = document.getElementById("aiMemoryPanel");
       panel.hidden = !panel.hidden;
+      if (!panel.hidden) loadNotes().catch(showError);
       document.getElementById("aiMemoryToggle").setAttribute("aria-expanded", String(!panel.hidden));
     });
     document.getElementById("aiMemorySave").addEventListener("click", () => saveMemory().catch(showError));
     if (popupListeners) popupListeners.abort();
     popupListeners = new AbortController();
+    window.addEventListener("resize", positionDialog, { signal: popupListeners.signal });
     const trigger = document.getElementById("aiThinkingToggle");
     const panel = document.getElementById("aiThinkingControl");
     trigger.addEventListener("click", () => {
@@ -117,11 +170,103 @@
       uploadFiles(event.target.files).catch(showError);
       event.target.value = "";
     });
-    if (options && options.makeDraggable) options.makeDraggable(button);
+    document.getElementById("aiProactiveClose").addEventListener("click", () => {
+      document.getElementById("aiProactive").hidden = true;
+      showNextPrompt();
+    });
+    document.getElementById("aiProactiveOpen").addEventListener("click", () => {
+      document.getElementById("aiProactive").hidden = true;
+      box.classList.add("open");
+      positionDialog();
+      loadPendingConfirmations();
+      if (state.promptQuestion) {
+        document.getElementById("aiFloatQuestion").value = state.promptQuestion;
+        send().catch(showError);
+      } else {
+        appendBubble("ai", document.getElementById("aiProactiveText").textContent);
+      }
+      showNextPrompt();
+    });
+    if (options && options.makeDraggable) options.makeDraggable(button, positionDialog);
     window.addEventListener("warehouse-ai-profile-updated", () => {
       if (!state.sending) ready = restore().catch(showError);
     });
-    ready = restore().catch(showError);
+    ready = restore().then(() => checkPrompts()).catch(showError);
+  }
+
+  function positionPrompt() {
+    const bubble = document.getElementById("aiProactive");
+    const button = document.getElementById("aiFloatBtn");
+    if (!bubble || !button || bubble.hidden || state.desktop) return;
+    const rect = button.getBoundingClientRect();
+    const width = bubble.offsetWidth;
+    const left = rect.right + width + 10 <= window.innerWidth ? rect.right + 10 : rect.left - width - 10;
+    bubble.style.left = Math.max(8, Math.min(window.innerWidth - width - 8, left)) + "px";
+    bubble.style.top = Math.max(8, Math.min(window.innerHeight - bubble.offsetHeight - 8, rect.top)) + "px";
+  }
+
+  function prompt(text, question, key) {
+    if (!text || (key && state.promptKeys.has(key))) return;
+    if (key) state.promptKeys.add(key);
+    state.promptQueue.push({ text, question: question || "" });
+    showNextPrompt();
+  }
+
+  function showNextPrompt() {
+    const bubble = document.getElementById("aiProactive");
+    if (!bubble || !bubble.hidden || !state.promptQueue.length) return;
+    const next = state.promptQueue.shift();
+    document.getElementById("aiProactiveText").textContent = next.text;
+    state.promptQuestion = next.question;
+    bubble.hidden = false;
+    positionPrompt();
+  }
+
+  async function checkPrompts() {
+    const response = await fetch("/api/ai/assistant/prompts");
+    const data = await readJson(response);
+    const incomplete = data.incomplete_notes || [];
+    if (incomplete.length) {
+      const note = incomplete[0];
+      prompt("有 " + incomplete.length + " 条事项还需要补充验收明细或数量，需要现在查看吗？",
+        "请列出我需要补充信息的事项", "incomplete:" + incomplete.map(item => item.id).join(","));
+    }
+    const responseNotes = await fetch("/api/notifications?read=0&category=assistant");
+    const notices = responseNotes.ok ? (await responseNotes.json()).items || [] : [];
+    if (notices.length) {
+      const note = notices[0];
+      prompt(note.body || note.title, "", "note:" + note.id);
+    }
+    const todos = data.todos || [];
+    if (todos.length) {
+      prompt("你有 " + todos.length + " 个待办，需要我帮你查看吗？",
+        "我的账号有哪些待办", "todos:" + todos.map(item => item.form_type + ":" + item.task_id).join(","));
+    }
+  }
+
+  async function loadNotes() {
+    const data = await readJson(await fetch("/api/ai/assistant/notes"));
+    const host = document.getElementById("aiNotesList");
+    host.replaceChildren();
+    const labels = { recorded: "已记录", incomplete: "待补充", watching: "等待可申领", notified: "已提醒" };
+    (data.items || []).forEach(item => {
+      const row = document.createElement("div");
+      row.className = "ai-note-row";
+      const text = document.createElement("span");
+      text.textContent = item.content + " · " + (labels[item.status] || item.status);
+      const done = document.createElement("button");
+      done.type = "button";
+      done.textContent = "完成";
+      done.addEventListener("click", async () => {
+        try {
+          await readJson(await fetch("/api/ai/assistant/notes/" + item.id + "/complete", { method: "POST" }));
+          await loadNotes();
+        } catch (error) { showError(error); }
+      });
+      row.append(text, done);
+      host.appendChild(row);
+    });
+    if (!data.items?.length) host.textContent = "暂无事项";
   }
 
   function setWelcome(text) {
@@ -719,5 +864,5 @@
     return data;
   }
 
-  window.WarehouseAssistant = { html, mount, setWelcome, renderAnswer };
+  window.WarehouseAssistant = { html, mount, setWelcome, renderAnswer, prompt, checkPrompts };
 })();
