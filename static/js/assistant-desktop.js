@@ -44,9 +44,13 @@
       desktop:true, system:{ boot:{ user:data.user } }, openWorkflow:showWorkflow,
     });
     document.getElementById("aiFloatBox").classList.add("open");
-    document.getElementById("aiFloatClose").addEventListener("click", () => bridge?.hideChat());
+    document.getElementById("aiFloatClose").addEventListener("click", () => {
+      if (window.chrome?.webview) window.chrome.webview.postMessage({ type: "assistant-close" });
+      else bridge?.hideChat();
+    });
     await channelReady;
-    watch();
+    // Windows 客户端已负责实时通知，避免在助手窗口重复订阅并弹窗。
+    if (!window.chrome?.webview) watch();
   }
 
   async function showWorkflow(id) {
@@ -75,7 +79,7 @@
       row.textContent = [
         [item.material_code, item.material_name, item.brand_model, item.spec].filter(Boolean).join(" · "),
         "申请数量：" + (item.request_quantity ?? "") + " " + (item.unit || ""),
-      ].join("\\n");
+      ].join("\n");
       panel.appendChild(row);
     });
     const tasksTitle = document.createElement("h3");
