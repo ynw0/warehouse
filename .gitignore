@@ -73,3 +73,11 @@ material_system_dashboard.html
 # One-off local material data maintenance scripts
 /scripts/
 /sync_xin_to_warehouse.py
+
+# Windows client build output
+windows_client/**/bin/
+windows_client/**/obj/
+windows_client/publish/
+windows_client/installer/publish/
+windows_client/installer/Payload/
+windows_client/WarehouseClientInstaller.exe

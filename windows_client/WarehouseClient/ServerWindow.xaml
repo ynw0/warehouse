@@ -1,0 +1,38 @@
+<Window x:Class="WarehouseClient.ServerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="配置服务器" Width="500" MinHeight="360" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#f4f6f9">
+    <Border Margin="24" Padding="24" Background="White" BorderBrush="#d9e0ea" BorderThickness="1" CornerRadius="8">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="服务器配置" FontSize="24" FontWeight="SemiBold" Foreground="#0d2f63" />
+            <TextBlock Grid.Row="1" Margin="0,6,0,20" Text="请输入仓库系统服务器地址，确认连接成功后进入登录。" Foreground="#647086" TextWrapping="Wrap" />
+
+            <StackPanel Grid.Row="2">
+                <TextBlock Text="服务器地址" Foreground="#647086" Margin="0,0,0,6" />
+                <TextBox x:Name="ServerBox" Height="38" Padding="8,7" KeyDown="ServerBox_KeyDown" />
+                <TextBlock Text="示例：http://192.168.1.20:5000 或 http://localhost:5000" Margin="0,8,0,0" Foreground="#647086" FontSize="12" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Grid Grid.Row="3" Margin="0,20,0,0" MinHeight="38">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ErrorText" VerticalAlignment="Center" Foreground="#b93535" TextWrapping="Wrap" />
+                <Button Grid.Column="1" Content="取消" Width="86" Height="38" Margin="0,0,8,0" Click="CancelButton_Click" />
+                <Button x:Name="ConfirmButton" Grid.Column="2" Content="确定" Width="96" Height="38" Click="ConfirmButton_Click" />
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

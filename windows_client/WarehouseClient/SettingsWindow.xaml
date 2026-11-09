@@ -1,0 +1,47 @@
+<Window x:Class="WarehouseClient.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="客户端设置" Width="500" Height="500"
+        MinHeight="430"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResizeWithGrip"
+        Background="#f4f6f9">
+    <Border Margin="24" Padding="24" Background="White" BorderBrush="#d9e0ea" BorderThickness="1" CornerRadius="8">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel>
+                <TextBlock Text="客户端设置" FontSize="22" FontWeight="SemiBold" Foreground="#0d2f63" />
+                <TextBlock Text="通知、托盘和启动行为。" Margin="0,6,0,16" Foreground="#647086" />
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
+                <StackPanel>
+                <CheckBox x:Name="StartWithWindowsBox" Content="开机自动启动客户端" Margin="0,0,0,12" />
+                <CheckBox x:Name="MinimizeToTrayBox" Content="点击关闭按钮时最小化到系统托盘" Margin="0,0,0,12" />
+                <CheckBox x:Name="ShowTrayBalloonBox" Content="显示 Windows 通知栏提醒" Margin="0,0,0,12" />
+                <CheckBox x:Name="ShowDesktopToastBox" Content="显示小助手悬浮提醒" Margin="0,0,0,18" />
+
+                <TextBlock Text="待办检查间隔（秒）" Foreground="#647086" Margin="0,0,0,6" />
+                <TextBox x:Name="PollSecondsBox" Height="36" Padding="8,6" />
+                <TextBlock Text="建议 30-120 秒；过短会增加服务器请求。" Margin="0,8,0,0" Foreground="#647086" FontSize="12" />
+            </StackPanel>
+            </ScrollViewer>
+
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ErrorText" VerticalAlignment="Center" Foreground="#b93535" />
+                <Button Grid.Column="1" Content="取消" Width="86" Height="36" Margin="0,0,8,0" Click="CancelButton_Click" />
+                <Button Grid.Column="2" Content="保存" Width="86" Height="36" Click="SaveButton_Click" />
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
