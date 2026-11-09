@@ -1,0 +1,203 @@
+--- a/WarehouseClient/AssistantBallWindow.xaml.cs
++++ b/WarehouseClient/AssistantBallWindow.xaml.cs
+@@ -1,5 +1,6 @@
+ using System.Windows;
+ using System.Windows.Controls;
++using System.Windows.Interop;
+ using System.Windows.Media;
+ using System.Windows.Media.Animation;
+ using System.Windows.Threading;
+@@ -16,6 +17,9 @@
+     private AssistantNoticeWindow? _notice;
+     private AssistantNotice? _currentNotice;
+     private readonly DispatcherTimer _hideTimer = new() { Interval = TimeSpan.FromSeconds(4) };
++    private readonly DispatcherTimer _visibilityTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
++    private bool _suppressed;
++    private bool _closing;
+     private string _edge = "";
+     private string _activity = "idle";
+     private string _art = "";
+@@ -60,7 +64,10 @@
+             _hideTimer.Start();
+             _resetTimer.Start();
+             _idleTimer.Start();
+-        };
++            RefreshWorkVisibility();
++            _visibilityTimer.Start();
++        };
++        _visibilityTimer.Tick += (_, _) => RefreshWorkVisibility();
+         _hideTimer.Tick += (_, _) => { _hideTimer.Stop(); HideAtEdge(); };
+         MouseEnter += (_, _) =>
+         {
+@@ -90,6 +97,31 @@
+ 
+     public Rect CurrentWorkArea() => WorkArea();
+ 
++    public bool RefreshWorkVisibility()
++    {
++        if (!IsLoaded || _closing) return _suppressed;
++        var suppressed = AssistantWorkVisibility.ShouldHide(new WindowInteropHelper(this).Handle);
++        if (suppressed == _suppressed) return suppressed;
++        _suppressed = suppressed;
++        if (suppressed)
++        {
++            // 只隐藏窗口，保留当前提醒及队列，不能将未查看的通知当作已读。
++            _hideTimer.Stop();
++            _menu.IsOpen = false;
++            _notice?.Hide();
++            Hide();
++        }
++        else
++        {
++            // ShowActivated=False 保证恢复形象和提醒时不切走用户焦点。
++            Show();
++            if (_notice != null) { PositionNotice(); _notice.Show(); }
++            else ShowNextNotice();
++            _hideTimer.Start();
++        }
++        return suppressed;
++    }
++
+     private Rect WorkArea()
+     {
+         var origin = PointToScreen(new System.Windows.Point(ActualWidth / 2, ActualHeight / 2));
+@@ -110,7 +142,7 @@
+ 
+     private void HideAtEdge()
+     {
+-        if (!IsLoaded || PointerInside() || _menu.IsOpen || _notice != null) return;
++        if (!IsLoaded || _suppressed || PointerInside() || _menu.IsOpen || _notice != null) return;
+         if (!string.IsNullOrEmpty(_edge))
+         {
+             if (_edgeReminder) CollapseAtEdge();
+@@ -133,8 +165,8 @@
+     {
+         var area = WorkArea();
+         _edgeReminder = true;
+-        Width = 100;
+-        Height = 130;
++        Width = 50;
++        Height = 65;
+         Opacity = 0.95;
+         ShowArtwork(_edge == "left" ? "edge-left" : "edge-right");
+         Left = _edge == "left" ? area.Left : (_edge == "right" ? area.Right - Width : Math.Clamp(_expandedPosition.X, area.Left, Math.Max(area.Left, area.Right - Width)));
+@@ -148,8 +180,8 @@
+         if (PointerInside() || _menu.IsOpen) return;
+         _edgeReminder = false;
+         var area = WorkArea();
+-        Width = 44;
+-        Height = 28;
++        Width = 22;
++        Height = 14;
+         Opacity = 0.4;
+         NoticeBadge.Visibility = Visibility.Collapsed;
+         ShowArtwork(_edge == "left" ? "tuft-left" : "tuft-right");
+@@ -165,8 +197,8 @@
+         if (string.IsNullOrEmpty(_edge)) return;
+         _edgeReminder = false;
+         var area = WorkArea();
+-        Width = 140;
+-        Height = 150;
++        Width = 70;
++        Height = 75;
+         Opacity = 1;
+         Left = Math.Clamp(_expandedPosition.X, area.Left, Math.Max(area.Left, area.Right - Width));
+         Top = Math.Clamp(_expandedPosition.Y, area.Top, Math.Max(area.Top, area.Bottom - Height));
+@@ -213,8 +245,7 @@
+ 
+     public void EnqueueNotice(string title, string body, Action? clickAction, bool isSystemNotice)
+     {
+-        if (string.IsNullOrEmpty(_edge)) Reveal();
+-        else ShowDockedReminder();
++        RefreshWorkVisibility();
+         _notices.Enqueue(new AssistantNotice(title, body, clickAction, isSystemNotice));
+         UpdateBadge();
+         ShowNextNotice();
+@@ -231,7 +262,9 @@
+ 
+     private void ShowNextNotice()
+     {
+-        if (_notice != null || _notices.Count == 0) return;
++        if (_closing || _suppressed || _notice != null || _notices.Count == 0) return;
++        if (string.IsNullOrEmpty(_edge)) Reveal();
++        else ShowDockedReminder();
+         _currentNotice = _notices.Dequeue();
+         _notice = new AssistantNoticeWindow(_currentNotice.Title, _currentNotice.Body, _currentNotice.ClickAction);
+         _notice.Closed += (_, _) =>
+@@ -267,6 +300,8 @@
+ 
+     protected override void OnClosed(EventArgs e)
+     {
++        _closing = true;
++        _visibilityTimer.Stop();
+         _hideTimer.Stop();
+         _idleTimer.Stop();
+         _resetTimer.Stop();
+--- a/WarehouseClient/AssistantBallWindow.xaml
++++ b/WarehouseClient/AssistantBallWindow.xaml
+@@ -1,9 +1,9 @@
+ <Window x:Class="WarehouseClient.AssistantBallWindow"
+         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+-        Title="物料小助手" Width="140" Height="150" WindowStyle="None"
++        Title="物料小助手" Width="70" Height="75" WindowStyle="None"
+         AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize"
+-        Topmost="True" ShowInTaskbar="False">
++        Topmost="True" ShowInTaskbar="False" ShowActivated="False">
+     <Grid x:Name="BallRoot" Background="Transparent" Cursor="Hand">
+         <Image x:Name="PreviousImage" Stretch="Uniform" Opacity="0" IsHitTestVisible="False"/>
+         <Image x:Name="StateImage" Stretch="Uniform" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
+--- a/WarehouseClient/MainWindow.xaml.cs
++++ b/WarehouseClient/MainWindow.xaml.cs
+@@ -419,7 +419,9 @@
+     private void ShowNotification(string title, string body, Action? clickAction, bool isSystemNotice = false)
+     {
+         _lastBalloonClickAction = clickAction;
+-        if (_settings.ShowTrayBalloon)
++        // 免打扰状态同时抑制托盘气泡，不能绕过桌面形象的隐藏规则。
++        var suppressed = _assistantBall?.RefreshWorkVisibility() == true;
++        if (_settings.ShowTrayBalloon && !suppressed)
+         {
+             _trayIcon?.ShowBalloonTip(6000, title, body, WinForms.ToolTipIcon.Info);
+         }
+--- /dev/null
++++ b/WarehouseClient/AssistantWorkVisibility.cs
+@@ -0,0 +1,38 @@
++using System.Runtime.InteropServices;
++using System.Text;
++using WinForms = System.Windows.Forms;
++
++namespace WarehouseClient;
++
++internal static class AssistantWorkVisibility
++{
++    [StructLayout(LayoutKind.Sequential)]
++    private struct NativeRect { public int Left, Top, Right, Bottom; }
++
++    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
++    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
++    [DllImport("user32.dll")] private static extern bool IsZoomed(IntPtr window);
++    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
++    [DllImport("user32.dll")] private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
++    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
++    private static extern int GetClassName(IntPtr window, StringBuilder name, int count);
++
++    public static bool ShouldHide(IntPtr assistantWindow)
++    {
++        var foreground = GetForegroundWindow();
++        if (foreground == IntPtr.Zero) return false;
++        GetWindowThreadProcessId(foreground, out var processId);
++        // 助手自身窗口和系统桌面不触发免打扰。
++        if (processId == (uint)Environment.ProcessId) return false;
++        var name = new StringBuilder(256);
++        GetClassName(foreground, name, name.Capacity);
++        if (name.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return false;
++        // 原生窗口坐标和显示器边界均为设备像素，避免混用 WPF 缩放单位。
++        if (MonitorFromWindow(foreground, 2) != MonitorFromWindow(assistantWindow, 2)) return false;
++        if (IsZoomed(foreground)) return true;
++        if (!GetWindowRect(foreground, out var rect)) return false;
++        var screen = WinForms.Screen.FromHandle(assistantWindow).Bounds;
++        return rect.Left <= screen.Left && rect.Top <= screen.Top
++            && rect.Right >= screen.Right && rect.Bottom >= screen.Bottom;
++    }
++}
