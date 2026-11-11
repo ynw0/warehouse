@@ -136,10 +136,11 @@ def test_old_database_upgrade_is_idempotent_and_preserves_data():
         "2026101503",
         "2026110501",
         "2026110601",
+        "2026111101",
     ]
     assert versions_again == versions
     assert _counts(conn) == before
-    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 30
+    assert conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == len(versions)
     assert conn.execute("SELECT purchase_project FROM material_batches WHERE id = 1").fetchone()[0] == "办公"
     assert {"stock_source", "inventory_status", "version", "purchase_applicant"} <= _column_names(conn, "material_batches")
     assert {
