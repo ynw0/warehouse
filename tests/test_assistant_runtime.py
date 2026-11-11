@@ -365,7 +365,7 @@ def test_existing_material_code_is_not_rewritten_in_chat(db):
     assert any(event.get("text") == "7号电池编码为 10103901010060" for event in events)
 
 
-def test_workflow_search_results_survive_session_restore():
+def test_session_restore_only_shows_requested_workflow_detail_links():
     import json
     from warehouse_suit.assistant.session_store import present_messages
 
@@ -375,8 +375,15 @@ def test_workflow_search_results_survive_session_restore():
             {"id": 42, "form_no": "YS2026110501", "status": "completed"},
         ]}}), "tool_calls": {"name": "list_workflows"}},
     ]
-    shown = present_messages(rows)
-    assert shown[0]["workflows"][0]["form_no"] == "YS2026110501"
+    assert "workflows" not in present_messages(rows)[0]
+    rows.append({
+        "id": 3, "role": "tool", "tool_calls": {"name": "get_workflow"},
+        "content": json.dumps({
+            "show_workflow_link": True,
+            "data": {"id": 43, "form_no": "YS2026110502", "status": "acceptance"},
+        }),
+    })
+    assert [item["id"] for item in present_messages(rows)[0]["workflows"]] == [43]
 
 
 def test_list_my_todos_returns_only_current_user_and_paginates(client, db):
