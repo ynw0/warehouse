@@ -695,12 +695,24 @@ def test_semifinished_submit_holds_unconsumed_quantity(client, db):
 
 def test_semifinished_inbound_keeps_its_own_hold(client, db):
     warehouse = _login(client)
-    material_id, batch_ids = _seed_claimed_batches(db, [16])
+    material_id, batch_ids = _seed_claimed_batches(db, [16, 4])
     created = _semifinished_workflow(client, warehouse["id"], material_id, batch_ids, "占用入库", 1, 16)
     assert created.status_code == 200, created.get_data(as_text=True)
     form = created.get_json()["form"]
     form_id = form["id"]
     item_id = form["items"][0]["id"]
+    # 后续单用完第一张单勾选但没有锁定的批次。
+    cursor = db.cursor()
+    later = prepare_material_component_consumptions(cursor, [
+        {"material_id": material_id, "batch_ids": [batch_ids[1]], "per_unit_quantity": 4},
+    ], 1)
+    insert_material_consumptions(cursor, "semifinished", 999, later)
+    db.commit()
+    hold = db.execute("""
+        SELECT id, source_id, batch_id, quantity FROM claim_consumptions
+        WHERE production_source_type = 'semifinished_hold' AND production_source_id = ?
+    """, (form_id,)).fetchone()
+    assert tuple(hold)[2:] == (batch_ids[0], 16)
     blocked = _semifinished_workflow(client, warehouse["id"], material_id, batch_ids, "不应再提", 1, 4)
     assert blocked.status_code == 400
     serials = client.get(
@@ -731,12 +743,18 @@ def test_semifinished_inbound_keeps_its_own_hold(client, db):
         json={"approved_quantity": 1, "signature": "仓库管理员"},
     )
     assert inbound.status_code == 200, inbound.get_data(as_text=True)
-    cursor = db.cursor()
-    cursor.execute(
-        "SELECT production_source_type, quantity FROM claim_consumptions ORDER BY id"
+    posted = db.execute("""
+        SELECT id, source_id, batch_id, quantity FROM claim_consumptions
+        WHERE id = ? AND production_source_type = 'semifinished'
+    """, (hold["id"],)).fetchone()
+    assert tuple(posted) == tuple(hold)
+    assert db.execute("SELECT COUNT(*) FROM claim_consumptions").fetchone()[0] == 2
+    repeated = client.post(
+        f"/api/production/semifinished/{form_id}/inbound",
+        json={"approved_quantity": 1},
     )
-    rows = [dict(row) for row in cursor.fetchall()]
-    assert rows == [{"production_source_type": "semifinished", "quantity": 16}]
+    assert repeated.status_code == 400
+    assert db.execute("SELECT COUNT(*) FROM claim_consumptions").fetchone()[0] == 2
     still_blocked = _semifinished_workflow(client, warehouse["id"], material_id, batch_ids, "入库后仍不可提", 1, 4)
     assert still_blocked.status_code == 400
 

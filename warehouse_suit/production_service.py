@@ -486,7 +486,70 @@ def prepare_material_component_consumptions(cursor, components, acceptance_quant
     return prepared
 
 
-def insert_material_consumptions(cursor, source_type, source_id, prepared):
+def _material_hold_type(kind):
+    return PRODUCTION_HOLD_SEMI if kind == "semifinished" else PRODUCTION_HOLD_FINISHED
+
+
+def prepare_held_material_consumptions(cursor, kind, form_id, components, acceptance_quantity):
+    """从本单的占用生成入库耗料明细，保留原领用记录和批次。"""
+    normalized = []
+    for component in components:
+        if component.get("material_id"):
+            normalized.append(component)
+            continue
+        batch_ids, _ = _parse_component_batch_ids(component)
+        if batch_ids:
+            cursor.execute("SELECT material_id FROM material_batches WHERE id = ?", (batch_ids[0],))
+            row = cursor.fetchone()
+            if row:
+                normalized.append({**component, "material_id": row["material_id"]})
+                continue
+        raise ValueError("耗料物料无法识别，请核对验收单")
+    expected = combine_component_quantities(normalized, "material_id")
+    cursor.execute("""
+        SELECT c.*, b.batch_no, b.unit_price, m.material_code, m.name AS material_name,
+               m.brand_model, m.spec, m.unit
+        FROM claim_consumptions c
+        LEFT JOIN material_batches b ON b.id = c.batch_id AND b.material_id = c.material_id
+        LEFT JOIN materials m ON m.id = c.material_id
+        WHERE c.production_source_type = ? AND c.production_source_id = ?
+        ORDER BY c.id
+    """, (_material_hold_type(kind), form_id))
+    holds = cursor.fetchall()
+    lots = {
+        (lot["source_kind"], int(lot["source_id"]), int(lot.get("batch_id") or 0)): lot
+        for lot in list_issued_lots(cursor)
+    } if holds else {}
+    prepared = {}
+    held_totals = {}
+    for row in holds:
+        material_id, batch_id = row["material_id"], row["batch_id"]
+        quantity = float(row["quantity"])
+        lot = lots.get((row["source_kind"], row["source_id"], batch_id))
+        if row["batch_no"] is None or not lot or lot["material_id"] != material_id or quantity <= 0:
+            raise ValueError("本单耗料占用的领用记录或批次已失效，请核对验收单")
+        cost = float(row["unit_price"] or lot.get("unit_price") or 0)
+        item = prepared.setdefault((material_id, batch_id), {
+            "material_id": material_id, "batch_id": batch_id, "batch_no": row["batch_no"],
+            "material_code": row["material_code"] or "", "material_name": row["material_name"] or "",
+            "brand_model": row["brand_model"] or "", "spec": row["spec"] or "",
+            "unit": row["unit"] or "", "total_quantity": 0.0, "amount": 0.0,
+        })
+        item["total_quantity"] += quantity
+        item["amount"] += quantity * cost
+        held_totals[material_id] = held_totals.get(material_id, 0.0) + quantity
+    if held_totals.keys() != expected.keys() or any(
+        abs(held_totals[material_id] - per_unit * acceptance_quantity) > 1e-9
+        for material_id, per_unit in expected.items()
+    ):
+        raise ValueError("本单耗料占用缺失或数量不一致，请核对后重新提交验收")
+    for item in prepared.values():
+        item["per_unit_quantity"] = item["total_quantity"] / acceptance_quantity
+        item["unit_cost"] = item["amount"] / item["total_quantity"]
+    return list(prepared.values())
+
+
+def insert_material_consumptions(cursor, source_type, source_id, prepared, *, hold_form_id=None):
     for item in prepared:
         cursor.execute(
             """
@@ -505,7 +568,15 @@ def insert_material_consumptions(cursor, source_type, source_id, prepared):
                 now_text(),
             ),
         )
-    allocate_claim_consumptions(cursor, source_type, source_id, prepared)
+    if hold_form_id is None:
+        allocate_claim_consumptions(cursor, source_type, source_id, prepared)
+    else:
+        # 在同一个库存事务里改占用的归属，不释放或重新分配原领用批次。
+        cursor.execute("""
+            UPDATE claim_consumptions
+            SET production_source_type = ?, production_source_id = ?
+            WHERE production_source_type = ? AND production_source_id = ?
+        """, (source_type, source_id, _material_hold_type(source_type), hold_form_id))
 
 
 def semifinished_unit_components(cursor, item_row):
@@ -1132,7 +1203,7 @@ def bind_production_material_hold(cursor, form_id):
         },
         acceptance_quantity,
     )
-    hold_type = PRODUCTION_HOLD_SEMI if form["form_type"] == "semifinished" else PRODUCTION_HOLD_FINISHED
+    hold_type = _material_hold_type(form["form_type"])
     allocate_claim_consumptions(cursor, hold_type, form_id, material_prepared)
 
 

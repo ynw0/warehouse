@@ -20,7 +20,7 @@ from warehouse_suit.production_service import (
     normalize_production_serial_items,
     prepare_material_component_consumptions,
     prepare_semifinished_component_consumptions,
-    production_components_from_payload,
+    prepare_held_material_consumptions,
     release_production_material_hold,
     revoke_completed_semifinished,
     production_item_payload,
@@ -309,20 +309,23 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             else:
                 shelf_id = None
             acceptance_quantity = float(item.get("arrival_quantity") or 0)
-            # 本单提交时占住的数量先放开，再按入库重新计入真正消耗。其它在途单的占用仍然扣着。
-            release_production_material_hold(cursor, form_id)
-            # 建单时选定的项目代号要带进消耗校验，否则入库会被当成没有项目。
             stored_project = item_data.get("project_code") or parse_json(form.get("data_json"), {}).get("project_code")
-            material_components, semifinished_components, material_prepared, semifinished_prepared, total_cost = production_components_from_payload(
-                cursor,
-                kind,
-                {
-                    "project_code": stored_project,
-                    "material_components": item_data.get("material_components") or item_data.get("components") or [],
-                    "semifinished_components": item_data.get("semifinished_components") or [],
-                },
+            if not stored_project:
+                raise ValueError("请先选择项目代号")
+            material_prepared = prepare_held_material_consumptions(
+                cursor, kind, form_id,
+                item_data.get("material_components") or item_data.get("components") or [],
                 acceptance_quantity,
             )
+            semifinished_prepared = []
+            if kind == "finished":
+                semifinished_prepared = prepare_semifinished_component_consumptions(
+                    cursor, item_data.get("semifinished_components") or [], acceptance_quantity,
+                    purchase_project=stored_project,
+                )
+            if not material_prepared and not semifinished_prepared:
+                raise ValueError("本单缺少入库所需的耗料明细")
+            total_cost = sum(item["amount"] for item in material_prepared + semifinished_prepared)
             cost_price = total_cost / acceptance_quantity if acceptance_quantity > 0 else 0
             acceptance_date = item_data.get("acceptance_date") or form["data_json"] and parse_json(form["data_json"], {}).get("acceptance_date") or today_text()
             total_serial_count = int(round(acceptance_quantity))
@@ -397,7 +400,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                     ),
                 )
                 acceptance_id = cursor.lastrowid
-                insert_material_consumptions(cursor, "semifinished", acceptance_id, material_prepared)
+                insert_material_consumptions(cursor, "semifinished", acceptance_id, material_prepared, hold_form_id=form_id)
                 if approved_qty > 0:
                     for serial_item in approved_serials:
                         cursor.execute(
@@ -492,7 +495,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
                     ),
                 )
                 acceptance_id = cursor.lastrowid
-                insert_material_consumptions(cursor, "finished", acceptance_id, material_prepared)
+                insert_material_consumptions(cursor, "finished", acceptance_id, material_prepared, hold_form_id=form_id)
                 insert_semifinished_consumptions(cursor, acceptance_id, semifinished_prepared)
                 if approved_qty > 0:
                     for serial_item in approved_serials:
