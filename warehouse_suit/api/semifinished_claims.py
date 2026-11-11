@@ -16,7 +16,8 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
     current_user = current_user_provider
 
     @app.get("/api/semifinished-claims/items")
-    def semifinished_claim_items():
+    @app.get("/api/finished-claims/items", defaults={"kind": "finished"})
+    def semifinished_claim_items(kind="semifinished"):
         conn = get_db()
         cursor = conn.cursor()
         try:
@@ -25,6 +26,7 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
                 cursor,
                 keyword=request.args.get("keyword", ""),
                 purchase_project=request.args.get("purchase_project") or "",
+                kind=kind,
             )
         except Exception as exc:
             conn.close()
@@ -33,13 +35,14 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
         return jsonify({"items": rows})
 
     @app.post("/api/semifinished-claims")
-    def create_semifinished_claim_form():
+    @app.post("/api/finished-claims", defaults={"kind": "finished"})
+    def create_semifinished_claim_form(kind="semifinished"):
         data = request.get_json(force=True)
         conn = get_db()
         cursor = conn.cursor()
         try:
             user = require_permission(cursor, "start_claim")
-            form_id = create_semifinished_claim(cursor, user, data)
+            form_id = create_semifinished_claim(cursor, user, data, kind)
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:
@@ -50,7 +53,8 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
         return jsonify({"success": True, "form": form})
 
     @app.post("/api/semifinished-claims/<int:form_id>/leader")
-    def leader_semifinished_claim(form_id):
+    @app.post("/api/finished-claims/<int:form_id>/leader", defaults={"kind": "finished"})
+    def leader_semifinished_claim(form_id, kind="semifinished"):
         data = request.get_json(force=True)
         conn = get_db()
         cursor = conn.cursor()
@@ -58,7 +62,7 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
             user = current_user(cursor)
             if not user:
                 raise PermissionError("请先登录")
-            decide_semifinished_claim(cursor, user, form_id, data)
+            decide_semifinished_claim(cursor, user, form_id, data, kind)
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:
@@ -69,7 +73,8 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
         return jsonify({"success": True, "form": form})
 
     @app.post("/api/semifinished-claims/<int:form_id>/outbound")
-    def outbound_semifinished_claim_form(form_id):
+    @app.post("/api/finished-claims/<int:form_id>/outbound", defaults={"kind": "finished"})
+    def outbound_semifinished_claim_form(form_id, kind="semifinished"):
         data = request.get_json(force=True)
         conn = get_db()
         cursor = conn.cursor()
@@ -77,7 +82,7 @@ def register_semifinished_claim_routes(app, *, get_db, current_user_provider):
             user = current_user(cursor)
             if not user:
                 raise PermissionError("请先登录")
-            outbound_semifinished_claim(cursor, user, form_id, data or {})
+            outbound_semifinished_claim(cursor, user, form_id, data or {}, kind)
             conn.commit()
             form = serialize_form(cursor, form_id)
         except Exception as exc:

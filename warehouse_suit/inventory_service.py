@@ -613,14 +613,26 @@ def adjust_inventory_batch(
     }
 
 
+def pending_product_borrow_quantity(cursor, item_type, item_ref_id, exclude_form_id=None):
+    """只统计尚未出库的借用单，避免与已借数量重复扣减。"""
+    cursor.execute("""
+        SELECT COALESCE(SUM(wi.request_quantity), 0)
+        FROM workflow_items wi JOIN workflow_forms f ON f.id = wi.form_id
+        WHERE f.form_type = 'borrow' AND f.status IN ('leader_borrow', 'borrow_outbound')
+          AND json_extract(wi.data_json, '$.borrow_item_type') = ?
+          AND CAST(json_extract(wi.data_json, '$.borrow_ref_id') AS INTEGER) = ?
+          AND (? IS NULL OR f.id != ?)
+    """, (item_type, item_ref_id, exclude_form_id, exclude_form_id))
+    return float(cursor.fetchone()[0])
+
+
 def production_available_quantity(item, kind):
     """可借用数量。半成品还要扣掉已领用未消耗。"""
     quantity = float(item.get("quantity") or 0)
     borrowed = float(item.get("borrowed_quantity") or 0)
-    if kind == "semifinished":
-        used = float(item.get("used_quantity") or 0)
-        claimed = float(item.get("claimed_quantity") or 0)
-        quantity -= max(used, claimed)
+    used = float(item.get("used_quantity") or 0) if kind == "semifinished" else 0
+    claimed = float(item.get("claimed_quantity") or 0)
+    quantity -= max(used, claimed)
     return max(0, quantity - borrowed)
 
 
@@ -831,7 +843,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
     )
     for row in cursor.fetchall():
         item = dict(row)
-        available = max(0, 1 - float(item.get("borrowed_quantity") or 0))
+        available = max(0, 1 - float(item.get("borrowed_quantity") or 0) - int(item.get("claimed") or 0))
         if available <= 0:
             continue
         rows.append(
@@ -868,7 +880,7 @@ def borrowable_items(cursor, keyword="", include_temporary=False):
     )
     for row in cursor.fetchall():
         item = dict(row)
-        available = max(0, 1 - float(item.get("borrowed_quantity") or 0))
+        available = max(0, 1 - float(item.get("borrowed_quantity") or 0) - int(item.get("claimed") or 0))
         if available <= 0:
             continue
         rows.append(
@@ -1044,7 +1056,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "brand_model": "",
             "spec": item.get("spec") or "",
             "unit": "\u4e2a",
-            "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0)),
+            "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0) - int(item.get("claimed") or 0)),
             "cost_price": 0,
             "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
@@ -1062,7 +1074,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "brand_model": "",
             "spec": item.get("spec") or "",
             "unit": "\u53f0",
-            "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0)),
+            "available_quantity": max(0, 1 - float(item.get("borrowed_quantity") or 0) - int(item.get("claimed") or 0)),
             "cost_price": 0,
             "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
@@ -1080,7 +1092,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "brand_model": "",
             "spec": item.get("spec") or "",
             "unit": item.get("unit") or "\u4e2a",
-            "available_quantity": float(item.get("quantity") or 0),
+            "available_quantity": max(0, float(item.get("quantity") or 0) - float(item.get("claimed_quantity") or 0)),
             "cost_price": 0,
             "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
@@ -1098,7 +1110,7 @@ def borrowable_item_snapshot(cursor, item_type, item_ref_id, stock_source=STOCK_
             "brand_model": "",
             "spec": item.get("spec") or "",
             "unit": item.get("unit") or "\u53f0",
-            "available_quantity": float(item.get("quantity") or 0),
+            "available_quantity": max(0, float(item.get("quantity") or 0) - float(item.get("claimed_quantity") or 0)),
             "cost_price": 0,
             "purchase_project": _nonmaterial_purchase_project(cursor, item_type, item, purchase_project),
         }
@@ -1131,9 +1143,9 @@ def adjust_nonmaterial_borrow(cursor, item_type, item_ref_id, quantity, outbound
             "semifinished_inventory",
             "quantity - borrowed_quantity - MAX(used_quantity, COALESCE(claimed_quantity, 0))",
         ),
-        "finished": ("finished_good_inventory", "quantity - borrowed_quantity"),
-        "defective_semifinished": ("defective_semifinished_goods", "1 - borrowed_quantity"),
-        "defective_finished": ("defective_finished_goods", "1 - borrowed_quantity"),
+        "finished": ("finished_good_inventory", "quantity - borrowed_quantity - claimed_quantity"),
+        "defective_semifinished": ("defective_semifinished_goods", "1 - borrowed_quantity - claimed"),
+        "defective_finished": ("defective_finished_goods", "1 - borrowed_quantity - claimed"),
     }
     scrapped_tables = {
         "scrapped_semifinished": "scrapped_semifinished_goods",
@@ -1158,9 +1170,7 @@ def adjust_nonmaterial_borrow(cursor, item_type, item_ref_id, quantity, outbound
     elif item_type in scrapped_tables:
         table = scrapped_tables[item_type]
         if outbound:
-            claimed_guard = ""
-            if item_type == "scrapped_semifinished":
-                claimed_guard = " - COALESCE(claimed_quantity, 0)"
+            claimed_guard = " - COALESCE(claimed_quantity, 0)"
             cursor.execute(
                 f"UPDATE {table} SET quantity = quantity - ? WHERE id = ? AND quantity{claimed_guard} >= ?",
                 (quantity, item_ref_id, quantity),

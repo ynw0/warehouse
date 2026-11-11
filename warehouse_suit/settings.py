@@ -84,6 +84,7 @@ def validate_password_policy(password, policy):
 WORKFLOW_STEP_DEFINITIONS = {
     "acceptance": ["acceptance", "leader_acceptance", "inbound"],
     "claim": ["leader_claim", "outbound"],
+    "finished_claim": ["leader_finished_claim", "finished_outbound"],
     "semifinished_claim": ["leader_semifinished_claim", "semifinished_outbound"],
     "claim_return": ["return_inbound"],
     "borrow": ["leader_borrow", "borrow_outbound"],

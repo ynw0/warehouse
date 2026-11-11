@@ -20,7 +20,7 @@
     myClaims: { title: "我已领用", icon: "hand-package" },
     myInspections: { title: "我的验收", icon: "clipboard-check" }, mySupplies: { title: "我的供货", icon: "package-open" }, myStarted: { title: "我的发起", icon: "file-pen" }, drafts: { title: "草稿箱", icon: "file-pen" },
     acceptance: { title: "物料验收", icon: "shield-check" }, semifinished: { title: "半成品验收", icon: "shield-check" }, finished: { title: "成品验收", icon: "shield-check" },
-    claim: { title: "研发用料申领", icon: "hand-package" }, semifinishedClaim: { title: "半成品领用", icon: "hand-package" }, productionClaim: { title: "生产用料申领", icon: "factory" }, specialClaim: { title: "特殊用料", icon: "spark" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" }, purchaseRequest: { title: "采购申请", icon: "cart" }, purchaseSummary: { title: "汇总采购申请", icon: "clipboard-list" }, purchaseHistory: { title: "历史采购申请", icon: "history" }, purchaseCoding: { title: "申请物料编码", icon: "file-pen" }, projects: { title: "项目设置", icon: "folder" },
+    claim: { title: "研发用料申领", icon: "hand-package" }, finishedClaim: { title: "成品领用", icon: "hand-package" }, semifinishedClaim: { title: "半成品领用", icon: "hand-package" }, productionClaim: { title: "生产用料申领", icon: "factory" }, specialClaim: { title: "特殊用料", icon: "spark" }, borrow: { title: "借用申请", icon: "package-open" }, myBorrow: { title: "我的借用", icon: "package-open" }, outbound: { title: "物料出库", icon: "package-open" }, purchaseRequest: { title: "采购申请", icon: "cart" }, purchaseSummary: { title: "汇总采购申请", icon: "clipboard-list" }, purchaseHistory: { title: "历史采购申请", icon: "history" }, purchaseCoding: { title: "申请物料编码", icon: "file-pen" }, projects: { title: "项目设置", icon: "folder" },
     query: { title: "物料查询", icon: "search-file" }, temporaryInventory: { title: "临时库管理", icon: "boxes" }, temporaryFlows: { title: "临时库流程管理", icon: "workflow" }, temporaryLedger: { title: "临时库存流水", icon: "history" }, semifinishedInventory: { title: "半成品库", icon: "boxes" }, finishedInventory: { title: "成品库", icon: "boxes" },
     flow: { title: "流程中心", icon: "workflow" }, supplyLedger: { title: "供货台账", icon: "package-open" }, stats: { title: "统计", icon: "chart" }, stocktake: { title: "盘点", icon: "scan" }, logs: { title: "日志中心", icon: "history" }, recycle: { title: "回收站", icon: "trash" }, admin: { title: "系统设置", icon: "settings" },
     defectiveInventory: { title: "不良品物料", icon: "shield-check" }, commonMaterials: { title: "常用物料", icon: "bell" }, supplies: { title: "供货管理", icon: "package-open" },
@@ -79,6 +79,7 @@
             ${navGroup("领用中心", "hand-package", [
               ["claim", "研发用料申领", canView("claim")],
               ["semifinishedClaim", "半成品领用", canView("semifinishedClaim")],
+              ["finishedClaim", "成品领用", canView("finishedClaim")],
               ["productionClaim", "生产用料申领", canView("productionClaim")],
               ["specialClaim", "特殊用料", canView("specialClaim")],
               ["myClaims", "我已领用", canView("myClaims")],
@@ -226,6 +227,7 @@
       acceptance: renderAcceptance,
       claim: main => { system.claimUsageKind = "研发用料"; renderClaim(main); },
       semifinishedClaim: renderSemifinishedClaim,
+      finishedClaim: main => renderSemifinishedClaim(main, "finished"),
       productionClaim: main => { system.claimUsageKind = "生产用料"; renderClaim(main); },
       specialClaim: main => window.WarehouseInventoryFlow.renderSpecial(main, { system, api: systemApi, escapeHtml, toast }),
       purchaseRequest: main => window.WarehouseInventoryFlow.renderPurchase(main, { system, api: systemApi, escapeHtml, toast }),
@@ -270,7 +272,7 @@
     if (view === "acceptance" || view === "semifinished" || view === "finished") {
       return hasPerm("start_acceptance");
     }
-    if (view === "claim" || view === "productionClaim" || view === "semifinishedClaim") {
+    if (view === "claim" || view === "productionClaim" || view === "semifinishedClaim" || view === "finishedClaim") {
       return hasPerm("start_claim");
     }
     if (view === "specialClaim") return hasPerm("start_special_claim");
@@ -1200,7 +1202,7 @@
   }
 
   function renderFlowCenter(main) {
-    main.innerHTML = moduleShell("\u6d41\u7a0b\u4e2d\u5fc3", `<div class="work-panel"><div class="work-head"><h2>\u5168\u90e8\u6d41\u7a0b</h2></div><div class="work-body"><div class="form-grid"><label>\u5206\u7c7b<select id="flowType"><option value="">\u5168\u90e8</option><option value="acceptance">\u7269\u6599\u9a8c\u6536</option><option value="semifinished">\u534a\u6210\u54c1\u9a8c\u6536</option><option value="finished">\u6210\u54c1\u9a8c\u6536</option><option value="claim">\u7533\u9886/\u51fa\u5e93</option><option value="semifinished_claim">半成品领用</option><option value="claim_return">领用退库</option><option value="borrow">借用申请</option><option value="borrow_return">借用归还</option><option value="borrow_claim">借用转领用</option><option value="supply">供货管理</option></select></label><label>\u72b6\u6001<select id="flowStatus"><option value="">\u5168\u90e8</option><option value="acceptance">\u9a8c\u6536\u4e2d</option><option value="leader_acceptance">\u9a8c\u6536\u9886\u5bfc\u5ba1\u6279</option><option value="inbound">\u5f85\u5165\u5e93</option><option value="leader_claim">\u7533\u9886\u5ba1\u6279</option><option value="applicant_revision">\u53d1\u8d77\u4eba\u4fee\u6539</option><option value="outbound">\u5f85\u51fa\u5e93</option><option value="leader_borrow">借用审批</option><option value="borrow_outbound">借用待出库</option><option value="return_inbound">归还待入库</option><option value="completed">\u5df2\u529e\u7ed3</option></select></label>${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<label>单据库别<select id="flowStockScope"><option value="">全部</option><option value="temporary">临时库单据</option><option value="formal">正式库单据</option></select></label>` : ""}</div><div class="form-grid" style="margin-top:8px"><label>名称<input id="flowMaterialName" placeholder="物料/成品/半成品名称模糊搜索"></label><label>编号<input id="flowMaterialCode" placeholder="物料/成品/半成品编号模糊搜索"></label><label>\u54c1\u724c\u578b\u53f7<input id="flowBrandModel" placeholder="\u54c1\u724c\u578b\u53f7\u6a21\u7cca\u641c\u7d22"></label><label>\u6280\u672f\u89c4\u683c<input id="flowSpec" placeholder="技术规格/成品半成品规格参数模糊搜索"></label><label>申请人<input id="flowApplicant" placeholder="申请人姓名/账号/部门"></label><label>\u9a8c\u6536\u4eba<input id="flowInspector" placeholder="\u9a8c\u6536\u4eba\u59d3\u540d\u6a21\u7cca\u641c\u7d22"></label><label>\u6d41\u7a0b\u5355\u53f7<input id="flowFormNo" placeholder="\u6d41\u7a0b\u5355\u53f7\u6a21\u7cca\u641c\u7d22"></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="runFlowFilter" class="primary">\u7b5b\u9009</button><button id="clearFlowFilter">\u6e05\u7a7a</button></div><div class="flow-tools"><button id="exportFlowFiltered">\u5bfc\u51fa\u5f53\u524d\u7b5b\u9009</button><button id="exportFlowChecked">\u5bfc\u51fa\u52fe\u9009</button><button id="printFlowFiltered">\u6253\u5370\u5f53\u524d\u7b5b\u9009</button><button id="printFlowChecked">\u6253\u5370\u52fe\u9009</button><button id="deleteFlowChecked" class="danger">\u5220\u9664\u52fe\u9009</button></div><div id="flowCenterList"></div></div></div>`);
+    main.innerHTML = moduleShell("\u6d41\u7a0b\u4e2d\u5fc3", `<div class="work-panel"><div class="work-head"><h2>\u5168\u90e8\u6d41\u7a0b</h2></div><div class="work-body"><div class="form-grid"><label>\u5206\u7c7b<select id="flowType"><option value="">\u5168\u90e8</option><option value="acceptance">\u7269\u6599\u9a8c\u6536</option><option value="semifinished">\u534a\u6210\u54c1\u9a8c\u6536</option><option value="finished">\u6210\u54c1\u9a8c\u6536</option><option value="claim">\u7533\u9886/\u51fa\u5e93</option><option value="semifinished_claim">半成品领用</option><option value="finished_claim">成品领用</option><option value="claim_return">领用退库</option><option value="borrow">借用申请</option><option value="borrow_return">借用归还</option><option value="borrow_claim">借用转领用</option><option value="supply">供货管理</option></select></label><label>\u72b6\u6001<select id="flowStatus"><option value="">\u5168\u90e8</option><option value="acceptance">\u9a8c\u6536\u4e2d</option><option value="leader_acceptance">\u9a8c\u6536\u9886\u5bfc\u5ba1\u6279</option><option value="inbound">\u5f85\u5165\u5e93</option><option value="leader_claim">\u7533\u9886\u5ba1\u6279</option><option value="applicant_revision">\u53d1\u8d77\u4eba\u4fee\u6539</option><option value="outbound">\u5f85\u51fa\u5e93</option><option value="leader_borrow">借用审批</option><option value="borrow_outbound">借用待出库</option><option value="return_inbound">归还待入库</option><option value="completed">\u5df2\u529e\u7ed3</option></select></label>${system.boot?.workflow_settings?.temporary_inventory_enabled ? `<label>单据库别<select id="flowStockScope"><option value="">全部</option><option value="temporary">临时库单据</option><option value="formal">正式库单据</option></select></label>` : ""}</div><div class="form-grid" style="margin-top:8px"><label>名称<input id="flowMaterialName" placeholder="物料/成品/半成品名称模糊搜索"></label><label>编号<input id="flowMaterialCode" placeholder="物料/成品/半成品编号模糊搜索"></label><label>\u54c1\u724c\u578b\u53f7<input id="flowBrandModel" placeholder="\u54c1\u724c\u578b\u53f7\u6a21\u7cca\u641c\u7d22"></label><label>\u6280\u672f\u89c4\u683c<input id="flowSpec" placeholder="技术规格/成品半成品规格参数模糊搜索"></label><label>申请人<input id="flowApplicant" placeholder="申请人姓名/账号/部门"></label><label>\u9a8c\u6536\u4eba<input id="flowInspector" placeholder="\u9a8c\u6536\u4eba\u59d3\u540d\u6a21\u7cca\u641c\u7d22"></label><label>\u6d41\u7a0b\u5355\u53f7<input id="flowFormNo" placeholder="\u6d41\u7a0b\u5355\u53f7\u6a21\u7cca\u641c\u7d22"></label></div><div style="display:flex;gap:8px;margin-top:8px"><button id="runFlowFilter" class="primary">\u7b5b\u9009</button><button id="clearFlowFilter">\u6e05\u7a7a</button></div><div class="flow-tools"><button id="exportFlowFiltered">\u5bfc\u51fa\u5f53\u524d\u7b5b\u9009</button><button id="exportFlowChecked">\u5bfc\u51fa\u52fe\u9009</button><button id="printFlowFiltered">\u6253\u5370\u5f53\u524d\u7b5b\u9009</button><button id="printFlowChecked">\u6253\u5370\u52fe\u9009</button><button id="deleteFlowChecked" class="danger">\u5220\u9664\u52fe\u9009</button></div><div id="flowCenterList"></div></div></div>`);
     document.getElementById("runFlowFilter").addEventListener("click", () => {
       system.pages.flowCenter = 1;
       loadFlowCenter();
@@ -1355,96 +1357,89 @@
     loadClaimList();
   }
 
-  function renderSemifinishedClaim(main) {
-    const dept = currentUser()?.department || "";
-    const leaderUsers = approvalLeaderUsers("semifinished_claim", "leader_semifinished_claim", dept);
-    main.innerHTML = moduleShell("半成品领用", `
-      <div class="work-panel"><div class="work-head"><h2>发起半成品领用</h2></div>
-        <div class="work-body">
-          <div class="form-grid">
-            <label class="wide">领用标题<input id="semiClaimTitle" placeholder="半成品领用"></label>
-            <label>项目代号<select id="semiClaimProject">${projectCodeOptions()}</select></label>
-            <label>来源<select id="semiClaimSource"><option value="qualified">合格</option><option value="defective">不合格</option><option value="scrapped">报废</option></select></label>
-            <label class="wide">半成品<input id="semiClaimSearch" placeholder="搜索名称、规格或流水号"><div id="semiClaimResults" class="material-results"></div></label>
-            <label>数量<input id="semiClaimQty" type="number" min="0" step="any" value="1"></label>
-            <label>审批领导<select id="semiClaimLeader">${leaderUsers.map(user => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>
-            <div class="wide"><button class="primary" id="submitSemiClaim" type="button">提交半成品领用</button></div>
-            <p class="hint wide" id="semiClaimPicked">请先选择项目代号并搜索半成品</p>
-          </div>
+  function renderSemifinishedClaim(main, kind = "semifinished") {
+    const label = kind === "finished" ? "成品" : "半成品";
+    const endpoint = `/api/${kind}-claims`;
+    const leaders = approvalLeaderUsers(`${kind}_claim`, `leader_${kind}_claim`, currentUser()?.department || "");
+    main.innerHTML = moduleShell(`${label}领用`, `
+      <div class="work-panel"><div class="work-head"><h2>发起${label}领用</h2></div>
+        <div class="work-body form-grid">
+          <label>项目代号<select id="productClaimProject">${projectCodeOptions()}</select></label>
+          <label>审批领导<select id="productClaimLeader">${leaders.map(user => `<option value="${user.id}">${escapeHtml(user.display_name)}</option>`).join("")}</select></label>
+          <label>来源<select id="productClaimSource"><option value="qualified">合格</option><option value="defective">不合格</option><option value="scrapped">报废</option></select></label>
+          <label>搜索${label}<input id="productClaimSearch" placeholder="名称、规格或编号"></label>
+          <div id="productClaimResults" class="wide"></div>
+          <div id="productClaimSelected" class="wide"></div>
+          <div class="wide"><button class="primary" id="submitProductClaim" type="button">提交${label}领用</button></div>
         </div>
-      </div>
-    `);
-    fillNextFormNo("semiClaimTitle", "BC");
-    let picked = null;
-    const results = document.getElementById("semiClaimResults");
-    const search = document.getElementById("semiClaimSearch");
+      </div>`);
+    const project = document.getElementById("productClaimProject");
+    const source = document.getElementById("productClaimSource");
+    const search = document.getElementById("productClaimSearch");
+    const results = document.getElementById("productClaimResults");
+    const summary = document.getElementById("productClaimSelected");
+    const submit = document.getElementById("submitProductClaim");
+    const selected = new Map();
+    const itemKey = item => `${item.source_kind}:${item.source_id}`;
+    let generation = 0;
+    function showSelected() {
+      summary.textContent = `已选 ${selected.size} 台` + (selected.size ? `：${[...selected.values()].map(item => item.serial_no).join("、")}` : "");
+      submit.disabled = !selected.size;
+    }
     async function loadItems() {
-      const project = document.getElementById("semiClaimProject").value;
-      if (!project) {
-        results.style.display = "none";
+      const request = ++generation;
+      results.replaceChildren();
+      if (!project.value) {
+        results.textContent = "请选择项目代号";
         return;
       }
-      const source = document.getElementById("semiClaimSource").value;
-      const data = await systemApi(`/api/semifinished-claims/items?keyword=${encodeURIComponent(search.value.trim())}&purchase_project=${encodeURIComponent(project)}`);
-      const items = (data.items || []).filter(item => item.source_kind === source);
-      if (!items.length) {
-        results.innerHTML = `<div class="material-option">没有可领用的半成品</div>`;
-        results.style.display = "block";
-        return;
-      }
-      results.innerHTML = items.map((item, index) => `<button type="button" class="material-option" data-semi-claim-index="${index}">${escapeHtml(item.serial_no || "")} ${escapeHtml(item.name || "")}<small>${escapeHtml(item.spec || "")} · 可领 ${formatQty(item.available_quantity)} ${escapeHtml(item.unit || "")}</small></button>`).join("");
-      results.style.display = "block";
-      results.querySelectorAll("[data-semi-claim-index]").forEach(button => {
-        button.addEventListener("click", () => {
-          picked = items[Number(button.dataset.semiClaimIndex)];
-          search.value = `${picked.serial_no || ""} ${picked.name || ""}`.trim();
-          document.getElementById("semiClaimQty").value = picked.whole_item ? "1" : formatInputQty(picked.available_quantity);
-          document.getElementById("semiClaimQty").disabled = Boolean(picked.whole_item);
-          document.getElementById("semiClaimPicked").textContent = `${picked.serial_no || ""} ${picked.name || ""}，可领 ${formatQty(picked.available_quantity)}`;
-          results.style.display = "none";
-        });
+      const query = new URLSearchParams({ keyword: search.value.trim(), purchase_project: project.value });
+      const data = await systemApi(`${endpoint}/items?${query}`);
+      if (request !== generation) return;
+      const items = data.items.filter(item => item.source_kind === source.value);
+      results.innerHTML = items.map((item, index) => `<label class="material-option"><input type="checkbox" data-product-index="${index}" ${selected.has(itemKey(item)) ? "checked" : ""}> ${escapeHtml(item.serial_no)} · ${escapeHtml(item.name)} <small>${escapeHtml(item.spec)}</small></label>`).join("") || `没有可领用的${label}`;
+      results.querySelectorAll("[data-product-index]").forEach(input => {
+        input.onchange = () => {
+          const item = items[Number(input.dataset.productIndex)];
+          if (input.checked) selected.set(itemKey(item), item);
+          else selected.delete(itemKey(item));
+          showSelected();
+        };
       });
     }
-    let timer = 0;
-    search.addEventListener("input", () => {
-      picked = null;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => loadItems().catch(error => toast(error.message)), 160);
-    });
-    search.addEventListener("focus", () => loadItems().catch(error => toast(error.message)));
-    document.getElementById("semiClaimProject").addEventListener("change", () => { picked = null; loadItems().catch(error => toast(error.message)); });
-    document.getElementById("semiClaimSource").addEventListener("change", () => { picked = null; loadItems().catch(error => toast(error.message)); });
-    document.getElementById("submitSemiClaim").addEventListener("click", async () => {
-      if (!picked) {
-        toast("请选择半成品");
-        return;
-      }
-      const leaderId = document.getElementById("semiClaimLeader").value;
-      if (!leaderId) {
-        toast("请选择审批领导");
-        return;
-      }
+    const reload = () => loadItems().catch(error => toast(error.message));
+    let timer;
+    search.oninput = () => {
+      ++generation;
+      results.replaceChildren();
+      clearTimeout(timer);
+      timer = setTimeout(reload, 180);
+    };
+    source.onchange = reload;
+    project.onchange = () => { selected.clear(); showSelected(); reload(); };
+    submit.onclick = async () => {
+      const leader = document.getElementById("productClaimLeader").value;
+      if (!leader) return toast("请选择审批领导");
+      submit.disabled = true;
       try {
-        await systemApi("/api/semifinished-claims", {
+        await systemApi(endpoint, {
           method: "POST",
           body: JSON.stringify({
-            project_code: document.getElementById("semiClaimProject").value,
-            leader_id: leaderId,
-            items: [{
-              source_kind: picked.source_kind,
-              source_id: picked.source_id,
-              quantity: document.getElementById("semiClaimQty").value,
-            }],
+            project_code: project.value, leader_id: leader,
+            items: [...selected.values()].map(({ source_kind, source_id }) => ({ source_kind, source_id })),
           }),
         });
-        toast("半成品领用已提交");
-        picked = null;
-        search.value = "";
-        fillNextFormNo("semiClaimTitle", "BC");
+        selected.clear();
+        toast(`${label}领用已提交`);
+        reload();
       } catch (error) {
-        toast(error.message || "提交失败");
+        toast(error.message);
+      } finally {
+        showSelected();
       }
-    });
+    };
+    showSelected();
+    reload();
   }
 
   function renderBorrow(main) {
@@ -1459,6 +1454,7 @@
         <div class="work-body">
           <div class="form-grid">
             <label class="wide">借用标题<input id="borrowTitle" placeholder="例如：项目调试物料借用"></label>
+            <label class="wide">借用类别<select id="borrowCategory"><option value="material">物料借用</option><option value="semifinished">半成品借用</option><option value="finished">成品借用</option></select></label>
             <div class="wide borrow-meta-row">
               <label class="compact-field">用途<select id="borrowPurpose"><option value="研发" selected>研发</option><option value="办公">办公</option></select></label>
               <label class="compact-field" data-borrow-rd>研发类型<select id="borrowRdKind"><option value="项目物料">项目物料</option><option value="辅料">辅料</option></select></label>
@@ -1473,6 +1469,9 @@
       </div>
       <div class="work-panel"><div class="work-head"><h2>我的借用流程</h2><button id="refreshBorrowFlows">刷新</button></div><div class="work-body" style="padding-top:0"><div class="search-bar"><input type="text" id="borrowMakerFilter" placeholder="搜索制作人..." class="search-input"><input type="text" id="borrowProjectFilter" placeholder="搜索所属项目..." class="search-input"><button id="clearBorrowFiltersBtn">清除</button></div><div id="borrowFlowList"></div></div></div>
     `);
+    const category = document.getElementById("borrowCategory");
+    category.value = borrowCategory(hydrate?.items?.[0]?.item_type);
+    category.onchange = () => { document.getElementById("borrowRows").replaceChildren(); addBorrowRow(); };
     document.getElementById("addBorrowRow").addEventListener("click", () => addBorrowRow());
     document.getElementById("borrowPurpose")?.addEventListener("change", () => updatePurposeFields("borrow"));
     document.getElementById("borrowRdKind")?.addEventListener("change", () => updatePurposeFields("borrow"));
@@ -2894,6 +2893,9 @@
       special_claim: ["特殊用料", "type-issue"], stocktake: ["盘点", "type-default"],
     };
     const item = labels[raw];
+    if (["semifinished_claim", "finished_claim", "claim_return"].includes(raw)) {
+      return { label: flowTypeLabel(raw), className: "type-issue" };
+    }
     return { label: item ? item[0] : (raw || "-"), className: item ? item[1] : "type-default" };
   }
 
@@ -3206,6 +3208,12 @@
     if (checkConflict && project) fillPurposeFromPurchaseProject("borrow", project);
   }
 
+  function borrowCategory(type) {
+    if (type?.endsWith("semifinished")) return "semifinished";
+    if (type?.endsWith("finished")) return "finished";
+    return "material";
+  }
+
   async function searchBorrowRow(row, input, list) {
     const keyword = input.value.trim();
     if (!keyword) {
@@ -3214,9 +3222,28 @@
     }
     const data = await systemApi(`/api/borrow/items?keyword=${encodeURIComponent(keyword)}`);
     const usage = document.getElementById("borrowUsageKind")?.value || "";
-    const items = (data.items || []).filter(item => !usage || !item.usage_kind || item.usage_kind === usage).slice(0, 12);
+    const category = document.getElementById("borrowCategory")?.value;
+    const items = (data.items || []).filter(item =>
+      (!category || borrowCategory(item.item_type) === category)
+      && (!usage || !item.usage_kind || item.usage_kind === usage)).slice(0, 12);
     if (!items.length) {
       list.style.display = "none";
+      return;
+    }
+    if (category && category !== "material") {
+      const selected = new Set([...document.querySelectorAll("#borrowRows .borrow")].map(entry =>
+        `${entry.querySelector("[data-item-type]").value}:${entry.querySelector("[data-item-ref]").value}`));
+      const choices = items.filter(item => !selected.has(`${item.item_type}:${item.item_ref_id}`));
+      list.innerHTML = choices.map((item, index) =>
+        `<label class="material-option"><input type="checkbox" data-borrow-choice="${index}"> ${escapeHtml(item.item_code)} · ${escapeHtml(item.item_name)} <small>${escapeHtml(item.spec || "")}</small></label>`
+      ).join("") + (choices.length ? '<button type="button" data-add-borrow-choices>加入所选</button>' : '<p>没有其他可选设备</p>');
+      placeBorrowResults(input, list);
+      list.querySelector("[data-add-borrow-choices]")?.addEventListener("click", () => {
+        const picked = [...list.querySelectorAll("[data-borrow-choice]:checked")].map(check => choices[Number(check.dataset.borrowChoice)]);
+        if (!picked.length) return;
+        applyBorrowSelection(row, picked[0]);
+        picked.slice(1).forEach(item => addBorrowRow(item));
+      });
       return;
     }
     list.innerHTML = items.map((item, index) => `
@@ -3254,6 +3281,11 @@
     });
     host.appendChild(row);
     if (item && (item.item_ref_id || item.item_name || item.item_code)) applyBorrowSelection(row, item, false);
+    if (borrowCategory(item?.item_type || document.getElementById("borrowCategory")?.value) !== "material") {
+      const quantity = row.querySelector("[data-qty]");
+      if (!item) quantity.value = "1";
+      quantity.parentElement.style.display = "none";
+    }
   }
 
   async function submitBorrow() {
@@ -3698,6 +3730,7 @@
     if (type === "supply_return") return "供货回寄";
     if (type === "supply_extension") return "供货延期";
     if (type === "claim") return "申领/出库";
+    if (type === "finished_claim") return "成品领用";
     if (type === "semifinished_claim") return "半成品领用";
     if (type === "claim_return") return "领用退库";
     if (type === "borrow") return "借用申请";
@@ -3719,6 +3752,8 @@
       inbound: "待入库",
       leader_claim: "申领审批",
       outbound: "待出库",
+      leader_finished_claim: "成品领用审批",
+      finished_outbound: "成品出库",
       leader_semifinished_claim: "半成品领用审批",
       semifinished_outbound: "半成品待出库",
       damage_claim: "物料损坏转领用",
@@ -3773,6 +3808,8 @@
       inbound: "入库",
       leader_claim: "申领审批",
       outbound: "出库",
+      leader_finished_claim: "成品领用审批",
+      finished_outbound: "成品出库",
       leader_semifinished_claim: "半成品领用审批",
       semifinished_outbound: "半成品出库",
       damage_claim: "物料损坏转领用",
@@ -4292,8 +4329,8 @@
     if (pendingTask && form.form_type === "acceptance" && form.status === "inbound") buttons.push(`<button data-flow-action="inbound" class="good">办理入库</button>`);
     if (pendingTask && form.form_type === "claim" && form.status === "leader_claim") buttons.push(`<button data-flow-action="leaderClaim" class="primary">领导审批</button>`);
     if (pendingTask && form.form_type === "claim" && form.status === "outbound") buttons.push(`<button data-flow-action="outbound" class="warn">办理出库</button>`);
-    if (pendingTask && form.form_type === "semifinished_claim" && form.status === "leader_semifinished_claim") buttons.push(`<button data-flow-action="leaderSemiClaim" class="primary">领导审批</button>`);
-    if (pendingTask && form.form_type === "semifinished_claim" && form.status === "semifinished_outbound") buttons.push(`<button data-flow-action="semiClaimOutbound" class="warn">办理出库</button>`);
+    if (pendingTask && ["semifinished_claim", "finished_claim"].includes(form.form_type) && form.status === `leader_${form.form_type}`) buttons.push(`<button data-flow-action="leaderSemiClaim" class="primary">领导审批</button>`);
+    if (pendingTask && ["semifinished_claim", "finished_claim"].includes(form.form_type) && form.status === form.form_type.replace("_claim", "_outbound")) buttons.push(`<button data-flow-action="semiClaimOutbound" class="warn">办理出库</button>`);
     if (pendingTask && form.form_type === "claim_return" && form.status === "return_inbound") buttons.push(`<button data-flow-action="claimReturnInbound" class="good">退库入库</button>`);
     if (pendingTask && form.form_type === "borrow_return" && form.status === "damage_claim") buttons.push(`<button data-flow-action="borrowDamageClaim" class="warn">物料损坏转领用</button>`);
     if (pendingTask && form.form_type === "borrow" && form.status === "leader_borrow") buttons.push(`<button data-flow-action="leaderBorrow" class="primary">领导审批</button>`);
@@ -4330,7 +4367,7 @@
     if (action === "inbound") return inboundFlowV2(form);
     if (action === "leaderClaim") return leaderDecision(`/api/claims/${form.id}/leader`, form);
     if (action === "outbound") return outboundFlowV2(form);
-    if (action === "leaderSemiClaim") return leaderDecision(`/api/semifinished-claims/${form.id}/leader`, form);
+    if (action === "leaderSemiClaim") return leaderDecision(`/api/${form.form_type.replace("_claim", "")}-claims/${form.id}/leader`, form);
     if (action === "semiClaimOutbound") return semiClaimOutboundFlow(form);
     if (action === "claimReturnInbound") return claimReturnInboundFlow(form);
     if (action === "borrowDamageClaim") return borrowDamageClaimFlow(form);
@@ -4390,6 +4427,7 @@
       claim: ["leader_claim", "outbound"],
       borrow: ["leader_borrow", "borrow_outbound"],
       semifinished_claim: ["leader_semifinished_claim", "semifinished_outbound"],
+      finished_claim: ["leader_finished_claim", "finished_outbound"],
       claim_return: ["return_inbound"],
       borrow_return: ["return_inbound", "damage_claim"],
       borrow_claim: [],
@@ -5233,15 +5271,15 @@
   function semiClaimOutboundFlow(form) {
     const lines = (form.items || []).map(item => `<p>${escapeHtml(item.material_code || "")} ${escapeHtml(item.material_name || "")} · ${formatQty(item.request_quantity || 0)} ${escapeHtml(item.unit || "")}</p>`).join("");
     openModal({
-      title: "办理半成品出库",
+      title: form.form_type === "finished_claim" ? "办理成品出库" : "办理半成品出库",
       body: `<div class="form-grid"><div class="wide">${lines}</div><label>库管签字<input id="semiClaimOutSign" value="${escapeAttr(currentUser()?.display_name || "")}"></label></div>`,
       okText: "确认出库",
       onOk: async () => {
-        await systemApi(`/api/semifinished-claims/${form.id}/outbound`, {
+        await systemApi(`/api/${form.form_type.replace("_claim", "")}-claims/${form.id}/outbound`, {
           method: "POST",
           body: JSON.stringify({ signature: document.getElementById("semiClaimOutSign").value }),
         });
-        toast("半成品已出库");
+        toast("已出库");
         await loadBootstrap();
       },
     });
@@ -7077,6 +7115,7 @@
     ["acceptance", "物料验收", [["acceptance", "验收"], ["leader_acceptance", "领导签字"], ["inbound", "入库"]]],
     ["claim", "申领/出库", [["leader_claim", "申领审批"], ["outbound", "出库"]]],
     ["borrow", "借用申请", [["leader_borrow", "审批领导审批"], ["borrow_outbound", "仓库出库"]]],
+    ["finished_claim", "成品领用", [["leader_finished_claim", "成品领用审批"], ["finished_outbound", "成品出库"]]],
     ["semifinished_claim", "半成品领用", [["leader_semifinished_claim", "半成品领用审批"], ["semifinished_outbound", "半成品出库"]]],
     ["claim_return", "领用退库", [["return_inbound", "退库入库"]]],
     ["borrow_return", "借用归还", [["return_inbound", "仓库验收入库"], ["damage_claim", "物料损坏转领用"]]],

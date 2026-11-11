@@ -705,6 +705,8 @@ def delete_finished_inventory_record(cursor, inventory_id, user_id):
     if not row:
         raise ValueError("finished inventory not found")
     item = dict(row)
+    if float(item.get("borrowed_quantity") or 0) > 0 or float(item.get("claimed_quantity") or 0) > 0:
+        raise ValueError("该成品已借用或领用，不能删除")
     recycle_table_row(
         cursor,
         "finished_inventory",

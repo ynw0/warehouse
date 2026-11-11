@@ -1,11 +1,11 @@
-"""半成品领用：合格、不合格、报废都可以领，出库后才占用已领用数量。"""
+"""半成品和成品按设备编号领用。"""
 
 from __future__ import annotations
 
 import json
 
 from warehouse_suit.db import now_text
-from warehouse_suit.inventory_service import begin_inventory_transaction
+from warehouse_suit.inventory_service import begin_inventory_transaction, pending_product_borrow_quantity
 from warehouse_suit.numbering import next_form_no
 from warehouse_suit.purchase_project import purchase_project_from_acceptance_code
 from warehouse_suit.settings import parse_json
@@ -24,7 +24,6 @@ SOURCE_QUALIFIED = "qualified"
 SOURCE_DEFECTIVE = "defective"
 SOURCE_SCRAPPED = "scrapped"
 SOURCE_KINDS = (SOURCE_QUALIFIED, SOURCE_DEFECTIVE, SOURCE_SCRAPPED)
-OPEN_STATUSES = ("completed", "rejected", "cancelled")
 
 
 def inventory_status_label(item):
@@ -40,204 +39,88 @@ def inventory_status_label(item):
     return "在库"
 
 
-def _pending_quantity(cursor, source_kind, source_id, exclude_form_id=None):
+def _pending_quantity(cursor, source_kind, source_id, exclude_form_id=None, kind="semifinished"):
     cursor.execute(
         """
         SELECT COALESCE(SUM(wi.request_quantity), 0)
         FROM workflow_items wi
         JOIN workflow_forms f ON f.id = wi.form_id
-        WHERE f.form_type = 'semifinished_claim'
+        WHERE f.form_type = ?
           AND f.status NOT IN ('completed', 'rejected', 'cancelled', 'draft')
           AND json_valid(COALESCE(wi.data_json, '{}'))
           AND json_extract(wi.data_json, '$.source_kind') = ?
           AND CAST(json_extract(wi.data_json, '$.source_id') AS INTEGER) = ?
           AND (? IS NULL OR f.id != ?)
         """,
-        (source_kind, int(source_id), exclude_form_id, exclude_form_id),
+        (f"{kind}_claim", source_kind, int(source_id), exclude_form_id, exclude_form_id),
     )
     return float(cursor.fetchone()[0] or 0)
 
 
-def _row_project(row):
-    return purchase_project_from_acceptance_code(row.get("project_code") or "")
+# 库表由固定配置选择，外部输入不能成为 SQL 标识符。
+SOURCE_TABLES = {
+    "semifinished": ("semifinished_inventory", "defective_semifinished_goods", "scrapped_semifinished_goods", "name"),
+    "finished": ("finished_good_inventory", "defective_finished_goods", "scrapped_finished_goods", "product_name"),
+}
 
 
-def list_claimable_semifinished(cursor, keyword="", purchase_project=""):
-    """可领半成品。不合格按整件，合格和报废按数量。"""
-    keyword = str(keyword or "").strip()
-    project = str(purchase_project or "").strip()
-    like = f"%{keyword}%"
+def _source_query(kind, source_kind):
+    qualified, defective, scrapped, name = SOURCE_TABLES[kind]
+    table = dict(zip(SOURCE_KINDS, (qualified, defective, scrapped)))[source_kind]
+    acceptance_key = f"{kind}_acceptance_id" if source_kind == SOURCE_DEFECTIVE else "acceptance_id"
+    return (
+        f"SELECT i.*, i.{name} AS name, TRIM(COALESCE(a.project_code, '')) AS project_code "
+        f"FROM {table} i LEFT JOIN {kind}_acceptances a ON a.id = i.{acceptance_key}"
+    )
+
+
+def list_claimable_semifinished(cursor, keyword="", purchase_project="", kind="semifinished"):
     rows = []
-
-    where = [
-        "COALESCE(si.quantity, 0) - COALESCE(si.borrowed_quantity, 0) - MAX(COALESCE(si.used_quantity, 0), COALESCE(si.claimed_quantity, 0)) > 0"
-    ]
-    params = []
-    if project:
-        where.append("TRIM(COALESCE(sa.project_code, '')) = ?")
-        params.append(project)
-    if keyword:
-        where.append("(si.name LIKE ? OR si.spec LIKE ? OR si.serial_no LIKE ?)")
-        params.extend([like, like, like])
-    cursor.execute(
-        f"""
-        SELECT si.id, si.name, si.spec, si.unit, si.serial_no, si.quantity, si.used_quantity,
-               si.borrowed_quantity, si.claimed_quantity, si.cost_price,
-               TRIM(COALESCE(sa.project_code, '')) AS project_code
-        FROM semifinished_inventory si
-        LEFT JOIN semifinished_acceptances sa ON sa.id = si.acceptance_id
-        WHERE {' AND '.join(where)}
-        ORDER BY si.id DESC
-        """,
-        params,
-    )
-    for row in cursor.fetchall():
-        item = dict(row)
-        physical = (
-            float(item["quantity"] or 0)
-            - float(item["borrowed_quantity"] or 0)
-            - max(float(item["used_quantity"] or 0), float(item["claimed_quantity"] or 0))
+    like = f"%{str(keyword or '').strip()}%"
+    name = SOURCE_TABLES[kind][3]
+    for source_kind in SOURCE_KINDS:
+        cursor.execute(
+            _source_query(kind, source_kind)
+            + f" WHERE (i.{name} LIKE ? OR i.spec LIKE ? OR i.serial_no LIKE ?)"
+              " AND (? = '' OR TRIM(COALESCE(a.project_code, '')) = ?) ORDER BY i.id DESC",
+            (like, like, like, purchase_project, purchase_project),
         )
-        pending = _pending_quantity(cursor, SOURCE_QUALIFIED, item["id"])
-        available = physical - pending
-        if available <= 1e-9:
-            continue
-        rows.append(
-            {
-                "source_kind": SOURCE_QUALIFIED,
-                "source_id": int(item["id"]),
-                "name": item["name"] or "",
-                "spec": item["spec"] or "",
-                "unit": item["unit"] or "",
-                "serial_no": item["serial_no"] or "",
-                "project_code": item["project_code"] or "",
-                "purchase_project": _row_project(item),
-                "available_quantity": available,
-                "whole_item": False,
-            }
-        )
-
-    defect_where = ["COALESCE(d.claimed, 0) = 0", "COALESCE(d.borrowed_quantity, 0) = 0"]
-    defect_params = []
-    if project:
-        defect_where.append("TRIM(COALESCE(sa.project_code, '')) = ?")
-        defect_params.append(project)
-    if keyword:
-        defect_where.append("(d.name LIKE ? OR d.spec LIKE ? OR d.serial_no LIKE ?)")
-        defect_params.extend([like, like, like])
-    cursor.execute(
-        f"""
-        SELECT d.id, d.name, d.spec, d.serial_no, TRIM(COALESCE(sa.project_code, '')) AS project_code
-        FROM defective_semifinished_goods d
-        LEFT JOIN semifinished_acceptances sa ON sa.id = d.semifinished_acceptance_id
-        WHERE {' AND '.join(defect_where)}
-        ORDER BY d.id DESC
-        """,
-        defect_params,
-    )
-    for row in cursor.fetchall():
-        item = dict(row)
-        if _pending_quantity(cursor, SOURCE_DEFECTIVE, item["id"]) >= 1 - 1e-9:
-            continue
-        rows.append(
-            {
-                "source_kind": SOURCE_DEFECTIVE,
-                "source_id": int(item["id"]),
-                "name": item["name"] or "",
-                "spec": item["spec"] or "",
-                "unit": "个",
-                "serial_no": item["serial_no"] or "",
-                "project_code": item["project_code"] or "",
-                "purchase_project": _row_project(item),
-                "available_quantity": 1,
-                "whole_item": True,
-            }
-        )
-
-    scrap_where = ["COALESCE(ss.quantity, 0) - COALESCE(ss.claimed_quantity, 0) > 0"]
-    scrap_params = []
-    if project:
-        scrap_where.append("TRIM(COALESCE(sa.project_code, '')) = ?")
-        scrap_params.append(project)
-    if keyword:
-        scrap_where.append("(ss.name LIKE ? OR ss.spec LIKE ? OR ss.serial_no LIKE ?)")
-        scrap_params.extend([like, like, like])
-    cursor.execute(
-        f"""
-        SELECT ss.id, ss.name, ss.spec, ss.unit, ss.serial_no, ss.quantity, ss.claimed_quantity,
-               TRIM(COALESCE(sa.project_code, '')) AS project_code
-        FROM scrapped_semifinished_goods ss
-        LEFT JOIN semifinished_acceptances sa ON sa.id = ss.acceptance_id
-        WHERE {' AND '.join(scrap_where)}
-        ORDER BY ss.id DESC
-        """,
-        scrap_params,
-    )
-    for row in cursor.fetchall():
-        item = dict(row)
-        available = float(item["quantity"] or 0) - float(item["claimed_quantity"] or 0)
-        available -= _pending_quantity(cursor, SOURCE_SCRAPPED, item["id"])
-        if available <= 1e-9:
-            continue
-        rows.append(
-            {
-                "source_kind": SOURCE_SCRAPPED,
-                "source_id": int(item["id"]),
-                "name": item["name"] or "",
-                "spec": item["spec"] or "",
-                "unit": item["unit"] or "个",
-                "serial_no": item["serial_no"] or "",
-                "project_code": item["project_code"] or "",
-                "purchase_project": _row_project(item),
-                "available_quantity": available,
-                "whole_item": False,
-            }
-        )
+        for raw in cursor.fetchall():
+            item = dict(raw)
+            if not item.get("serial_no") or _available_now(cursor, source_kind, item, kind=kind) < 1:
+                continue
+            rows.append({
+                "source_kind": source_kind, "source_id": item["id"],
+                "name": item["name"], "serial_no": item["serial_no"],
+                "spec": item.get("spec") or "", "unit": item.get("unit") or "台",
+                "available_quantity": 1, "whole_item": True,
+                "project_code": item["project_code"],
+                "purchase_project": purchase_project_from_acceptance_code(item["project_code"]),
+            })
     return rows
 
 
-def _load_source(cursor, source_kind, source_id):
-    if source_kind == SOURCE_QUALIFIED:
-        cursor.execute(
-            """
-            SELECT si.*, TRIM(COALESCE(sa.project_code, '')) AS project_code
-            FROM semifinished_inventory si
-            LEFT JOIN semifinished_acceptances sa ON sa.id = si.acceptance_id
-            WHERE si.id = ?
-            """,
-            (int(source_id),),
-        )
-    elif source_kind == SOURCE_DEFECTIVE:
-        cursor.execute(
-            """
-            SELECT d.*, TRIM(COALESCE(sa.project_code, '')) AS project_code
-            FROM defective_semifinished_goods d
-            LEFT JOIN semifinished_acceptances sa ON sa.id = d.semifinished_acceptance_id
-            WHERE d.id = ?
-            """,
-            (int(source_id),),
-        )
-    elif source_kind == SOURCE_SCRAPPED:
-        cursor.execute(
-            """
-            SELECT ss.*, TRIM(COALESCE(sa.project_code, '')) AS project_code
-            FROM scrapped_semifinished_goods ss
-            LEFT JOIN semifinished_acceptances sa ON sa.id = ss.acceptance_id
-            WHERE ss.id = ?
-            """,
-            (int(source_id),),
-        )
-    else:
-        raise ValueError("半成品来源不正确")
+def _load_source(cursor, source_kind, source_id, kind="semifinished"):
+    cursor.execute(_source_query(kind, source_kind) + " WHERE i.id = ?", (source_id,))
     row = cursor.fetchone()
     if not row:
-        raise ValueError("半成品不存在")
+        raise ValueError("领用来源不存在")
     return dict(row)
 
 
-def _available_now(cursor, source_kind, row, exclude_form_id=None):
+def pending_product_claim_quantity(cursor, item_type, source_id):
+    """借用申请使用同一套设备领用占用判断。"""
+    parts = item_type.split("_", 1)
+    if len(parts) == 1:
+        source_kind, kind = SOURCE_QUALIFIED, parts[0]
+    else:
+        source_kind, kind = parts
+    return _pending_quantity(cursor, source_kind, source_id, kind=kind)
+
+
+def _available_now(cursor, source_kind, row, exclude_form_id=None, kind="semifinished"):
     source_id = int(row["id"])
-    pending = _pending_quantity(cursor, source_kind, source_id, exclude_form_id)
+    pending = _pending_quantity(cursor, source_kind, source_id, exclude_form_id, kind)
     if source_kind == SOURCE_QUALIFIED:
         physical = (
             float(row.get("quantity") or 0)
@@ -251,40 +134,47 @@ def _available_now(cursor, source_kind, row, exclude_form_id=None):
             physical = 1
     else:
         physical = float(row.get("quantity") or 0) - float(row.get("claimed_quantity") or 0)
+    if exclude_form_id is None:
+        borrow_type = kind if source_kind == SOURCE_QUALIFIED else f"{source_kind}_{kind}"
+        pending += pending_product_borrow_quantity(cursor, borrow_type, source_id)
     return physical - pending
 
 
-def create_semifinished_claim(cursor, user, data):
-    """提交半成品领用，单号前缀 BC。库存要等库房出库才占用。"""
+def create_semifinished_claim(cursor, user, data, kind="semifinished"):
+    """提交领用并占用选中的编号，实际库存由库房出库。"""
     items = data.get("items") or []
     if not items:
-        raise ValueError("半成品领用至少需要一行")
+        raise ValueError("领用至少需要选择一台设备")
     project_code = validate_project_code(data.get("project_code"))
     purchase_project = purchase_project_from_acceptance_code(project_code)
     begin_inventory_transaction(cursor.connection)
     prepared = []
+    serials = set()
     for raw in items:
         source_kind = str(raw.get("source_kind") or "").strip()
         if source_kind not in SOURCE_KINDS:
-            raise ValueError("半成品来源只能是合格、不合格或报废")
+            raise ValueError("设备来源只能是合格、不合格或报废")
         source_id = int(raw.get("source_id") or 0)
-        row = _load_source(cursor, source_kind, source_id)
+        row = _load_source(cursor, source_kind, source_id, kind)
         if str(row.get("project_code") or "").strip() != project_code:
-            raise ValueError("只能领用同一项目代号的半成品")
-        if source_kind == SOURCE_DEFECTIVE:
-            quantity = 1.0
-        else:
-            quantity = quantity_value(raw.get("quantity"), "领用数量", positive=True)
-        available = _available_now(cursor, source_kind, row)
+            raise ValueError("只能领用同一项目代号的设备")
+        serial = row.get("serial_no")
+        if not serial or serial in serials:
+            raise ValueError("请选择不同的有效设备编号")
+        serials.add(serial)
+        quantity = quantity_value(raw.get("quantity", 1), "领用数量", positive=True)
+        if quantity != 1:
+            raise ValueError("每个设备编号只能领用一台")
+        available = _available_now(cursor, source_kind, row, kind=kind)
         if quantity > available + 1e-9:
-            raise ValueError(f"{row.get('name') or row.get('serial_no') or '半成品'} 可领数量不足")
+            raise ValueError(f"{row.get('name') or row.get('serial_no') or '设备'} 可领数量不足")
         prepared.append((source_kind, row, quantity))
 
     requested_leader_id = int(data.get("leader_id") or 0)
     leader_id = resolve_department_leader(
-        cursor, user, "semifinished_claim", "leader_semifinished_claim", requested_leader_id
+        cursor, user, f"{kind}_claim", f"leader_{kind}_claim", requested_leader_id
     )
-    form_no = next_form_no(cursor, "BC")
+    form_no = next_form_no(cursor, "BC" if kind == "semifinished" else "CPCK")
     form_data = {
         "department": user.get("department") or "",
         "project_code": project_code,
@@ -296,11 +186,14 @@ def create_semifinished_claim(cursor, user, data):
         INSERT INTO workflow_forms
             (form_no, form_type, title, status, current_step, applicant_id, leader_id,
              data_json, created_at, updated_at)
-        VALUES (?, 'semifinished_claim', ?, 'leader_semifinished_claim', 'leader_semifinished_claim', ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             form_no,
+            f"{kind}_claim",
             workflow_generated_title(user, form_no),
+            f"leader_{kind}_claim",
+            f"leader_{kind}_claim",
             int(user["id"]),
             leader_id,
             json.dumps(form_data, ensure_ascii=False),
@@ -335,13 +228,14 @@ def create_semifinished_claim(cursor, user, data):
                 ),
             ),
         )
-    create_workflow_tasks(cursor, form_id, "semifinished_claim", "leader_semifinished_claim", [leader_id])
+    create_workflow_tasks(cursor, form_id, f"{kind}_claim", f"leader_{kind}_claim", [leader_id])
     return form_id
 
 
-def decide_semifinished_claim(cursor, user, form_id, data):
-    form = dict(require_form_status(cursor, form_id, "semifinished_claim", "leader_semifinished_claim"))
-    task = require_task_assignee(cursor, user, form_id, "leader_semifinished_claim")
+def decide_semifinished_claim(cursor, user, form_id, data, kind="semifinished"):
+    begin_inventory_transaction(cursor.connection)
+    form = dict(require_form_status(cursor, form_id, f"{kind}_claim", f"leader_{kind}_claim"))
+    task = require_task_assignee(cursor, user, form_id, f"leader_{kind}_claim")
     decision = data.get("decision") or "同意"
     remark = str(data.get("remark") or "").strip()
     if decision != "同意" and not remark:
@@ -364,20 +258,20 @@ def decide_semifinished_claim(cursor, user, form_id, data):
     if decision == "同意":
         outbound_user_id = workflow_assignees(
             cursor,
-            "semifinished_claim",
-            "semifinished_outbound",
+            f"{kind}_claim",
+            f"{kind}_outbound",
             [int(data.get("warehouse_user_id") or user["id"])],
         )[0]
         cursor.execute(
             """
             UPDATE workflow_forms
-            SET status = 'semifinished_outbound', current_step = 'semifinished_outbound', updated_at = ?
+            SET status = ?, current_step = ?, updated_at = ?
             WHERE id = ?
             """,
-            (now_text(), form_id),
+            (f"{kind}_outbound", f"{kind}_outbound", now_text(), form_id),
         )
         create_workflow_tasks(
-            cursor, form_id, "semifinished_claim", "semifinished_outbound", [outbound_user_id]
+            cursor, form_id, f"{kind}_claim", f"{kind}_outbound", [outbound_user_id]
         )
     else:
         cursor.execute(
@@ -391,22 +285,24 @@ def decide_semifinished_claim(cursor, user, form_id, data):
     return form
 
 
-def _occupy_source(cursor, source_kind, source_id, quantity):
+def _occupy_source(cursor, source_kind, source_id, quantity, kind):
+    table = dict(zip(SOURCE_KINDS, SOURCE_TABLES[kind][:3]))[source_kind]
+    used = "COALESCE(used_quantity, 0)" if kind == "semifinished" else "0"
     if source_kind == SOURCE_QUALIFIED:
         cursor.execute(
-            """
-            UPDATE semifinished_inventory
+            f"""
+            UPDATE {table}
             SET claimed_quantity = COALESCE(claimed_quantity, 0) + ?, updated_at = ?
             WHERE id = ?
               AND COALESCE(quantity, 0) - COALESCE(borrowed_quantity, 0)
-                  - MAX(COALESCE(used_quantity, 0), COALESCE(claimed_quantity, 0)) >= ?
+                  - MAX({used}, COALESCE(claimed_quantity, 0)) >= ?
             """,
             (quantity, now_text(), source_id, quantity),
         )
     elif source_kind == SOURCE_DEFECTIVE:
         cursor.execute(
-            """
-            UPDATE defective_semifinished_goods
+            f"""
+            UPDATE {table}
             SET claimed = 1, updated_at = ?
             WHERE id = ? AND COALESCE(claimed, 0) = 0 AND COALESCE(borrowed_quantity, 0) = 0
             """,
@@ -414,8 +310,8 @@ def _occupy_source(cursor, source_kind, source_id, quantity):
         )
     else:
         cursor.execute(
-            """
-            UPDATE scrapped_semifinished_goods
+            f"""
+            UPDATE {table}
             SET claimed_quantity = COALESCE(claimed_quantity, 0) + ?
             WHERE id = ?
               AND COALESCE(quantity, 0) - COALESCE(claimed_quantity, 0) >= ?
@@ -423,28 +319,28 @@ def _occupy_source(cursor, source_kind, source_id, quantity):
             (quantity, source_id, quantity),
         )
     if cursor.rowcount != 1:
-        raise ValueError("半成品可领数量已变化，请刷新后重试")
+        raise ValueError("设备可领数量已变化，请刷新后重试")
 
 
-def outbound_semifinished_claim(cursor, user, form_id, data):
+def outbound_semifinished_claim(cursor, user, form_id, data, kind="semifinished"):
     """流程中心出库。库存中心只随后显示已领用。"""
-    require_form_status(cursor, form_id, "semifinished_claim", "semifinished_outbound")
-    task = require_task_assignee(cursor, user, form_id, "semifinished_outbound")
     begin_inventory_transaction(cursor.connection)
+    require_form_status(cursor, form_id, f"{kind}_claim", f"{kind}_outbound")
+    task = require_task_assignee(cursor, user, form_id, f"{kind}_outbound")
     cursor.execute("SELECT * FROM workflow_items WHERE form_id = ? ORDER BY id", (form_id,))
     items = [dict(row) for row in cursor.fetchall()]
     if not items:
-        raise ValueError("半成品领用明细不存在")
+        raise ValueError("领用明细不存在")
     for item in items:
         item_data = parse_json(item.get("data_json"), {})
         source_kind = str(item_data.get("source_kind") or "")
         source_id = int(item_data.get("source_id") or 0)
         quantity = float(item.get("request_quantity") or 0)
-        row = _load_source(cursor, source_kind, source_id)
-        available = _available_now(cursor, source_kind, row, exclude_form_id=form_id)
+        row = _load_source(cursor, source_kind, source_id, kind)
+        available = _available_now(cursor, source_kind, row, exclude_form_id=form_id, kind=kind)
         if quantity > available + 1e-9:
-            raise ValueError(f"{item.get('material_name') or '半成品'} 可领数量不足")
-        _occupy_source(cursor, source_kind, source_id, quantity)
+            raise ValueError(f"{item.get('material_name') or '设备'} 可领数量不足")
+        _occupy_source(cursor, source_kind, source_id, quantity, kind)
         cursor.execute(
             "UPDATE workflow_items SET outbound_quantity = ? WHERE id = ?",
             (quantity, item["id"]),

@@ -974,7 +974,7 @@ def register_production_routes(app, *, get_db, current_user_provider, optional_a
             """
             SELECT fgi.*, s.name AS shelf_name,
                    TRIM(COALESCE(fa.project_code, '')) AS project_code,
-                   MAX(0, COALESCE(fgi.quantity, 0) - COALESCE(fgi.borrowed_quantity, 0)) AS remaining_quantity,
+                   MAX(0, COALESCE(fgi.quantity, 0) - COALESCE(fgi.borrowed_quantity, 0) - COALESCE(fgi.claimed_quantity, 0)) AS remaining_quantity,
                    fa.material_components_json, fa.semifinished_components_json
             FROM finished_good_inventory fgi
             LEFT JOIN shelves s ON s.id = fgi.shelf_id

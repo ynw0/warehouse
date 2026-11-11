@@ -93,6 +93,8 @@ def my_claims(cursor, user_id, page=1, keyword=""):
                 "operation_date": lot.get("operation_date") or "",
                 "issued_quantity": lot.get("issued_quantity") or 0,
                 "returned_quantity": lot.get("returned_quantity") or 0,
+                "scrapped_quantity": lot.get("scrapped_quantity") or 0,
+                "scrappable_quantity": lot.get("available_quantity") or 0,
                 "consumed_quantity": lot.get("consumed_quantity") or 0,
                 "consume_status": lot.get("consume_status") or "",
                 "returnable_quantity": lot.get("returnable_quantity") or 0,
@@ -153,9 +155,14 @@ def return_claim(cursor, user_id, outbound_record_id, quantity, operation_key):
         (SOURCE_CLAIM_OUTBOUND, outbound_record_id),
     )
     consumed = float(cursor.fetchone()[0] or 0)
+    cursor.execute("""
+        SELECT COALESCE(SUM(quantity), 0) FROM issued_material_scraps
+        WHERE source_kind = ? AND source_id = ?
+    """, (SOURCE_CLAIM_OUTBOUND, outbound_record_id))
+    scrapped = float(cursor.fetchone()[0] or 0)
     row["returnable_quantity"] = max(
         0.0,
-        float(row["issued_quantity"] or 0) - float(row["returned_quantity"] or 0) - consumed,
+        float(row["issued_quantity"] or 0) - float(row["returned_quantity"] or 0) - consumed - scrapped,
     )
     if row["returnable_quantity"] <= 0 or quantity > row["returnable_quantity"] + 1e-9:
         raise ValueError("退库数量不能超过尚未退回的领用数量")
@@ -267,6 +274,43 @@ def _find_returnable_lot(cursor, user_id, source_kind, source_id, batch_id):
     if not lots:
         raise PermissionError("没有该领用记录的退库权限，或库存来源当前不可用")
     return lots[0]
+
+
+def scrap_issued_material(cursor, user, payload):
+    """登记领用批次报废，与退库和生产占用共用库存事务。"""
+    source_kind = str(payload.get("source_kind") or "")
+    if source_kind not in {SOURCE_CLAIM_OUTBOUND, SOURCE_BORROW_CLAIM}:
+        raise ValueError("报废来源不正确")
+    source_id = int(payload.get("source_id") or 0)
+    batch_id = int(payload.get("batch_id") or 0)
+    quantity = quantity_value(payload.get("quantity"), "报废数量", positive=True)
+    key = str(payload.get("operation_key") or "").strip()
+    if not key or len(key) > 128:
+        raise ValueError("报废操作标识无效")
+    begin_inventory_transaction(cursor.connection)
+    values = (source_kind, source_id, batch_id, user["id"], quantity)
+    cursor.execute("""
+        SELECT source_kind, source_id, batch_id, user_id, quantity
+        FROM issued_material_scraps WHERE operation_key = ?
+    """, (key,))
+    previous = cursor.fetchone()
+    if previous:
+        if tuple(previous) != values:
+            raise ValueError("报废操作标识已使用")
+        return
+    lot = next((lot for lot in list_issued_lots(cursor, user["id"])
+                if lot["source_kind"] == source_kind and int(lot["source_id"]) == source_id
+                and int(lot.get("batch_id") or 0) == batch_id), None)
+    if not lot:
+        raise PermissionError("没有该领用批次的报废权限")
+    available = float(lot["available_quantity"])
+    if available <= 0 or quantity > available:
+        raise ValueError("报废数量不能超过尚未使用、退库或报废的数量")
+    cursor.execute("""
+        INSERT INTO issued_material_scraps
+            (source_kind, source_id, batch_id, user_id, quantity, operation_key, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (*values, key, now_text()))
 
 
 def request_claim_return(cursor, user, payload):

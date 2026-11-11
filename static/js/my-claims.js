@@ -28,7 +28,7 @@
         pages = data.pages;
         host.innerHTML = `<div class="table-wrapper"><table class="flow-table">
           <thead><tr><th>领用单号</th><th>物料编号</th><th>物料名称</th><th>规格</th>
-          <th>批次</th><th>库别</th><th>领用日期</th><th>已领数量</th><th>已退数量</th><th>已消耗</th><th>状态</th><th>可退数量</th><th>操作</th></tr></thead>
+          <th>批次</th><th>库别</th><th>领用日期</th><th>已领数量</th><th>已退数量</th><th>已消耗</th><th>已报废</th><th>状态</th><th>可退数量</th><th>操作</th></tr></thead>
           <tbody>${rows.map((row, index) => `<tr>
             <td>${escape(row.form_no)}</td><td>${escape(row.material_code)}</td>
             <td>${escape(row.material_name)}</td><td>${escape(row.spec || row.brand_model)}</td>
@@ -36,15 +36,19 @@
             <td>${escape(row.operation_date)}</td><td>${formatQty(row.issued_quantity)} ${escape(row.unit)}</td>
             <td>${formatQty(row.returned_quantity)}</td>
             <td>${formatQty(row.consumed_quantity || 0)}</td>
+            <td>${formatQty(row.scrapped_quantity || 0)}</td>
             <td>${escape(row.consume_status || "")}</td>
             <td>${formatQty(row.returnable_quantity)}</td>
-            <td><button data-claim-return="${index}" ${row.can_return ? "" : "disabled"}>${returnLabel(row)}</button></td>
-          </tr>`).join("") || '<tr><td colspan="13">暂无领用记录</td></tr>'}</tbody></table></div>
+            <td><button data-claim-return="${index}" ${row.can_return ? "" : "disabled"}>${returnLabel(row)}</button> <button data-claim-scrap="${index}" ${row.scrappable_quantity > 0 ? "" : "disabled"}>报废</button></td>
+          </tr>`).join("") || '<tr><td colspan="14">暂无领用记录</td></tr>'}</tbody></table></div>
           <div class="pager"><span>共 ${data.total} 条，第 ${page} / ${pages} 页</span>
           <button id="myClaimsPrev" ${page <= 1 ? "disabled" : ""}>上一页</button>
           <button id="myClaimsNext" ${page >= pages ? "disabled" : ""}>下一页</button></div>`;
         host.querySelector("#myClaimsPrev").onclick = () => { page -= 1; load(); };
         host.querySelector("#myClaimsNext").onclick = () => { page += 1; load(); };
+        host.querySelectorAll("[data-claim-scrap]").forEach(button => {
+          button.onclick = () => openScrap(rows[Number(button.dataset.claimScrap)]);
+        });
         host.querySelectorAll("[data-claim-return]").forEach(button => {
           button.onclick = () => {
             const row = rows[Number(button.dataset.claimReturn)];
@@ -55,6 +59,36 @@
       } catch (error) {
         host.textContent = error.message;
       }
+    }
+
+    function openScrap(row) {
+      const max = Number(row.scrappable_quantity);
+      if (!(max > 0)) return;
+      const operationKey = Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, "0")).join("");
+      window.openModal({
+        title: "报废物料",
+        body: `<div class="form-grid">
+          <p class="wide">${escape(row.material_code)} · ${escape(row.material_name)}<br>
+          领用单：${escape(row.form_no)} · 批次：${escape(row.batch_no)}</p>
+          <label class="wide">报废数量（最多 ${formatQty(max)} ${escape(row.unit)}）<input id="claimScrapQty" type="number" min="0" max="${max}" step="any"></label>
+        </div>`,
+        okText: "确认报废",
+        onOk: async () => {
+          const quantity = Number(document.getElementById("claimScrapQty").value);
+          if (!Number.isFinite(quantity) || quantity <= 0 || quantity > max) {
+            throw new Error("请输入大于零且不超过可报废数量的数值");
+          }
+          await api("/api/my-claims/scrap", {
+            method: "POST",
+            body: JSON.stringify({
+              source_kind: row.source_kind, source_id: row.source_id,
+              batch_id: row.batch_id, quantity, operation_key: operationKey,
+            }),
+          });
+          window.toast("报废已登记");
+          await load();
+        },
+      });
     }
 
     function openReturn(row) {

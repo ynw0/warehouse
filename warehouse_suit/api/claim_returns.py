@@ -2,7 +2,7 @@
 
 from flask import jsonify, request
 
-from warehouse_suit.claim_return_service import complete_claim_return, my_claims, request_claim_return
+from warehouse_suit.claim_return_service import complete_claim_return, my_claims, request_claim_return, scrap_issued_material
 
 
 def register_claim_return_routes(app, *, get_db, current_user_provider):
@@ -45,6 +45,22 @@ def register_claim_return_routes(app, *, get_db, current_user_provider):
             return jsonify({"error": str(exc)}), 403
         except ValueError as exc:
             conn.rollback()
+            return jsonify({"error": str(exc)}), 400
+        finally:
+            conn.close()
+
+    @app.post("/api/my-claims/scrap")
+    def scrap_my_claim():
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            user = require_user(cursor)
+            scrap_issued_material(cursor, user, request.get_json() or {})
+            conn.commit()
+            return jsonify({"success": True})
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except (ValueError, TypeError) as exc:
             return jsonify({"error": str(exc)}), 400
         finally:
             conn.close()

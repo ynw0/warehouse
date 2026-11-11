@@ -9,7 +9,7 @@ from warehouse_suit.inventory_constants import (
     STOCK_SOURCE_FORMAL,
     STOCK_SOURCE_TEMPORARY,
 )
-from warehouse_suit.inventory_service import begin_inventory_transaction, borrowable_item_snapshot
+from warehouse_suit.inventory_service import begin_inventory_transaction, borrowable_item_snapshot, pending_product_borrow_quantity
 from warehouse_suit.material_utils import stock_snapshot_payload
 from warehouse_suit.purchase_project import (
     apply_purpose_payload,
@@ -25,7 +25,7 @@ from warehouse_suit.stock_allocation_service import (
     occupancy_text,
     stock_source_quantities,
 )
-from warehouse_suit.validation import quantity_value, validation_rule_enabled
+from warehouse_suit.validation import quantity_value
 from warehouse_suit.workflow_service import (
     create_workflow_tasks,
     resolve_department_leader,
@@ -48,6 +48,7 @@ def allocate_borrow_items(cursor, requested_items, applicant, include_temporary,
     if not requested_items:
         raise ValueError("借用申请至少需要一项物料")
 
+    from warehouse_suit.semifinished_claim_service import pending_product_claim_quantity
     from warehouse_suit.usage_kind import USAGE_RD, validate_usage_kind
 
     allocations = []
@@ -69,6 +70,8 @@ def allocate_borrow_items(cursor, requested_items, applicant, include_temporary,
         if item_type == "material":
             purchase_project = validate_purchase_project(cursor, requested.get("purchase_project"))
         else:
+            if requested_quantity != 1:
+                raise ValueError("每个设备编号只能借用一台")
             snapshot_for_project = borrowable_item_snapshot(
                 cursor,
                 item_type,
@@ -172,12 +175,13 @@ def allocate_borrow_items(cursor, requested_items, applicant, include_temporary,
             )
             available_by_item[cache_key] = {
                 "snapshot": snapshot,
-                "formal": float(snapshot.get("available_quantity") or 0),
+                "formal": float(snapshot.get("available_quantity") or 0)
+                - pending_product_claim_quantity(cursor, item_type, item_ref_id)
+                - pending_product_borrow_quantity(cursor, item_type, item_ref_id, exclude_form_id),
             }
         available = available_by_item[cache_key]
         if (
-            validation_rule_enabled("workflow_bounds")
-            and requested_quantity > available["formal"] + 1e-9
+            requested_quantity > available["formal"] + 1e-9
         ):
             raise ValueError(
                 f"{available['snapshot'].get('item_name') or '物料'} 借用数量不能大于可用数量"

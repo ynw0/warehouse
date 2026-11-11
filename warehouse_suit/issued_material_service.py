@@ -132,7 +132,18 @@ def _consumption_map(cursor):
     return mapping
 
 
-def _apply_consumption(lot, mapping):
+def _scrap_map(cursor):
+    if not _table_exists(cursor, "issued_material_scraps"):
+        return {}
+    cursor.execute("""
+        SELECT source_kind, source_id, batch_id, SUM(quantity)
+        FROM issued_material_scraps
+        GROUP BY source_kind, source_id, batch_id
+    """)
+    return {(row[0], row[1], row[2]): float(row[3]) for row in cursor.fetchall()}
+
+
+def _apply_consumption(lot, mapping, scraps):
     key = (lot["source_kind"], int(lot["source_id"] or 0), int(lot.get("batch_id") or 0))
     used = mapping.get(key, {"semifinished": 0.0, "finished": 0.0})
     semi = float(used.get("semifinished") or 0)
@@ -140,7 +151,9 @@ def _apply_consumption(lot, mapping):
     consumed = semi + finished
     issued = float(lot.get("issued_quantity") or 0)
     returned = float(lot.get("returned_quantity") or 0)
-    remaining = max(0.0, issued - returned - consumed)
+    scrapped = scraps.get(key, 0.0)
+    remaining = max(0.0, issued - returned - consumed - scrapped)
+    lot["scrapped_quantity"] = scrapped
     lot["consumed_quantity"] = consumed
     lot["consumed_semifinished_quantity"] = semi
     lot["consumed_finished_quantity"] = finished
@@ -535,7 +548,8 @@ def _apply_return_holds(cursor, lots):
         issued = float(lot.get("issued_quantity") or 0)
         consumed = float(lot.get("consumed_quantity") or 0)
         returned = float(lot.get("returned_quantity") or 0) + extra
-        remaining = max(0.0, issued - returned - consumed)
+        scrapped = float(lot["scrapped_quantity"])
+        remaining = max(0.0, issued - returned - consumed - scrapped)
         lot["returned_quantity"] = returned
         lot["returnable_quantity"] = remaining
         lot["available_quantity"] = remaining
@@ -564,7 +578,8 @@ def list_issued_lots(cursor, user_id=None):
         *_borrow_claim_lots(cursor, user_id),
     ]
     mapping = _consumption_map(cursor)
-    return _apply_return_holds(cursor, [_apply_consumption(lot, mapping) for lot in lots])
+    scraps = _scrap_map(cursor)
+    return _apply_return_holds(cursor, [_apply_consumption(lot, mapping, scraps) for lot in lots])
 
 
 def allocate_claim_consumptions(cursor, production_source_type, production_source_id, prepared):
@@ -816,7 +831,9 @@ def _outbound_locked_quantity(cursor, stock_record_id):
             (SOURCE_CLAIM_OUTBOUND, stock_record_id),
         )
         consumed = float(cursor.fetchone()[0] or 0)
-    return returned + consumed
+    scrapped = sum(quantity for (kind, source_id, _), quantity in _scrap_map(cursor).items()
+                   if kind == SOURCE_CLAIM_OUTBOUND and source_id == stock_record_id)
+    return returned + consumed + scrapped
 
 
 def update_claim_outbound_quantities(cursor, form, item_id, lines):

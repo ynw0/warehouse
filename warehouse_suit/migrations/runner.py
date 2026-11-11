@@ -35,6 +35,8 @@ from .v2026101503_category_rule_glue_cable_notes import MIGRATION as CATEGORY_RU
 from .v2026110501_assistant_notes import MIGRATION as ASSISTANT_NOTES
 from .v2026110601_timed_reminders import MIGRATION as TIMED_REMINDERS
 
+from .v2026111101_product_claim_scrap import MIGRATION as PRODUCT_CLAIM_SCRAP
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +73,7 @@ def available_migrations():
         CATEGORY_RULE_GLUE_CABLE_NOTES,
         ASSISTANT_NOTES,
         TIMED_REMINDERS,
+        PRODUCT_CLAIM_SCRAP,
     ]
 
 
