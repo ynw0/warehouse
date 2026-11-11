@@ -8,6 +8,11 @@ import json
 import re
 from datetime import datetime, timedelta
 
+from warehouse_suit.assistant.acceptance_reminders import (
+    overdue_acceptance_tasks,
+    preview_acceptance_reminders,
+    send_acceptance_reminders,
+)
 from warehouse_suit.db import now_text
 from warehouse_suit.inventory_service import begin_inventory_transaction
 from warehouse_suit.material_service import (
@@ -102,6 +107,11 @@ def perform_action(conn, user, action, payload, ip="", *, confirmed=False, optio
     _authorize(cursor, user, spec, payload)
     if action == "create_workflow" and payload.get("form_type") == "claim":
         payload = _prepare_claim(cursor, user, payload)
+    if action == "send_acceptance_reminders":
+        if confirmed:
+            begin_inventory_transaction(conn)
+        else:
+            payload = preview_acceptance_reminders(cursor, user, payload)
     if spec["confirm"] and not confirmed:
         summary = spec["summarize"](cursor, payload)
         confirmation_id = _insert_confirmation(conn, user, spec["name"], summary, payload)
@@ -112,7 +122,7 @@ def perform_action(conn, user, action, payload, ip="", *, confirmed=False, optio
             "summary": summary,
             "message": f"{summary}。尚未执行，请在对话里点击确认执行。",
         }
-        if action == "create_workflow":
+        if action in {"create_workflow", "send_acceptance_reminders"}:
             result["preview"] = _plain(payload)
         return result
     result = spec["run"](cursor, user, payload, ip or "", optional_active_user_id)
@@ -181,7 +191,7 @@ def list_pending_actions(cursor, user):
     for row in cursor.fetchall():
         item = dict(row)
         payload = item.pop("payload_json")
-        if item["action"] == "create_workflow":
+        if item["action"] in {"create_workflow", "send_acceptance_reminders"}:
             item["preview"] = json.loads(payload)
         results.append(item)
     return results
@@ -576,6 +586,25 @@ def _run_list_workflows(cursor, user, payload, ip, optional_active_user_id):
     return {"message": message, "data": {"items": rows}}
 
 
+def _run_overdue_acceptance_tasks(cursor, user, payload, ip, optional_active_user_id):
+    limit = _limit(payload)
+    offset = max(0, int(payload.get("offset") or 0))
+    rows = overdue_acceptance_tasks(cursor, user, limit=limit + 1, offset=offset)
+    return {
+        "message": "超过 48 小时尚未办理的验收待办",
+        "data": {"items": rows[:limit], "offset": offset, "has_more": len(rows) > limit},
+    }
+
+
+def _run_send_acceptance_reminders(cursor, user, payload, ip, optional_active_user_id):
+    return send_acceptance_reminders(cursor, user, payload)
+
+
+def _summarize_acceptance_reminders(cursor, payload):
+    recipients = len({task["assignee_id"] for task in payload["tasks"]})
+    return f"向 {recipients} 人发送 {len(payload['tasks'])} 条验收催办"
+
+
 def _run_get_workflow(cursor, user, payload, ip, optional_active_user_id):
     form_id = _required_int(payload, "form_id")
     require_form_view(cursor, form_id)
@@ -605,7 +634,12 @@ def _run_get_workflow(cursor, user, payload, ip, optional_active_user_id):
                 "spec": item.get("spec") or "",
             }
         )
-    result = {"form": brief, "items": items, "offset": offset, "total_items": len(all_items)}
+    tasks = [
+        {key: task.get(key) for key in ("id", "assignee_id", "assignee_name", "step_code", "updated_at")}
+        for task in form["tasks"]
+        if task["status"] == "pending" and task["step_code"] == brief["current_step"]
+    ]
+    result = {"form": brief, "pending_tasks": tasks, "items": items, "offset": offset, "total_items": len(all_items)}
     text = json.dumps(result, ensure_ascii=False)
     return {"message": f"流程内容：\n{text}", "data": brief}
 
@@ -908,6 +942,8 @@ REGISTRY = [
     {"name": "promote_temporary_material", "title": "临时库批次转入正式库", "params": "material_id、batches（每项含 id 和 version）", "confirm": True, "allow": _allow_temporary("transfer_temporary_inventory"), "summarize": _summarize_promote_material, "run": _run_promote_temporary_material},
     {"name": "promote_acceptance_form", "title": "验收单转入正式库", "params": "form_id", "confirm": True, "allow": _allow_temporary("transfer_temporary_inventory"), "summarize": _summarize_promote_form, "run": _run_promote_acceptance_form},
     {"name": "list_workflows", "title": "查询可见流程", "params": "q、form_type 可选。类型含 acceptance、semifinished、finished、claim、semifinished_claim、special_claim、borrow、purchase_request、supply、common_material", "confirm": False, "run": _run_list_workflows},
+    {"name": "list_overdue_acceptance_tasks", "title": "查询超期验收待办", "params": "offset、limit 可选。按待办分配时间计算超过 48 小时，返回实际办理人", "confirm": False, "run": _run_overdue_acceptance_tasks},
+    {"name": "send_acceptance_reminders", "title": "发送验收催办", "params": "task_ids 为已核对名单中的超期验收待办 ID 数组。只有用户要求发送时才调用，先给名单时只查询", "confirm": True, "allow": _allow_admin, "summarize": _summarize_acceptance_reminders, "run": _run_send_acceptance_reminders},
     {"name": "get_workflow", "title": "读取一条流程", "params": "form_id、offset 可选。每次最多读取 20 条明细", "confirm": False, "run": _run_get_workflow},
     {"name": "create_workflow", "title": "新建流程", "params": "form_type 及该流程原发起接口的字段，确认前列出全部内容", "confirm": True, "summarize": _summarize_new_workflow, "run": _run_create_workflow},
     {"name": "update_workflow", "title": "修改流程", "params": "form_id 及原修改接口的字段", "confirm": False, "run": _run_update_workflow},

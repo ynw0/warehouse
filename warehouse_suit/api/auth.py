@@ -97,7 +97,7 @@ def register_auth_routes(app, *, material_system, base_dir, db_path, get_db, cur
         return jsonify({"success": True, "user": public_user(user_or_error)})
 
     def assistant_desktop():
-        return render_template("assistant_desktop.html")
+        return render_template("assistant_desktop.html", static_version=__version__)
 
     def assistant_desktop_login():
         # 独立窗口复用账号密码校验，使用独立会话而不撤销其他设备令牌。

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>物料小助手</title>
-  <link rel="stylesheet" href="/static/css/system.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/system.css', v=static_version) }}">
   <style>
     html,body { width:100%; height:100%; margin:0; overflow:hidden; background:#f5f8fc; font-family:"Microsoft YaHei",sans-serif; }
     #desktopLogin { max-width:360px; margin:12vh auto; padding:24px; background:white; border:1px solid #d8e4f1; border-radius:16px; }
@@ -32,7 +32,7 @@
   <div id="desktopAssistant"></div>
   <div id="desktopToast" hidden role="status"></div>
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-  <script src="/static/js/assistant-chat.js"></script>
+  <script src="{{ url_for('static', filename='js/assistant-chat.js', v=static_version) }}"></script>
   <script src="/static/js/assistant-desktop.js"></script>
 </body>
 </html>

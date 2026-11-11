@@ -727,7 +727,7 @@
       button.type = "button";
       button.className = "ai-workflow-link";
       button.dataset.workflowId = String(item.id);
-      button.textContent = [item.form_no || "查看流程", item.status || ""].filter(Boolean).join(" · ");
+      button.textContent = item.form_no ? `查看流程 ${item.form_no}` : "查看流程";
       button.addEventListener("click", () => state.openWorkflow(Number(item.id)).catch(showError));
       bubble.appendChild(button);
     });
@@ -742,6 +742,8 @@
     text.className = "ai-confirm-content";
     if (item.action === "create_workflow" && item.preview) {
       renderWorkflowPreview(text, item.preview);
+    } else if (item.action === "send_acceptance_reminders" && item.preview) {
+      renderAcceptanceReminderPreview(text, item.preview.tasks || []);
     } else {
       const summary = document.createElement("p");
       summary.textContent = item.summary || "该操作需要确认";
@@ -753,7 +755,7 @@
     const ok = document.createElement("button");
     ok.type = "button";
     ok.className = "primary";
-    ok.textContent = "确认执行";
+    ok.textContent = item.action === "send_acceptance_reminders" ? "确认发送" : "确认执行";
     ok.addEventListener("click", () => settleConfirmation(card, item.id, "confirm"));
     const cancel = document.createElement("button");
     cancel.type = "button";
@@ -764,6 +766,33 @@
     actions.append(ok, cancel);
     card.append(text, error, actions);
     bubble.appendChild(card);
+  }
+
+  function renderAcceptanceReminderPreview(host, tasks) {
+    const heading = document.createElement("h4");
+    heading.textContent = "核对验收催办名单";
+    host.appendChild(heading);
+    const groups = new Map();
+    for (const task of tasks) {
+      if (!groups.has(task.assignee_id)) groups.set(task.assignee_id, []);
+      groups.get(task.assignee_id).push(task);
+    }
+    const list = document.createElement("ul");
+    list.className = "ai-reminder-recipients";
+    for (const group of groups.values()) {
+      const entry = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = group[0].assignee_name;
+      const details = document.createElement("ul");
+      for (const task of group) {
+        const line = document.createElement("li");
+        line.textContent = `${task.form_no} · ${task.form_type_label} · ${task.assigned_at} 分配`;
+        details.appendChild(line);
+      }
+      entry.append(name, details);
+      list.appendChild(entry);
+    }
+    host.appendChild(list);
   }
 
   const PREVIEW_LABELS = {

@@ -143,11 +143,10 @@ def present_messages(rows):
     for row in rows:
         if row["role"] == "tool":
             meta = row.get("tool_calls") or {}
-            if view and meta.get("name") in {"list_workflows", "get_workflow"}:
+            if view and meta.get("name") == "get_workflow":
                 result = _loads(row.get("content"), {})
-                data = result.get("data") or {}
-                items = data.get("items") if meta["name"] == "list_workflows" else [data]
-                view[-1].setdefault("workflows", []).extend(items or [])
+                if result.get("show_workflow_link") and result.get("data"):
+                    view[-1].setdefault("workflows", []).append(result["data"])
             continue
         if row["role"] not in ("user", "assistant"):
             continue

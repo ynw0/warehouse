@@ -50,6 +50,7 @@ LOOKUP_NAMES = (
     "search_production",
     "list_projects",
     "list_workflows",
+    "list_overdue_acceptance_tasks",
     "get_workflow",
     "read_attachment",
 )
@@ -218,9 +219,8 @@ def _action(name, payload, ctx):
             }
         )
     events = []
-    if name == "list_workflows":
-        events.append({"type": "workflows", "items": result.get("data", {}).get("items", [])})
-    elif name == "get_workflow":
+    if name == "get_workflow" and payload.get("show_link") is True:
+        result["show_workflow_link"] = True
         events.append({"type": "workflows", "items": [result.get("data", {})]})
     return {"ok": True, "text": _dump(result), "confirmations": confirmations, "events": events}
 
@@ -341,8 +341,16 @@ def _registry_definitions():
             }
             required = ["form_type"]
         elif spec["name"] == "get_workflow":
-            properties = {"form_id": _integer("流程 ID"), "offset": _integer("明细起始位置")}
+            properties = {
+                "form_id": _integer("流程 ID"), "offset": _integer("明细起始位置"),
+                "show_link": {"type": "boolean", "description": "仅用户专门查询一张单或要求打开流程时设为 true"},
+            }
             required = ["form_id"]
+        elif spec["name"] == "list_overdue_acceptance_tasks":
+            properties = {"offset": _integer("待办起始位置"), "limit": _integer("每页条数")}
+        elif spec["name"] == "send_acceptance_reminders":
+            properties = {"task_ids": {"type": "array", "items": {"type": "integer"}, "description": "名单中需要催办的待办 ID"}}
+            required = ["task_ids"]
         elif spec["name"] == "list_workflows":
             properties = {"q": _string("流程单号或标题"), "form_type": _string("流程类型")}
         tools.append(

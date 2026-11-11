@@ -1933,7 +1933,7 @@ button.danger:hover,
 .ai-chat .ai-thinking-trigger:hover, .ai-chat .ai-thinking-trigger[aria-expanded="true"] { color:#245c9e; background:#eef4fb; }
 .ai-chat .ai-thinking-popover { position:absolute; z-index:5; right:0; bottom:calc(100% + 12px); width:min(310px,calc(100vw - 58px)); padding:15px 16px 18px; border:1px solid #e1e7ef; border-radius:18px; background:#fff; box-shadow:0 14px 42px rgba(20,40,70,.19); }
 .ai-chat .ai-thinking-popover[hidden] { display:none; }
-.ai-thinking-title { display:grid; grid-template-columns:24px 1fr 24px; align-items:center; color:#8493a5; font-size:15px; }
+.ai-thinking-title { display:grid; grid-template-columns:32px 1fr 32px; align-items:center; color:#8493a5; font-size:15px; }
 .ai-thinking-title output { color:#3376d2; text-align:center; font-size:16px; font-weight:700; }
 .ai-thinking-model { margin:4px 0 16px; color:#758399; text-align:center; font-size:12px; overflow-wrap:anywhere; }
 .ai-thinking-track { position:relative; height:34px; border:1px solid #e0e3e9; border-radius:999px; background:#eceef1; }
@@ -1951,6 +1951,9 @@ button.danger:hover,
 .ai-preview-fields dd { min-width:0; margin:0; color:#253c56; overflow-wrap:anywhere; }
 .ai-preview-item { margin:0 0 8px; padding:10px; border:1px solid #e0eaf4; border-radius:10px; background:#fff; }
 .ai-preview-item strong { display:block; margin-bottom:8px; color:#395e88; font-size:12px; }
+.ai-reminder-recipients { margin:0; padding-inline-start:20px; }
+.ai-reminder-recipients > li + li { margin-top:8px; }
+.ai-reminder-recipients ul { margin:3px 0 0; padding-inline-start:16px; }
 .ai-confirm-actions { display:flex; gap:8px; margin-top:12px; }
 .ai-confirm-actions button { margin:0; }
 .ai-confirm-error { margin:10px 0 0; color:#b42318; font-size:12px; }
@@ -1985,8 +1988,8 @@ button.danger:hover,
 .ai-note-row span { flex:1; overflow-wrap:anywhere; }
 .ai-note-row button { width:auto; min-height:28px; font-size:12px; }
 
-.ai-mascot-avatar { display:inline-block; flex:none; width:26px; height:26px; border-radius:50%; background:#fff url("/static/assistant-avatar.png") 50% 18% / 190% no-repeat; vertical-align:middle; }
-.ai-heading-icon.ai-mascot-avatar { width:36px; height:36px; border:1px solid #d5e5f4; }
+.ai-mascot-avatar { display:inline-block; flex:none; width:32px; height:32px; border-radius:50%; background:#fff url("/static/assistant-avatar.png") 50% 23% / 215% no-repeat; vertical-align:middle; }
+.ai-heading-icon.ai-mascot-avatar { width:44px; height:44px; border:1px solid #d5e5f4; }
 
 
 /* 助手窄窗布局保持发送按钮靠右，滚动只发生在内容区域。 */

@@ -526,3 +526,60 @@ def test_assistant_shared_deadline_allows_long_classification(monkeypatch):
     check_deadline(600)
     with pytest.raises(TimeoutError, match="600 秒"):
         check_deadline(179)
+
+
+def test_acceptance_reminder_confirms_actual_assignees_and_skips_changed_tasks(client, db):
+    import json
+
+    from flask import session
+
+    from warehouse_suit.assistant.tools import execute_tool, tool_names
+
+    _login(client, "admin", "admin")
+    admin = _user(db, "admin")
+    assignee = _user(db, "warehouse")
+    applicant = _user(db, "testuser")
+    cursor = db.cursor()
+    cursor.execute("""
+        INSERT INTO workflow_forms (form_no, form_type, title, status, current_step, applicant_id)
+        VALUES ('YS-REMIND', 'acceptance', '催办验收', 'acceptance', 'acceptance', ?)
+    """, (applicant["id"],))
+    form_id = cursor.lastrowid
+    task_ids = []
+    for user in (assignee, admin):
+        cursor.execute("""
+            INSERT INTO workflow_tasks (form_id, step_code, assignee_id, created_at, updated_at)
+            VALUES (?, 'acceptance', ?, '2020-01-01 08:00:00', '2020-01-01 08:00:00')
+        """, (form_id, user["id"]))
+        task_ids.append(cursor.lastrowid)
+    db.commit()
+    ctx = {"conn": db, "user": admin, "allowed": tool_names("main")}
+    lookup = execute_tool("list_overdue_acceptance_tasks", {}, ctx)
+    items = json.loads(lookup["text"])["data"]["items"]
+    assert {item["task_id"]: item["assignee_id"] for item in items} == dict(
+        zip(task_ids, (assignee["id"], admin["id"]))
+    )
+    listed = execute_tool("list_workflows", {"q": "YS-REMIND"}, ctx)
+    assert not listed["events"]
+    with client.application.test_request_context():
+        session["user_id"] = admin["id"]
+        detail = execute_tool("get_workflow", {"form_id": form_id, "show_link": True}, ctx)
+    assert detail["events"][0]["items"][0]["id"] == form_id
+
+    payload = {"task_ids": task_ids}
+    denied = execute_tool("send_acceptance_reminders", payload, {**ctx, "user": applicant})
+    assert not denied["ok"]
+    request = execute_tool("send_acceptance_reminders", payload, ctx)
+    card = request["confirmations"][0]
+    assert {task["task_id"] for task in card["preview"]["tasks"]} == set(task_ids)
+    assert db.execute("SELECT COUNT(*) FROM notifications WHERE title = '验收催办'").fetchone()[0] == 0
+
+    cursor.execute("UPDATE workflow_tasks SET assignee_id = ? WHERE id = ?", (applicant["id"], task_ids[1]))
+    db.commit()
+    endpoint = f"/api/ai/assistant/confirmations/{card['id']}/confirm"
+    confirmed = client.post(endpoint, json={})
+    assert confirmed.status_code == 200, confirmed.get_json()
+    assert confirmed.get_json()["data"] == {"sent": 1, "recipients": 1, "skipped": 1}
+    assert client.post(endpoint, json={}).status_code != 200
+    notices = db.execute("SELECT user_id FROM notifications WHERE title = '验收催办'").fetchall()
+    assert [row["user_id"] for row in notices] == [assignee["id"]]

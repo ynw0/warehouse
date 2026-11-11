@@ -10,6 +10,8 @@ namespace WarehouseClient;
 
 public partial class AssistantBallWindow : Window
 {
+    private const double ExpandedWidth = 87.5;
+    private const double ExpandedHeight = 93.75;
     private readonly Action _openAssistant;
     private readonly Action _openSystem;
     private readonly Func<Task> _markRead;
@@ -33,6 +35,8 @@ public partial class AssistantBallWindow : Window
     public AssistantBallWindow(Action openAssistant, Action openSystem, Func<Task> markRead)
     {
         InitializeComponent();
+        Width = ExpandedWidth;
+        Height = ExpandedHeight;
         ShowArtwork("greeting");
         _resetTimer.Tick += (_, _) => { _resetTimer.Stop(); _activity = "idle"; RefreshArtwork(); };
         _idleTimer.Tick += (_, _) =>
@@ -197,8 +201,8 @@ public partial class AssistantBallWindow : Window
         if (string.IsNullOrEmpty(_edge)) return;
         _edgeReminder = false;
         var area = WorkArea();
-        Width = 70;
-        Height = 75;
+        Width = ExpandedWidth;
+        Height = ExpandedHeight;
         Opacity = 1;
         Left = Math.Clamp(_expandedPosition.X, area.Left, Math.Max(area.Left, area.Right - Width));
         Top = Math.Clamp(_expandedPosition.Y, area.Top, Math.Max(area.Top, area.Bottom - Height));
