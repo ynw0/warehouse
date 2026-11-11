@@ -81,3 +81,38 @@ def test_claim_rejection_uses_applicant_revision_and_resubmits_to_leader(client,
         (form["id"],),
     )
     assert cursor.fetchone()["decision"] == "已重新提交"
+
+
+def test_finished_claim_issues_two_serials_in_one_workflow(client, db):
+    warehouse = _login(client, "warehouse", "test")
+    leader = _login(client, "admin", "admin")
+    db.execute("""
+        INSERT INTO finished_acceptances (acceptance_no, product_name, acceptance_date, project_code)
+        VALUES ('CP-TEST', '测试成品', '2026-11-11', '办公')
+    """)
+    acceptance_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.executemany("""
+        INSERT INTO finished_good_inventory (acceptance_id, product_name, quantity, serial_no, acceptance_date)
+        VALUES (?, '测试成品', 1, ?, '2026-11-11')
+    """, [(acceptance_id, "CP-TEST-1"), (acceptance_id, "CP-TEST-2")])
+    db.commit()
+    _login(client, "warehouse", "test")
+    items = client.get("/api/finished-claims/items?keyword=CP-TEST").get_json()["items"]
+    assert len(items) == 2
+    payload = {"project_code": "办公", "leader_id": leader["id"], "items": items}
+    response = client.post("/api/finished-claims", json=payload)
+    assert response.status_code == 200, response.get_json()
+    form = response.get_json()["form"]
+    assert form["form_type"] == "finished_claim"
+    assert len(form["items"]) == 2
+    assert not client.get("/api/finished-claims/items?keyword=CP-TEST").get_json()["items"]
+
+    _login(client, "admin", "admin")
+    endpoint = f"/api/finished-claims/{form['id']}"
+    approval = client.post(endpoint + "/leader", json={"decision": "同意", "warehouse_user_id": warehouse["id"]})
+    assert approval.status_code == 200, approval.get_json()
+    _login(client, "warehouse", "test")
+    outbound = client.post(endpoint + "/outbound", json={})
+    assert outbound.status_code == 200, outbound.get_json()
+    assert outbound.get_json()["form"]["status"] == "completed"
+    assert [row[0] for row in db.execute("SELECT claimed_quantity FROM finished_good_inventory")] == [1, 1]

@@ -317,3 +317,25 @@ def test_concurrent_returns_cannot_exceed_issued_quantity(db):
         (batch_id,),
     ).fetchone()[0] == 4
     assert db.execute("SELECT SUM(quantity) FROM claim_returns").fetchone()[0] == 4
+
+
+def test_scrap_issued_lot_respects_return_hold_and_removes_production_availability(client, db):
+    from warehouse_suit.issued_material_service import list_issued_lots
+
+    outbound_id, batch_id, _ = seed_issue(db)
+    _login(client, "testuser", "test")
+    payload = {"source_kind": "claim_outbound", "source_id": outbound_id, "batch_id": batch_id}
+    response = _request_return(client, outbound_id, {
+        **payload, "quantity": 2, "operation_key": "scrap-test-return",
+    }, _warehouse_id(db))
+    assert response.status_code == 200, response.get_json()
+    endpoint = "/api/my-claims/scrap"
+    scrap = {**payload, "quantity": 5, "operation_key": "scrap-test"}
+    assert client.post(endpoint, json=scrap).status_code == 400
+    scrap["quantity"] = 4
+    assert client.post(endpoint, json=scrap).status_code == 200
+    assert client.post(endpoint, json=scrap).status_code == 200
+    lot = next(lot for lot in list_issued_lots(db.cursor()) if lot["source_id"] == outbound_id)
+    assert lot["scrapped_quantity"] == 4
+    assert lot["available_quantity"] == 0
+    assert lot["returnable_quantity"] == 0

@@ -10,11 +10,15 @@ const { webcrypto } = require("node:crypto");
     return elements.get(id);
   };
   const requests = [];
-  let returnButton;
+  let returnButton, scrapButton;
   const host = element("myClaimsResult");
   host.querySelector = id => element(id);
-  host.querySelectorAll = () => {
-    returnButton = { dataset: { claimReturn: "21" } };
+  host.querySelectorAll = selector => {
+    if (selector === "[data-claim-scrap]") {
+      scrapButton = { dataset: { claimScrap: "0" } };
+      return [scrapButton];
+    }
+    returnButton = { dataset: { claimReturn: "0" } };
     return [returnButton];
   };
   const window = { escapeHtml: value => String(value), toast() {}, openModal: value => { window.modal = value; } };
@@ -24,6 +28,7 @@ const { webcrypto } = require("node:crypto");
   const row = {
     outbound_record_id: 21, form_no: "CK21", material_code: "102001", material_name: "物料",
     stock_source: "formal", batch_no: "B21", issued_quantity: 6, returned_quantity: 0,
+    can_return: true, scrappable_quantity: 4, source_kind: "claim_outbound", source_id: 21,
     returnable_quantity: 6, inventory_status: "available", unit: "个",
   };
   const feature = window.WarehouseMyClaims.create({
@@ -50,5 +55,12 @@ const { webcrypto } = require("node:crypto");
   assert.equal(post[0], "/api/my-claims/21/return");
   assert.equal(JSON.parse(post[1].body).quantity, 2);
   assert.equal(JSON.parse(post[1].body).operation_key.length, 32);
-  console.log("my claims: 20-row pagination, return dialog and quantity submission passed");
+  scrapButton.onclick();
+  element("claimScrapQty").value = "5";
+  await assert.rejects(window.modal.onOk, /可报废数量/);
+  element("claimScrapQty").value = "3";
+  await window.modal.onOk();
+  const scrap = requests.find(([url]) => url === "/api/my-claims/scrap");
+  assert.equal(JSON.parse(scrap[1].body).quantity, 3);
+  assert.equal(JSON.parse(scrap[1].body).source_id, 21);
 })().catch(error => { console.error(error); process.exitCode = 1; });
